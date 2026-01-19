@@ -36,7 +36,7 @@
                             <label>Certificate ID from NicSRS:</label>
                             <input type="text" class="form-control" id="certId" name="cert_id" 
                                    placeholder="Enter NicSRS Certificate ID (e.g., 12345678)" required>
-                            <p class="help-block">You can find this ID in your NicSRS portal</p>
+                            <p class="help-block">You can find this ID in your NicSRS portal > Instance ID</p>
                         </div>
                         <button type="submit" class="btn btn-primary">
                             <i class="fa fa-search"></i> Lookup Certificate
@@ -158,7 +158,7 @@
                 </div>
                 <div class="panel-body">
                     <ol>
-                        <li><strong>Get Certificate ID</strong> from your NicSRS portal (Orders → SSL Orders)</li>
+                        <li><strong>Get Certificate ID</strong> from your NicSRS portal (Orders → SSL Orders → Instance ID)</li>
                         <li><strong>Lookup</strong> the certificate using the form</li>
                         <li><strong>Link</strong> to an existing WHMCS service OR create a new one</li>
                         <li>The certificate will appear in Orders list and be manageable from admin</li>
