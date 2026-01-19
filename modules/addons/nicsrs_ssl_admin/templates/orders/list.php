@@ -106,7 +106,7 @@
                                 <strong>#<?php echo $order['id']; ?></strong>
                             </a>
                             <?php if ($order['remoteid']): ?>
-                            <br><small class="text-muted"><?php echo $helper->truncate($order['remoteid'], 15); ?></small>
+                            <br><small class="text-muted"><?php echo $order['remoteid']; ?></small>
                             <?php endif; ?>
                         </td>
                         <td>
