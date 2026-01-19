@@ -32,7 +32,6 @@
     background: var(--nicsrs-white);
     padding: 20px;
     border-radius: 4px;
-    margin: -10px;
 }
 
 .nicsrs-header {
@@ -93,6 +92,10 @@
 /* ==========================================================================
    Content Area
    ========================================================================== */
+.content-header > h1 {
+    display: none;
+}
+
 .nicsrs-content {
     min-height: 400px;
 }

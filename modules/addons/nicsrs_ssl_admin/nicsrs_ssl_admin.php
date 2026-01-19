@@ -217,12 +217,30 @@ function nicsrs_ssl_admin_output($vars)
     $modulelink = $vars['modulelink'];
     
     // Handle AJAX requests
-    if (isset($_SERVER['HTTP_X_REQUESTED_WITH']) 
-        && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest'
-    ) {
+    if (!empty($_POST['ajax_action'])) {
+        // Clear any output buffers
+        while (ob_get_level()) {
+            ob_end_clean();
+        }
+        
+        // Set JSON header
         header('Content-Type: application/json; charset=utf-8');
-        handleAjaxRequest($vars, $action);
-        return;
+        
+        // Disable error display for AJAX (log instead)
+        @ini_set('display_errors', 0);
+        
+        try {
+            $response = handleAjaxRequest($vars, $action);
+            echo $response;
+        } catch (\Exception $e) {
+            echo json_encode([
+                'success' => false,
+                'message' => 'Error: ' . $e->getMessage(),
+            ]);
+        }
+        
+        // Stop execution
+        exit;
     }
     
     // Controller mapping
@@ -285,8 +303,6 @@ function nicsrs_ssl_admin_output($vars)
  */
 function handleAjaxRequest($vars, $action)
 {
-    $ajaxAction = isset($_POST['ajax_action']) ? $_POST['ajax_action'] : '';
-    
     $controllerMap = [
         'dashboard' => 'DashboardController',
         'products'  => 'ProductController',
@@ -298,20 +314,15 @@ function handleAjaxRequest($vars, $action)
     $controllerName = isset($controllerMap[$action]) ? $controllerMap[$action] : 'DashboardController';
     $controllerClass = "NicsrsAdmin\\Controller\\{$controllerName}";
     
-    try {
-        if (!class_exists($controllerClass)) {
-            throw new \Exception("Controller not found");
-        }
-        
-        $controller = new $controllerClass($vars);
-        echo $controller->handleAjax($_POST);
-        
-    } catch (\Exception $e) {
-        echo json_encode([
+    if (!class_exists($controllerClass)) {
+        return json_encode([
             'success' => false,
-            'message' => $e->getMessage(),
+            'message' => 'Controller not found',
         ]);
     }
+    
+    $controller = new $controllerClass($vars);
+    return $controller->handleAjax($_POST);
 }
 
 /**
