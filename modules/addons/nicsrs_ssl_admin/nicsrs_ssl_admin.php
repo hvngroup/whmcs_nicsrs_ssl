@@ -49,7 +49,7 @@ spl_autoload_register(function ($class) {
 function nicsrs_ssl_admin_config()
 {
     return [
-        'name' => 'NicSRS SSL Admin',
+        'name' => 'HVN - NicSRS SSL Admin',
         'description' => 'Comprehensive SSL certificate management for NicSRS resellers. Manage products, orders, and certificates from admin panel.',
         'version' => NICSRS_ADMIN_VERSION,
         'author' => '<a href="https://hvn.vn" target="_blank">HVN GROUP</a>',
