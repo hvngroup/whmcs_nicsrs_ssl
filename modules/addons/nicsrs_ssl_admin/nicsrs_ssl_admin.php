@@ -251,6 +251,7 @@ function nicsrs_ssl_admin_output($vars)
         'order'     => 'OrderController',
         'settings'  => 'SettingsController',
         'activity'  => 'ActivityController',
+        'import'    => 'ImportController',
     ];
     
     $controllerName = isset($controllerMap[$action]) ? $controllerMap[$action] : 'DashboardController';
@@ -309,6 +310,7 @@ function handleAjaxRequest($vars, $action)
         'orders'    => 'OrderController',
         'order'     => 'OrderController',
         'settings'  => 'SettingsController',
+        'import'    => 'ImportController',        
     ];
     
     $controllerName = isset($controllerMap[$action]) ? $controllerMap[$action] : 'DashboardController';
@@ -352,6 +354,7 @@ function renderNavigation($modulelink, $currentAction)
         'dashboard' => ['icon' => 'fa-dashboard', 'label' => 'Dashboard'],
         'products'  => ['icon' => 'fa-cube', 'label' => 'Products'],
         'orders'    => ['icon' => 'fa-shopping-cart', 'label' => 'Orders'],
+        'import'    => ['icon' => 'fa-download', 'label' => 'Import'],
         'settings'  => ['icon' => 'fa-cog', 'label' => 'Settings'],
     ];
     ?>

@@ -142,4 +142,3 @@ function nicsrs_ssl_ClientArea(array $params) {
     }
 
 }
-
