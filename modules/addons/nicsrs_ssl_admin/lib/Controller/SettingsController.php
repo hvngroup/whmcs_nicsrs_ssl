@@ -1,0 +1,336 @@
+<?php
+/**
+ * Settings Controller
+ * Handles module settings management
+ * 
+ * @package    nicsrs_ssl_admin
+ * @author     HVN GROUP
+ * @copyright  Copyright (c) HVN GROUP (https://hvn.vn)
+ */
+
+namespace NicsrsAdmin\Controller;
+
+use WHMCS\Database\Capsule;
+use NicsrsAdmin\Service\NicsrsApiService;
+
+class SettingsController extends BaseController
+{
+    /**
+     * @var NicsrsApiService API service
+     */
+    private $apiService;
+
+    /**
+     * Constructor
+     * 
+     * @param array $vars Module variables
+     */
+    public function __construct(array $vars)
+    {
+        parent::__construct($vars);
+        $this->apiService = new NicsrsApiService($this->getApiToken());
+    }
+
+    /**
+     * Render settings page
+     * 
+     * @param string $action Current action
+     * @return void
+     */
+    public function render(string $action): void
+    {
+        // Get all settings
+        $settings = $this->getAllSettings();
+        
+        // Get activity logs (recent)
+        $activityLogs = Capsule::table('mod_nicsrs_activity_log as l')
+            ->leftJoin('tbladmins as a', 'l.admin_id', '=', 'a.id')
+            ->select(['l.*', 'a.username', 'a.firstname', 'a.lastname'])
+            ->orderBy('l.created_at', 'desc')
+            ->limit(50)
+            ->get()
+            ->toArray();
+
+        // Check API status
+        $apiConnected = !empty($this->getApiToken()) && $this->apiService->testConnection();
+
+        $data = [
+            'settings' => $settings,
+            'activityLogs' => $activityLogs,
+            'apiConnected' => $apiConnected,
+            'apiToken' => $this->maskApiToken($this->getApiToken()),
+            'csrfToken' => $this->generateCsrfToken(),
+        ];
+
+        $this->includeTemplate('settings', $data);
+    }
+
+    /**
+     * Get all settings as array
+     * 
+     * @return array Settings
+     */
+    private function getAllSettings(): array
+    {
+        $rows = Capsule::table('mod_nicsrs_settings')->get();
+        
+        $settings = [];
+        foreach ($rows as $row) {
+            $value = $row->setting_value;
+            
+            // Convert based on type
+            switch ($row->setting_type) {
+                case 'boolean':
+                    $value = (bool) $value;
+                    break;
+                case 'integer':
+                    $value = (int) $value;
+                    break;
+                case 'json':
+                    $value = json_decode($value, true);
+                    break;
+            }
+            
+            $settings[$row->setting_key] = $value;
+        }
+        
+        return $settings;
+    }
+
+    /**
+     * Mask API token for display
+     * 
+     * @param string $token API token
+     * @return string Masked token
+     */
+    private function maskApiToken(string $token): string
+    {
+        if (strlen($token) <= 8) {
+            return str_repeat('*', strlen($token));
+        }
+        
+        return substr($token, 0, 4) . str_repeat('*', strlen($token) - 8) . substr($token, -4);
+    }
+
+    /**
+     * Handle AJAX requests
+     * 
+     * @param array $post POST data
+     * @return string JSON response
+     */
+    public function handleAjax(array $post): string
+    {
+        $action = isset($post['ajax_action']) ? $post['ajax_action'] : '';
+
+        switch ($action) {
+            case 'save_settings':
+                return $this->saveSettings($post);
+
+            case 'test_api':
+                return $this->testApiConnection();
+
+            case 'clear_logs':
+                return $this->clearActivityLogs($post);
+
+            case 'export_logs':
+                return $this->exportActivityLogs();
+
+            default:
+                return $this->jsonError('Unknown action');
+        }
+    }
+
+    /**
+     * Save settings
+     * 
+     * @param array $post POST data
+     * @return string JSON response
+     */
+    private function saveSettings(array $post): string
+    {
+        try {
+            // Define settings to save
+            $settingsConfig = [
+                'email_on_issuance' => 'boolean',
+                'email_on_expiry' => 'boolean',
+                'expiry_days' => 'integer',
+                'auto_sync_status' => 'boolean',
+                'sync_interval_hours' => 'integer',
+                'product_sync_hours' => 'integer',
+                'date_format' => 'string',
+                'admin_email' => 'string',
+            ];
+
+            $savedSettings = [];
+
+            foreach ($settingsConfig as $key => $type) {
+                if (isset($post[$key])) {
+                    $value = $post[$key];
+                    
+                    // Validate based on type
+                    switch ($type) {
+                        case 'boolean':
+                            $value = $value === '1' || $value === 'true' || $value === true;
+                            break;
+                        case 'integer':
+                            $value = (int) $value;
+                            if ($value < 0) $value = 0;
+                            break;
+                        case 'string':
+                            $value = $this->sanitize($value);
+                            break;
+                    }
+                    
+                    $this->saveSetting($key, $value, $type);
+                    $savedSettings[$key] = $value;
+                }
+            }
+
+            // Log activity
+            $this->logger->log('save_settings', 'settings', null, null, json_encode($savedSettings));
+
+            return $this->jsonSuccess('Settings saved successfully');
+            
+        } catch (\Exception $e) {
+            return $this->jsonError('Failed to save settings: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Test API connection
+     * 
+     * @return string JSON response
+     */
+    private function testApiConnection(): string
+    {
+        if (empty($this->getApiToken())) {
+            return $this->jsonError('API token is not configured. Please set it in the module configuration.');
+        }
+
+        try {
+            $connected = $this->apiService->testConnection();
+            
+            if ($connected) {
+                $this->logger->log('test_api', 'settings', null, null, 'success');
+                return $this->jsonSuccess('API connection successful! Your API token is valid.');
+            }
+            
+            return $this->jsonError('API connection failed. Please check your API token.');
+            
+        } catch (\Exception $e) {
+            return $this->jsonError('API test failed: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Clear activity logs
+     * 
+     * @param array $post POST data
+     * @return string JSON response
+     */
+    private function clearActivityLogs(array $post): string
+    {
+        try {
+            $days = isset($post['days']) ? (int) $post['days'] : 0;
+            
+            $query = Capsule::table('mod_nicsrs_activity_log');
+            
+            if ($days > 0) {
+                // Delete logs older than X days
+                $date = date('Y-m-d H:i:s', strtotime("-{$days} days"));
+                $deleted = $query->where('created_at', '<', $date)->delete();
+                $message = "Deleted {$deleted} log entries older than {$days} days";
+            } else {
+                // Delete all logs
+                $deleted = $query->delete();
+                $message = "Deleted all {$deleted} log entries";
+            }
+
+            // Log this action
+            $this->logger->log('clear_logs', 'settings', null, null, json_encode([
+                'days' => $days,
+                'deleted' => $deleted,
+            ]));
+
+            return $this->jsonSuccess($message, ['deleted' => $deleted]);
+            
+        } catch (\Exception $e) {
+            return $this->jsonError('Failed to clear logs: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Export activity logs as CSV
+     * 
+     * @return string JSON response with CSV data
+     */
+    private function exportActivityLogs(): string
+    {
+        try {
+            $logs = Capsule::table('mod_nicsrs_activity_log as l')
+                ->leftJoin('tbladmins as a', 'l.admin_id', '=', 'a.id')
+                ->select([
+                    'l.id',
+                    'l.action',
+                    'l.entity_type',
+                    'l.entity_id',
+                    'l.old_value',
+                    'l.new_value',
+                    'l.ip_address',
+                    'l.created_at',
+                    'a.username',
+                ])
+                ->orderBy('l.created_at', 'desc')
+                ->limit(5000)
+                ->get();
+
+            // Build CSV content
+            $csv = "ID,Action,Entity Type,Entity ID,Old Value,New Value,IP Address,Admin,Date\n";
+            
+            foreach ($logs as $log) {
+                $csv .= sprintf(
+                    "%d,%s,%s,%s,%s,%s,%s,%s,%s\n",
+                    $log->id,
+                    $this->escapeCsv($log->action),
+                    $this->escapeCsv($log->entity_type),
+                    $log->entity_id ?: '',
+                    $this->escapeCsv($log->old_value),
+                    $this->escapeCsv($log->new_value),
+                    $log->ip_address,
+                    $this->escapeCsv($log->username),
+                    $log->created_at
+                );
+            }
+
+            return $this->jsonSuccess('Export ready', [
+                'csv' => base64_encode($csv),
+                'filename' => 'nicsrs_activity_log_' . date('Y-m-d') . '.csv',
+            ]);
+            
+        } catch (\Exception $e) {
+            return $this->jsonError('Failed to export logs: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Escape value for CSV
+     * 
+     * @param string|null $value Value to escape
+     * @return string Escaped value
+     */
+    private function escapeCsv($value): string
+    {
+        if ($value === null) {
+            return '';
+        }
+        
+        // Replace quotes and wrap in quotes if contains special chars
+        $value = str_replace('"', '""', $value);
+        
+        if (strpos($value, ',') !== false || strpos($value, '"') !== false || strpos($value, "\n") !== false) {
+            return '"' . $value . '"';
+        }
+        
+        return $value;
+    }
+}
