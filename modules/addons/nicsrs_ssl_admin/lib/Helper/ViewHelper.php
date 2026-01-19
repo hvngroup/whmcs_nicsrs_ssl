@@ -197,6 +197,54 @@ class ViewHelper
     }
 
     /**
+     * Get WHMCS product link status badge HTML
+     * 
+     * @param object|null $whmcsProduct WHMCS product object
+     * @param string $productCode NicSRS product code
+     * @return string HTML badge
+     */
+    public function linkedProductBadge($whmcsProduct, string $productCode = ''): string
+    {
+        if (empty($whmcsProduct)) {
+            return '<span class="label label-default" title="Not linked to any WHMCS product">
+                        <i class="fa fa-unlink"></i> Not Linked
+                    </span>';
+        }
+
+        $productUrl = 'configproducts.php?action=edit&id=' . $whmcsProduct->id;
+        
+        // Determine status
+        if ($whmcsProduct->retired) {
+            $statusClass = 'label-warning';
+            $statusIcon = 'fa-archive';
+            $statusText = 'Retired';
+        } elseif ($whmcsProduct->hidden) {
+            $statusClass = 'label-info';
+            $statusIcon = 'fa-eye-slash';
+            $statusText = 'Hidden';
+        } else {
+            $statusClass = 'label-success';
+            $statusIcon = 'fa-check-circle';
+            $statusText = 'Active';
+        }
+
+        return sprintf(
+            '<a href="%s" target="_blank" class="label %s" title="%s - %s">
+                <i class="fa %s"></i> Linked
+            </a>
+            <br>
+            <small class="text-muted">#%d - %s</small>',
+            $productUrl,
+            $statusClass,
+            $this->e($whmcsProduct->name),
+            $statusText,
+            $statusIcon,
+            $whmcsProduct->id,
+            $this->truncate($whmcsProduct->name, 15)
+        );
+    }   
+     
+    /**
      * Get days left badge
      * 
      * @param string $endDate End date

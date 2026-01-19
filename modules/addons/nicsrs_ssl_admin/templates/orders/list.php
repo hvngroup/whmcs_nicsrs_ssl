@@ -17,7 +17,7 @@
     
     <!-- Header -->
     <div class="page-header clearfix">
-        <h3 class="pull-left" style="margin: 0;">
+        <h3 class="pull-left">
             <i class="fa fa-shopping-cart"></i> SSL Orders
             <small class="text-muted">(<?php echo number_format($total); ?> orders)</small>
         </h3>

@@ -67,6 +67,7 @@ class ProductController extends BaseController
         $vendor = isset($_GET['vendor']) ? $this->sanitize($_GET['vendor']) : '';
         $type = isset($_GET['type']) ? $this->sanitize($_GET['type']) : '';
         $search = isset($_GET['search']) ? $this->sanitize($_GET['search']) : '';
+        $linkedFilter = isset($_GET['linked']) ? $_GET['linked'] : '';
 
         // Build query
         $query = Capsule::table('mod_nicsrs_products');
@@ -84,6 +85,16 @@ class ProductController extends BaseController
             });
         }
 
+        // Filter by linked status
+        if ($linkedFilter !== '') {
+            $linkedCodes = $this->getLinkedProductCodes();
+            if ($linkedFilter === '1') {
+                $query->whereIn('product_code', $linkedCodes);
+            } else {
+                $query->whereNotIn('product_code', $linkedCodes);
+            }
+        }
+
         // Get total count
         $total = $query->count();
 
@@ -95,10 +106,19 @@ class ProductController extends BaseController
             ->limit($perPage)
             ->get();
 
+        // Get linked WHMCS products (keyed by product_code)
+        $linkedProducts = $this->getLinkedWhmcsProducts();
+
         // Process products
         $processedProducts = [];
         foreach ($products as $product) {
             $priceData = json_decode($product->price_data, true) ?: [];
+            
+            // Check if linked to WHMCS product
+            $linkedWhmcs = isset($linkedProducts[$product->product_code]) 
+                ? $linkedProducts[$product->product_code] 
+                : null;
+            
             $processedProducts[] = [
                 'id' => $product->id,
                 'product_code' => $product->product_code,
@@ -113,6 +133,9 @@ class ProductController extends BaseController
                 'price_2y' => isset($priceData['basePrice']['price024']) ? $priceData['basePrice']['price024'] : null,
                 'san_price' => isset($priceData['sanPrice']['price012']) ? $priceData['sanPrice']['price012'] : null,
                 'last_sync' => $product->last_sync,
+                // NEW: Linked WHMCS product info
+                'linked_whmcs' => $linkedWhmcs,
+                'is_linked' => !empty($linkedWhmcs),
             ];
         }
 
@@ -123,12 +146,27 @@ class ProductController extends BaseController
             ->pluck('vendor')
             ->toArray();
 
-        // Create pagination
-        $pagination = new Pagination($total, $perPage, $page, $this->modulelink . '&action=products');
+        // Create pagination with linked filter
+        $paginationParams = [];
+        if ($vendor) $paginationParams['vendor'] = $vendor;
+        if ($type) $paginationParams['type'] = $type;
+        if ($search) $paginationParams['search'] = $search;
+        if ($linkedFilter !== '') $paginationParams['linked'] = $linkedFilter;
+        
+        $pagination = new Pagination(
+            $total, 
+            $perPage, 
+            $page, 
+            $this->modulelink . '&action=products',
+            $paginationParams
+        );
 
         // Get last sync time
         $lastSync = Capsule::table('mod_nicsrs_products')
             ->max('last_sync');
+
+        // Get linked stats
+        $linkedStats = $this->getLinkedStats();
 
         $data = [
             'products' => $processedProducts,
@@ -137,12 +175,79 @@ class ProductController extends BaseController
             'currentVendor' => $vendor,
             'currentType' => $type,
             'search' => $search,
+            'linkedFilter' => $linkedFilter,
+            'linkedStats' => $linkedStats,
             'pagination' => $pagination,
             'total' => $total,
             'lastSync' => $lastSync,
         ];
 
         $this->includeTemplate('products/list', $data);
+    }
+
+    /**
+     * Get all WHMCS products using nicsrs_ssl server module
+     * Returns array keyed by product_code (configoption1)
+     * 
+     * @return array
+     */
+    private function getLinkedWhmcsProducts(): array
+    {
+        $products = Capsule::table('tblproducts')
+            ->select([
+                'id',
+                'name',
+                'configoption1 as product_code',
+                'hidden',
+                'retired',
+            ])
+            ->where('servertype', 'nicsrs_ssl')
+            ->whereNotNull('configoption1')
+            ->where('configoption1', '!=', '')
+            ->get();
+
+        $result = [];
+        foreach ($products as $product) {
+            $result[$product->product_code] = $product;
+        }
+        
+        return $result;
+    }
+
+    /**
+     * Get array of product codes that are linked to WHMCS products
+     * 
+     * @return array
+     */
+    private function getLinkedProductCodes(): array
+    {
+        return Capsule::table('tblproducts')
+            ->where('servertype', 'nicsrs_ssl')
+            ->whereNotNull('configoption1')
+            ->where('configoption1', '!=', '')
+            ->pluck('configoption1')
+            ->toArray();
+    }
+
+    /**
+     * Get linked/not-linked statistics
+     * 
+     * @return array
+     */
+    private function getLinkedStats(): array
+    {
+        $totalNicsrs = Capsule::table('mod_nicsrs_products')->count();
+        $linkedCodes = $this->getLinkedProductCodes();
+        
+        $linkedCount = Capsule::table('mod_nicsrs_products')
+            ->whereIn('product_code', $linkedCodes)
+            ->count();
+        
+        return [
+            'total' => $totalNicsrs,
+            'linked' => $linkedCount,
+            'not_linked' => $totalNicsrs - $linkedCount,
+        ];
     }
 
     /**
@@ -263,22 +368,16 @@ class ProductController extends BaseController
             return $this->jsonError('Product not found');
         }
 
-        $priceData = json_decode($product->price_data, true) ?: [];
+        // Get linked WHMCS product if any
+        $linkedWhmcs = Capsule::table('tblproducts')
+            ->select(['id', 'name', 'hidden', 'retired'])
+            ->where('servertype', 'nicsrs_ssl')
+            ->where('configoption1', $product->product_code)
+            ->first();
 
-        return $this->jsonSuccess('', [
-            'product' => [
-                'id' => $product->id,
-                'product_code' => $product->product_code,
-                'product_name' => $product->product_name,
-                'vendor' => $product->vendor,
-                'validation_type' => strtoupper($product->validation_type),
-                'support_wildcard' => (bool) $product->support_wildcard,
-                'support_san' => (bool) $product->support_san,
-                'max_domains' => $product->max_domains,
-                'max_years' => $product->max_years,
-                'price_data' => $priceData,
-                'last_sync' => $product->last_sync,
-            ],
-        ]);
+        $product->price_data = json_decode($product->price_data, true);
+        $product->linked_whmcs = $linkedWhmcs;
+
+        return $this->jsonSuccess('Product found', ['product' => $product]);
     }
 }
