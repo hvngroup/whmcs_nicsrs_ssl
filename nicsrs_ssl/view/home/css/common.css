@@ -1,0 +1,14 @@
+.sy-alert-model .sy-content {padding: 10px 15px!important;box-sizing: border-box;}
+.sy-alert-model .sy-content textarea{width: 100%;min-height: 150px;padding: 5px; font-size: 15px;box-sizing: border-box;resize: none;border: 1px solid #e6e6e6;font-family:"微软雅黑";}
+.prompt-box-success{color: #18c33c;background-image: url(../image/yes.png);}
+.prompt-box-fail{color: red;background-image: url(../image/not.png);}
+.prompt-box-note{color: #1296db;background-image: url(../image/note.png);}
+.prompt-box {width: 190px!important;height: 60px;line-height: 60px;padding-left: 65px;font-size: 22px;background-color: #fff;background-position:  25px center;background-repeat: no-repeat;background-size: 30px 30px!important;box-sizing: border-box;-moz-box-shadow:0px 0px 12px #E6E6E6; -webkit-box-shadow:0px 0px 12px #E6E6E6; box-shadow:0px 0px 12px #E6E6E6;border-radius: 0;}
+
+#loading{width: 180px;height: 120px;-moz-box-shadow:0px 0px 12px #E6E6E6; -webkit-box-shadow:0px 0px 12px #E6E6E6; box-shadow:0px 0px 12px #E6E6E6;}
+#loading .loading{width: 180px;height: 120px;padding-top: 90px;text-align: center;font-weight: bold;box-sizing: border-box;background: transparent url(../image/loading.gif) center 15px no-repeat;background-size: 50px 50px}
+#loading .loading span{font-size: 16px;color: #989898;}
+.warning-box{display: none;width: 100%;min-height: 90px;margin-bottom: 5px;overflow:hidden; padding: 15px 5px 15px 100px;border: 2px solid #c83c3d;box-sizing: border-box;background: #eedadb url(../image/warning-icon.png) 20px center no-repeat;}
+.warning-box p{color: #851010;}
+.warning-box .warning-list{width: 100%;color: #851010;padding-left: 10px;}
+.warning-box .warning-list li{float: left;margin-top: 5px;margin-right: 25px;list-style-type: disc;font-size: 14px;}
