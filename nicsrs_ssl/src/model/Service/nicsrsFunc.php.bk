@@ -1,0 +1,1093 @@
+<?php
+namespace nicsrsSSL;
+
+class nicsrsFunc {
+
+    public static function createOrdersTableIfNotExist() {
+
+        if (!nicsrsSSLSql::checkTableExists("nicsrs_sslorders")) {
+            $sql = "CREATE TABLE IF NOT EXISTS `nicsrs_sslorders` (
+                `id` int(10) NOT NULL AUTO_INCREMENT,
+                `userid` int(10) NOT NULL,
+                `serviceid` int(10) NOT NULL,
+                `addon_id` text NOT NULL,
+                `remoteid` text NOT NULL,
+                `module` text NOT NULL,
+                `certtype` text NOT NULL,
+                `configdata` text NOT NULL,
+                `provisiondate` date NOT NULL,
+                `completiondate` datetime NOT NULL DEFAULT '0000-00-00 00:00:00',
+                `status` text NOT NULL,
+              PRIMARY KEY (`id`)
+                ) ENGINE=InnoDB AUTO_INCREMENT=0 DEFAULT CHARSET=utf8;";
+
+            full_query($sql);
+
+        }
+    }
+
+    /**
+     * @param $email
+     * @return bool
+     */
+    public static function checkEmail($email = '') {
+        $str="/^[_a-zA-Z0-9-\x{4e00}-\x{9fa5}]+(\.[_a-zA-Z0-9-\x{4e00}-\x{9fa5}]+)*@[a-zA-Z0-9-\x{4e00}-\x{9fa5}]+(\.[a-zA-Z0-9-\x{4e00}-\x{9fa5}]+)*(\.[a-zA-Z0-9\x{4e00}-\x{9fa5}]{2,})$/u";
+        if (!preg_match($str,$email)){
+            return false;
+        }else{
+            return true;
+        }
+    }
+
+    public static function zipCert($certs,$primarayDomain){
+        $certfilename = str_replace('*','START',str_replace('.','_',$primarayDomain));
+        $filename = $certfilename.'_'.sha1(time());
+        $filepath = "/tmp/cert/customer_certs/";
+        mkdir($filepath.$filename,0777,TRUE);
+        if(empty($certs->data->certificate) || empty($certs->data->caCertificate)) return ['status'=>0,'msg'=>'Failed To Download Certificate,Please Contact Us For Help!'];
+        mkdir($filepath.$filename.'/Apache',0777,TRUE);
+        mkdir($filepath.$filename.'/Nginx',0777,TRUE);
+        if(!empty($certs->data->pkcs12)){
+            mkdir($filepath.$filename.'/IIS',0777,TRUE);
+        }
+        if(!empty($certs->data->jks)){
+            mkdir($filepath.$filename.'/Tomcat',0777,TRUE);
+        }
+        //apache
+        $apacheFile1 = fopen($filepath.$filename.'/Apache/'.$certfilename.".crt", "w+");
+        fwrite($apacheFile1, trim($certs->data->certificate));
+        fclose($apacheFile1);
+        $apacheFile2 = fopen($filepath.$filename.'/Apache/'.$certfilename.'.ca-bundle', "w+");
+        fwrite($apacheFile2, trim($certs->data->caCertificate));
+        fclose($apacheFile2);
+        //nginx
+        $nginxFile1 = fopen($filepath.$filename.'/Nginx/'.$certfilename.".pem", "w+");
+        fwrite($nginxFile1, trim($certs->data->certificate).PHP_EOL);
+        fwrite($nginxFile1, trim($certs->data->caCertificate));
+        fclose($nginxFile1);
+        if(!empty($certs->data->privateKey)){
+            $apacheFile3 = fopen($filepath.$filename.'/Apache/'.$certfilename.'.key', "w+");
+            fwrite($apacheFile3, trim($certs->data->privateKey));
+            fclose($apacheFile3);
+            $nginxFile2 = fopen($filepath.$filename.'/Nginx/'.$certfilename.".key", "w+");
+            fwrite($nginxFile2, trim($certs->data->privateKey));
+            fclose($nginxFile2);
+        }
+        //tomate
+        if(!empty($certs->data->jks)){
+            $tomcat1 = fopen($filepath.$filename.'/Tomcat/'.$certfilename.".jks", "w+");
+            fwrite($tomcat1, base64_decode($certs->data->jks));
+            fclose($tomcat1);
+            $tomcat2 = fopen($filepath.$filename.'/Tomcat/password.txt', "w+");
+            fwrite($tomcat2, $certs->data->jksPass);
+            fclose($tomcat2);
+        }
+        if(!empty($certs->data->pkcs12)){
+            $iis1 =  fopen($filepath.$filename.'/IIS/'.$certfilename.".p12", "w+");
+            fwrite($iis1, base64_decode($certs->data->pkcs12));
+            fclose($iis1);
+            $iis2 =  fopen($filepath.$filename.'/IIS/password.txt' ,"w+");
+            fwrite($iis2, $certs->data->pkcsPass);
+            fclose($iis2);
+        }
+
+        $zip = new \ZipArchive;
+        if ($zip->open($filepath.$filename.'.zip',\ZIPARCHIVE::CREATE) === TRUE) {
+            $zip->addEmptyDir('Apache');
+            $zip->addEmptyDir('Nginx');
+
+            $zip->addFile($filepath.$filename.'/Apache/'.$certfilename.".crt", 'Apache/'.$certfilename.".crt");
+            $zip->addFile($filepath.$filename.'/Apache/'.$certfilename.'.ca-bundle','Apache/'.$certfilename.'.ca-bundle');
+            $zip->addFile($filepath.$filename.'/Nginx/'.$certfilename.".pem", 'Nginx/'.$certfilename.".pem");
+            if(!empty($certs->data->privateKey)){
+                $zip->addFile($filepath.$filename.'/Apache/'.$certfilename.".key", 'Apache/'.$certfilename.".key");
+                $zip->addFile($filepath.$filename.'/Nginx/'.$certfilename.".key", 'Nginx/'.$certfilename.".key");
+            }
+            if(!empty($certs->data->jks)){
+                $zip->addFile($filepath.$filename.'/Tomcat/'.$certfilename.".jks", 'Tomcat/'.$certfilename.".jks");
+                $zip->addFile($filepath.$filename.'/Tomcat/password.txt', 'Tomcat/password.txt');
+            }
+            if(!empty($certs->data->pkcs12)){
+                $zip->addFile($filepath.$filename.'/IIS/'.$certfilename.".p12", 'IIS/'.$certfilename.".p12");
+                $zip->addFile($filepath.$filename.'/IIS/password.txt', 'IIS/password.txt');
+            }
+            $zip->close();
+            $readRes = self::nicsrs_readFileForDownload($filepath.$filename.'.zip');
+            if(!empty($readRes['status']) && $readRes['status'] == 1){
+                @unlink($filepath.$filename.'.zip'); #删除临时压缩包文件
+                self::deleteFiles($filepath.$filename,true);
+                return ['status'=>1,'data'=>['content'=>$readRes['filecontent'],'name'=>$certfilename.'.zip']];
+            }else{
+                return ['status'=>0,'msg'=>'Failed To Download Certificate,Please Contact Us For Help!'];
+            }
+
+        }else{
+            return ['status'=>0,'msg'=>'Failed To Download Certificate,Please Contact Us For Help!'];
+        }
+
+    }
+
+    /**
+     * 删除文件夹
+     * @param $path
+     * @param bool $delDir
+     * @return bool
+     */
+    function deleteFiles($path, $delDir = FALSE) {
+        if (is_dir($path)) {
+            $handle = opendir($path);
+            if ($handle) {
+                while (false !== ( $item = readdir($handle))) {
+                    if ($item != "." && $item != ".."){
+                        if(is_dir("$path/$item")){
+                            self::deleteFiles("$path/$item", $delDir);
+                        }else{
+                            unlink("$path/$item");
+                        }
+                    }
+                }
+                closedir($handle);
+                if ($delDir)
+                    return rmdir($path);
+            }
+        } else {
+            if (file_exists($path)) {
+                return unlink($path);
+            } else {
+                return FALSE;
+            }
+        }
+        clearstatcache();
+    }
+
+    /**
+     * 读取文件下载
+     * @param $filePath
+     */
+    function nicsrs_readFileForDownload($filePath){
+        $fp=fopen($filePath,"r");
+        $file_size=filesize($filePath);
+        $file_con = fread($fp, $file_size);
+        fclose($fp);
+        return ['status'=>1,'filecontent'=>base64_encode($file_con)];
+
+    }
+
+// Old method (Deprecated)
+    public static function loadLanguage($language, $userid) {
+
+        $language = $language ?: nicsrsSSLSql::GetLanguage($userid);
+
+        # Load user's language file
+        $langfilename = LANG_PATH . $language . '.php';
+
+        # Set default language file
+        $deflangfilename = LANG_PATH . DS . 'english.php';
+
+        # Try loading user's language file
+        $_LANG = [];
+        if (file_exists($langfilename)) {
+            include($langfilename);
+        } else {
+            include($deflangfilename);
+        }
+
+        return $_LANG;
+    }
+
+    public static function getCertAttributes($type = null, $attr = null) {
+        //证书列表
+        $certs = [
+            'comodo-positivessl' => [
+                'name' => 'PositiveSSL(DV)',
+                'maxDomain' => '1',
+                'isWildCard' => '0',
+                'isMultiDomain' => '0',
+                'sslValidationType' => 'dv',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'0',
+                'supportNormal'=>'1',
+                'supportIp'=>'0'
+
+            ],
+            'comodo-positive-multi-domain' => [
+                'name' => 'PositiveSSL Multi Domain (DV)',
+                'maxDomain' => '3',
+                'isWildCard' => '0',
+                'isMultiDomain' => '1',
+                'sslValidationType' => 'dv',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'0',
+                'supportNormal'=>'1',
+                'supportIp'=>'1'
+            ],
+            'comodo-positivessl-wildcard' => [
+                'name' => 'PositiveSSL Wildcard SSL (DV)',
+                'maxDomain' => '1',
+                'isWildCard' => '1',
+                'isMultiDomain' => '0',
+                'sslValidationType' => 'dv',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'1',
+                'supportNormal'=>'0',
+                'supportIp'=>'0'
+            ],
+            'comodo-positive-multi-domain-wildcard' => [
+                'name' => 'PositiveSSL Multi Domain Wildcard SSL (DV)',
+                'maxDomain' => '2',
+                'isWildCard' => '1',
+                'isMultiDomain' => '1',
+                'sslValidationType' => 'dv',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'1',
+                'supportNormal'=>'0',
+                'supportIp'=>'0'
+            ],
+            'comodo-positive-ev-ssl-certificate' => [
+                'name' => 'PositiveSSL EV (EV)',
+                'maxDomain' => '1',
+                'isWildCard' => '0',
+                'isMultiDomain' => '0',
+                'sslValidationType' => 'ev',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'0',
+                'supportNormal'=>'1',
+                'supportIp'=>'0'
+            ],
+            'comodo-positive-ev-multi-domain' => [
+                'name' => 'PositiveSSL EV Multi Domain SSL(EV)',
+                'maxDomain' => '3',
+                'isWildCard' => '0',
+                'isMultiDomain' => '1',
+                'sslValidationType' => 'ev',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'0',
+                'supportNormal'=>'1',
+                'supportIp'=>'0'
+            ],
+            'comodo-ssl' => [
+                'name' => 'Sectigo SSL (DV)',
+                'maxDomain' => '1',
+                'isWildCard' => '0',
+                'isMultiDomain' => '0',
+                'sslValidationType' => 'dv',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'0',
+                'supportNormal'=>'1',
+                'supportIp'=>'0'
+            ],
+            'comodo-wildcard-ssl-certificate' => [
+                'name' => 'Sectigo Wildcard SSL (DV)',
+                'maxDomain' => '1',
+                'isWildCard' => '1',
+                'isMultiDomain' => '0',
+                'sslValidationType' => 'dv',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'1',
+                'supportNormal'=>'0',
+                'supportIp'=>'0'
+            ],
+            'sectigo-multi-domain' => [
+                'name' => 'Sectigo Multi Domain SSL (DV)',
+                'maxDomain' => '3',
+                'isWildCard' => '0',
+                'isMultiDomain' => '1',
+                'sslValidationType' => 'dv',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'0',
+                'supportNormal'=>'1',
+                'supportIp'=>'0'
+            ],
+            'comodo-multi-domain-wildcard-certificate' => [
+                'name' => 'Sectigo Multi Domain Wildcard SSL (DV)',
+                'maxDomain' => '3',
+                'isWildCard' => '1',
+                'isMultiDomain' => '1',
+                'sslValidationType' => 'dv',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'1',
+                'supportNormal'=>'0',
+                'supportIp'=>'0'
+            ],
+            'sectigo-ov' => [
+                'name' => 'Sectigo OV SSL (OV)',
+                'maxDomain' => '1',
+                'isWildCard' => '0',
+                'isMultiDomain' => '0',
+                'sslValidationType' => 'ov',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'0',
+                'supportNormal'=>'1',
+                'supportIp'=>'1'
+            ],
+            'sectigo-ov-wildcard' => [
+                'name' => 'Sectigo OV Wildcard SSL (OV)',
+                'maxDomain' => '1',
+                'isWildCard' => '1',
+                'isMultiDomain' => '0',
+                'sslValidationType' => 'ov',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'1',
+                'supportNormal'=>'0',
+                'supportIp'=>'0'
+            ],
+            'sectigo-ov-multi-san' => [
+                'name' => 'Sectigo OV Multi Domain SSL (OV)',
+                'maxDomain' => '3',
+                'isWildCard' => '0',
+                'isMultiDomain' => '1',
+                'sslValidationType' => 'ov',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'0',
+                'supportNormal'=>'1',
+                'supportIp'=>'1'
+            ],
+            'comodo-ev-ssl-certificate' => [
+                'name' => 'Sectigo EV SSL (EV)',
+                'maxDomain' => '1',
+                'isWildCard' => '0',
+                'isMultiDomain' => '0',
+                'sslValidationType' => 'ev',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'0',
+                'supportNormal'=>'1',
+                'supportIp'=>'0'
+            ],
+            'comodo-ev-multi-domin-ssl' => [
+                'name' => 'Sectigo EV Multi Domain SSL (EV)',
+                'maxDomain' => '3',
+                'isWildCard' => '0',
+                'isMultiDomain' => '1',
+                'sslValidationType' => 'ev',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'0',
+                'supportNormal'=>'1',
+                'supportIp'=>'0'
+            ],
+            'sectigo-free-trial' => [
+                'name' => 'Sectigo 90 Days Free Trial (DV)',
+                'maxDomain' => '0',
+                'isWildCard' => '0',
+                'isMultiDomain' => '0',
+                'sslValidationType' => 'dv',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'0',
+                'supportNormal'=>'1',
+                'supportIp'=>'0'
+            ],
+            'sectigo-multi-free-trial' => [
+                'name' => 'Sectigo 90 Days Multi Free Trial (DV)',
+                'maxDomain' => '3',
+                'isWildCard' => '0',
+                'isMultiDomain' => '1',
+                'sslValidationType' => 'dv',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'0',
+                'supportNormal'=>'1',
+                'supportIp'=>'0'
+            ],
+            'sectigo-multi-domain-wildcard-free-trial' => [
+                'name' => 'Sectigo 90 Days Multi Wildcard Free Trial (DV)',
+                'maxDomain' => '2',
+                'isWildCard' => '1',
+                'isMultiDomain' => '1',
+                'sslValidationType' => 'dv',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'1',
+                'supportNormal'=>'0',
+                'supportIp'=>'0'
+            ],
+            'comodo-code-signing-certificate' => [
+                'name' => 'Sectigo Code Signing Certificate (OV)',
+                'maxDomain' => '0',
+                'isWildCard' => '0',
+                'isMultiDomain' => '0',
+                'sslValidationType' => 'ov',
+                'sslType'=>'coding_signing_ssl',
+                'supportWild'=>'0',
+                'supportNormal'=>'0',
+                'supportIp'=>'0'
+            ],
+            'comodo-code-signing-ev' => [
+                'name' => 'Sectigo EV Code Signing Certificate (EV)',
+                'maxDomain' => '0',
+                'isWildCard' => '0',
+                'isMultiDomain' => '0',
+                'sslValidationType' => 'ev',
+                'sslType'=>'coding_signing_ssl',
+                'supportWild'=>'0',
+                'supportNormal'=>'1',
+                'supportIp'=>'0'
+            ],
+            'digicert-ssl-plus-ov' => [
+                'name' => 'Digicert OV SSL (OV)',
+                'maxDomain' => '1',
+                'isWildCard' => '0',
+                'isMultiDomain' => '0',
+                'sslValidationType' => 'ov',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'0',
+                'supportNormal'=>'1',
+                'supportIp'=>'1'
+            ],
+            'digicert-ssl-plus-wildcard' => [
+                'name' => 'Digicert OV Wildcard SSL (OV)',
+                'maxDomain' => '1',
+                'isWildCard' => '1',
+                'isMultiDomain' => '0',
+                'sslValidationType' => 'ov',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'1',
+                'supportNormal'=>'0',
+                'supportIp'=>'0'
+            ],
+            'digicert-multi-domain-ov' => [
+                'name' => 'Digicert OV Multi Domain SSL (OV)',
+                'maxDomain' => '4',
+                'isWildCard' => '0',
+                'isMultiDomain' => '1',
+                'sslValidationType' => 'ov',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'0',
+                'supportNormal'=>'1',
+                'supportIp'=>'0'
+            ],
+            'digicert-ssl-plus-ev' => [
+                'name' => 'Digicert EV SSL (EV)',
+                'maxDomain' => '1',
+                'isWildCard' => '0',
+                'isMultiDomain' => '0',
+                'sslValidationType' => 'ev',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'0',
+                'supportNormal'=>'1',
+                'supportIp'=>'0'
+            ],
+            'digicert-multi-domain-ev' => [
+                'name' => 'Digicert EV Multi Domain SSL (EV)',
+                'maxDomain' => '3',
+                'isWildCard' => '0',
+                'isMultiDomain' => '1',
+                'sslValidationType' => 'ev',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'0',
+                'supportNormal'=>'1',
+                'supportIp'=>'0'
+            ],
+            'digicert-code-signing' => [
+                'name' => 'Digicert Code Signing Certificate (OV)',
+                'maxDomain' => '0',
+                'isWildCard' => '0',
+                'isMultiDomain' => '0',
+                'sslValidationType' => 'ov',
+                'sslType'=>'coding_signing_ssl',
+                'supportWild'=>'0',
+                'supportNormal'=>'0',
+                'supportIp'=>'0'
+            ],
+            'digicert-code-signing-ev' => [
+                'name' => 'Digicert EV Code Signing Certificate (EV)',
+                'maxDomain' => '0',
+                'isWildCard' => '0',
+                'isMultiDomain' => '0',
+                'sslValidationType' => 'ev',
+                'sslType'=>'coding_signing_ssl',
+                'supportWild'=>'0',
+                'supportNormal'=>'0',
+                'supportIp'=>'0'
+            ],
+            'symantec-secure-site' => [
+                'name' => 'Symantec Secure Site SSL (OV)',
+                'maxDomain' => '1',
+                'isWildCard' => '0',
+                'isMultiDomain' => '0',
+                'sslValidationType' => 'ov',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'0',
+                'supportNormal'=>'1',
+                'supportIp'=>'1'
+            ],
+            'symantec-secure-site-multi-domain' => [
+                'name' => 'Symantec Secure Site Multil Domain SSL (OV)',
+                'maxDomain' => '2',
+                'isWildCard' => '0',
+                'isMultiDomain' => '1',
+                'sslValidationType' => 'ov',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'0',
+                'supportNormal'=>'1',
+                'supportIp'=>'1'
+            ],
+            'symantec-secure-site-wildcard' => [
+                'name' => 'Symantec Secure Site Wildcard SSL (OV)',
+                'maxDomain' => '1',
+                'isWildCard' => '1',
+                'isMultiDomain' => '0',
+                'sslValidationType' => 'ov',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'1',
+                'supportNormal'=>'0',
+                'supportIp'=>'0'
+            ],
+            'symantec-secure-site-multi-domain-wildcard' => [
+                'name' => 'Symantec Secure Site Mutli Domain Wildcard SSL (OV)',
+                'maxDomain' => '1',
+                'isWildCard' => '1',
+                'isMultiDomain' => '1',
+                'sslValidationType' => 'ov',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'1',
+                'supportNormal'=>'0',
+                'supportIp'=>'0'
+            ],
+            'symantec-secure-site-with-ev' => [
+                'name' => 'Symantec Secure Site EV SSL (EV)',
+                'maxDomain' => '1',
+                'isWildCard' => '0',
+                'isMultiDomain' => '0',
+                'sslValidationType' => 'ev',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'0',
+                'supportNormal'=>'1',
+                'supportIp'=>'0'
+            ],
+            'symantec-secure-site-ev-multi-domain' => [
+                'name' => 'Symantec Secure Site EV Multi Domain SSL (EV)',
+                'maxDomain' => '2',
+                'isWildCard' => '0',
+                'isMultiDomain' => '1',
+                'sslValidationType' => 'ev',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'0',
+                'supportNormal'=>'1',
+                'supportIp'=>'0'
+            ],
+            'symantec-secure-site-pro' => [
+                'name' => 'Symantec Secure Site Pro SSL (OV)',
+                'maxDomain' => '1',
+                'isWildCard' => '0',
+                'isMultiDomain' => '0',
+                'sslValidationType' => 'ov',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'0',
+                'supportNormal'=>'1',
+                'supportIp'=>'1'
+            ],
+            'symantec-secure-site-pro-multi-domain' => [
+                'name' => 'Symantec Secure Site Pro Multi Domain SSL (OV)',
+                'maxDomain' => '2',
+                'isWildCard' => '0',
+                'isMultiDomain' => '1',
+                'sslValidationType' => 'ov',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'0',
+                'supportNormal'=>'1',
+                'supportIp'=>'1'
+            ],
+            'symantec-secure-site-pro-wildcard' => [
+                'name' => 'Symantec Secure Site Pro Wildcard SSL (OV)',
+                'maxDomain' => '1',
+                'isWildCard' => '1',
+                'isMultiDomain' => '0',
+                'sslValidationType' => 'ov',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'1',
+                'supportNormal'=>'0',
+                'supportIp'=>'0'
+            ],
+            'symantec-secure-site-pro-multi-domain-wildcard' => [
+                'name' => 'Symantec Secure Site Pro Mutli Domain Wildcard SSL (OV)',
+                'maxDomain' => '1',
+                'isWildCard' => '1',
+                'isMultiDomain' => '1',
+                'sslValidationType' => 'ov',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'1',
+                'supportNormal'=>'0',
+                'supportIp'=>'0'
+            ],
+            'symantec-secure-site-pro-with-ev' => [
+                'name' => 'Symantec Secure Site Pro EV SSL (EV)',
+                'maxDomain' => '1',
+                'isWildCard' => '0',
+                'isMultiDomain' => '0',
+                'sslValidationType' => 'ev',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'0',
+                'supportNormal'=>'1',
+                'supportIp'=>'0'
+            ],
+            'symantec-secure-site-pro-ev-multi-domain' => [
+                'name' => 'Symantec Secure Site Pro EV Multi Domain SSL (EV)',
+                'maxDomain' => '2',
+                'isWildCard' => '0',
+                'isMultiDomain' => '1',
+                'sslValidationType' => 'ev',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'0',
+                'supportNormal'=>'1',
+                'supportIp'=>'0'
+            ],
+            'symantec-code-signing' => [
+                'name' => 'Symantec Code Signing (OV)',
+                'maxDomain' => '0',
+                'isWildCard' => '0',
+                'isMultiDomain' => '0',
+                'sslValidationType' => 'ov',
+                'sslType'=>'coding_signing_ssl',
+                'supportWild'=>'0',
+                'supportNormal'=>'0',
+                'supportIp'=>'0'
+            ],
+            'symantec-ev-code-signing' => [
+                'name' => 'Symantec EV Code Signing (EV)',
+                'maxDomain' => '0',
+                'isWildCard' => '0',
+                'isMultiDomain' => '0',
+                'sslValidationType' => 'ev',
+                'sslType'=>'coding_signing_ssl',
+                'supportWild'=>'0',
+                'supportNormal'=>'0',
+                'supportIp'=>'0'
+            ],
+            'rapidssl' => [
+                'name' => 'Rapid SSL (DV)',
+                'maxDomain' => '0',
+                'isWildCard' => '0',
+                'isMultiDomain'> '0',
+                'sslValidationType' => 'dv',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'0',
+                'supportNormal'=>'1',
+                'supportIp'=>'0'
+            ],
+            'rapidssl-wildcard' => [
+                'name' => 'Rapid SSL Wildcard (DV)',
+                'maxDomain' => '0',
+                'isWildCard' => '1',
+                'isMultiDomain' => '0',
+                'sslValidationType' => 'dv',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'1',
+                'supportNormal'=>'0',
+                'supportIp'=>'0'
+            ],
+            'geotrust-true-businessid' => [
+                'name' => 'GeoTrust True BusinessID SSL (OV)',
+                'maxDomain' => '0',
+                'isWildCard' => '0',
+                'isMultiDomain' => '0',
+                'sslValidationType' => 'ov',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'0',
+                'supportNormal'=>'1',
+                'supportIp'=>'0'
+            ],
+            'geotrust-true-businessid-wildcard' => [
+                'name' => 'GeoTrust True Business ID Wildcard SSL (OV)',
+                'maxDomain' => '1',
+                'isWildCard' => '1',
+                'isMultiDomain' => '0',
+                'sslValidationType' => 'ov',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'1',
+                'supportNormal'=>'0',
+                'supportIp'=>'0'
+            ],
+            'geotrust-dv-flex' => [
+                'name' => 'Geotrust DV Flex SSL',
+                'maxDomain' => '1',
+                'isWildCard' => '0',
+                'isMultiDomain' => '1',
+                'sslValidationType' => 'dv',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'0',
+                'supportNormal'=>'1',
+                'supportIp'=>'0'
+            ],
+            'geotrust-dv-wildcard-flex' => [
+                'name' => 'Geotrust DV Wildcard Flex SSL',
+                'maxDomain' => '1',
+                'isWildCard' => '1',
+                'isMultiDomain' => '1',
+                'sslValidationType' => 'dv',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'1',
+                'supportNormal'=>'0',
+                'supportIp'=>'0'
+            ],
+            'geotrust-true-businessid-multi-domain' => [
+                'name' => 'GeoTrust True Business ID Multi Domain SSL (OV)',
+                'maxDomain' => '5',
+                'isWildCard' => '0',
+                'isMultiDomain' => '1',
+                'sslValidationType' => 'ov',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'0',
+                'supportNormal'=>'1',
+                'supportIp'=>'0'
+            ],
+            'geotrust-true-businessid-multi-domain-wildcard' => [
+                'name' => 'GeoTrust True Business ID Multi Domain Wildcard SSL (OV)',
+                'maxDomain' => '2',
+                'isWildCard' => '1',
+                'isMultiDomain' => '1',
+                'sslValidationType' => 'ov',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'1',
+                'supportNormal'=>'0',
+                'supportIp'=>'0'
+            ],
+            'geotrust-true-businessid-with-ev' => [
+                'name' => 'GeoTrust True Business ID EV SSL (EV)',
+                'maxDomain' => '1',
+                'isWildCard' => '0',
+                'isMultiDomain' => '0',
+                'sslValidationType' => 'ev',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'0',
+                'supportNormal'=>'1',
+                'supportIp'=>'0'
+            ],
+            'geotrust-true-businessid-multi-domain-with-ev' => [
+                'name' => 'GeoTrust True Business ID EV Multi Domain SSL (EV)',
+                'maxDomain' => '5',
+                'isWildCard' => '0',
+                'isMultiDomain' => '1',
+                'sslValidationType' => 'ev',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'0',
+                'supportNormal'=>'1',
+                'supportIp'=>'0'
+            ],
+            'globalsign-domain-ssl' => [
+                'name' => 'GlobalSign Multi Domain SSL  (DV)',
+                'maxDomain' => '0',
+                'isWildCard' => '0',
+                'isMultiDomain' => '0',
+                'sslValidationType' => 'dv',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'0',
+                'supportNormal'=>'1',
+                'supportIp'=>'0'
+            ],
+            'globalsign-domain-wildcard-ssl' => [
+                'name' => 'GlobalSign DV Wildcard SSL (DV)',
+                'maxDomain' => '0',
+                'isWildCard' => '1',
+                'isMultiDomain' => '0',
+                'sslValidationType' => 'dv',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'1',
+                'supportNormal'=>'0',
+                'supportIp'=>'0'
+            ],
+            'globalsign-organization-ssl' => [
+                'name' => 'GlobalSign OV SSL (OV)',
+                'maxDomain' => '1',
+                'isWildCard' => '0',
+                'isMultiDomain' => '1',
+                'sslValidationType' => 'ov',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'0',
+                'supportNormal'=>'1',
+                'supportIp'=>'0'
+            ],
+            'globalsign-organization-wildcard-ssl' => [
+                'name' => 'GlobalSign OV Wildcard SSL (OV)',
+                'maxDomain' => '1',
+                'isWildCard' => '1',
+                'isMultiDomain' => '1',
+                'sslValidationType' => 'ov',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'1',
+                'supportNormal'=>'0',
+                'supportIp'=>'0'
+            ],
+            'globalsign-ev-ssl' => [
+                'name' => 'GlobalSign EV SSL (EV)',
+                'maxDomain' => '1',
+                'isWildCard' => '0',
+                'isMultiDomain' => '1',
+                'sslValidationType' => 'ev',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'0',
+                'supportNormal'=>'1',
+                'supportIp'=>'0'
+            ],
+            'entrust-standard' => [
+                'name' => 'Entrust Standard SSL (OV)',
+                'maxDomain' => '0',
+                'isWildCard' => '0',
+                'isMultiDomain' => '0',
+                'sslValidationType' => 'ov',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'0',
+                'supportNormal'=>'1',
+                'supportIp'=>'0'
+            ],
+            'entrust-advantage' => [
+                'name' => 'Entrust Advanced SSL (OV)',
+                'maxDomain' => '2',
+                'isWildCard' => '0',
+                'isMultiDomain' => '1',
+                'sslValidationType' => 'ov',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'0',
+                'supportNormal'=>'1',
+                'supportIp'=>'0'
+            ],
+            'entrust-multi-domain-ssl' => [
+                'name' => 'Entrust Multi Domain SSL (OV)',
+                'maxDomain' => '4',
+                'isWildCard' => '0',
+                'isMultiDomain' => '1',
+                'sslValidationType' => 'ov',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'0',
+                'supportNormal'=>'1',
+                'supportIp'=>'0'
+            ],
+            'entrust-wildcard' => [
+                'name' => 'Entrust Wildcard SSL (OV)',
+                'maxDomain' => '1',
+                'isWildCard' => '1',
+                'isMultiDomain' => '1',
+                'sslValidationType' => 'ov',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'1',
+                'supportNormal'=>'0',
+                'supportIp'=>'0'
+            ],
+            'entrust-ev-multi-domain' => [
+                'name' => 'Entrust EV Multi Domain SSL (EV)',
+                'maxDomain' => '2',
+                'isWildCard' => '0',
+                'isMultiDomain' => '1',
+                'sslValidationType' => 'ev',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'0',
+                'supportNormal'=>'1',
+                'supportIp'=>'0'
+            ],
+            'entrust-code-signing' => [
+                'name' => 'Entrust Code Sign Certificate (OV)',
+                'maxDomain' => '0',
+                'isWildCard' => '0',
+                'isMultiDomain' => '0',
+                'sslValidationType' => 'ov',
+                'sslType'=>'coding_signing_ssl',
+                'supportWild'=>'0',
+                'supportNormal'=>'0',
+                'supportIp'=>'0'
+            ],
+            'entrust-code-signing-ev' => [
+                'name' => 'Entrust EV Code Sign Certificate (EV)',
+                'maxDomain' => '0',
+                'isWildCard' => '0',
+                'isMultiDomain' => '0',
+                'sslValidationType' => 'ev',
+                'sslType'=>'coding_signing_ssl',
+                'supportWild'=>'0',
+                'supportNormal'=>'0',
+                'supportIp'=>'0'
+            ],
+            'baidutrust-dv' => [
+                'name' => 'BaiduTrust(DV)',
+                'maxDomain' => '1',
+                'isWildCard' => '0',
+                'isMultiDomain' => '0',
+                'sslValidationType' => 'dv',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'0',
+                'supportNormal'=>'1',
+                'supportIp'=>'0'
+            ],
+            'baidutrust-ov' => [
+                'name' => 'BaiduTrust(OV)',
+                'maxDomain' => '1',
+                'isWildCard' => '0',
+                'isMultiDomain' => '0',
+                'sslValidationType' => 'ov',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'0',
+                'supportNormal'=>'1',
+                'supportIp'=>'0'
+            ],
+            'baidutrust-ov-multi-domain' => [
+                'name' => 'BaiduTrust Multi Domain SSL (OV)',
+                'maxDomain' => '3',
+                'isWildCard' => '0',
+                'isMultiDomain' => '1',
+                'sslValidationType' => 'ov',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'0',
+                'supportNormal'=>'1',
+                'supportIp'=>'0'
+            ],
+            'baidutrust-ov-wildcard' => [
+                'name' => 'BaiduTrust OV Wildcard SSL (OV)',
+                'maxDomain' => '1',
+                'isWildCard' => '1',
+                'isMultiDomain' => '0',
+                'sslValidationType' => 'ov',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'1',
+                'supportNormal'=>'0',
+                'supportIp'=>'0'
+            ],//
+            'baidutrust-ev' => [
+                'name' => 'BaiduTrust EV SSL (EV)',
+                'maxDomain' => '1',
+                'isWildCard' => '0',
+                'isMultiDomain' => '0',
+                'sslValidationType' => 'ev',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'0',
+                'supportNormal'=>'1',
+                'supportIp'=>'0'
+            ],//baidutrust-ev-multi-domain
+            'baidutrust-ev-multi-domain' => [
+                'name' => 'BaiduTrust EV Multi Domain  SSL (EV)',
+                'maxDomain' => '3',
+                'isWildCard' => '0',
+                'isMultiDomain' => '1',
+                'sslValidationType' => 'ev',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'0',
+                'supportNormal'=>'1',
+                'supportIp'=>'0'
+            ],//baidutrust-dv-wildcard
+            'baidutrust-dv-wildcard' => [
+                'name' => 'BaiduTrust DV Wildcard SSL (DV)',
+                'maxDomain' => '1',
+                'isWildCard' => '1',
+                'isMultiDomain' => '0',
+                'sslValidationType' => 'dv',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'1',
+                'supportNormal'=>'0',
+                'supportIp'=>'0'
+            ],//
+            'baidutrust-dv-multi-domain' => [
+                'name' => 'BaiduTrust DV Multi Domain  SSL(DV)',
+                'maxDomain' => '3',
+                'isWildCard' => '0',
+                'isMultiDomain' => '1',
+                'sslValidationType' => 'dv',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'0',
+                'supportNormal'=>'1',
+                'supportIp'=>'0'
+            ],//
+            'ssltrus-dv-ssl' => [
+                'name' => 'sslTrust(DV)',
+                'maxDomain' => '1',
+                'isWildCard' => '0',
+                'isMultiDomain' => '0',
+                'sslValidationType' => 'dv',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'0',
+                'supportNormal'=>'1',
+                'supportIp'=>'0'
+            ],
+            'ssltrus-wildcard-dv' => [
+                'name' => 'sslTrust DV Wildcard SSL (DV)',
+                'maxDomain' => '1',
+                'isWildCard' => '1',
+                'isMultiDomain' => '0',
+                'sslValidationType' => 'dv',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'1',
+                'supportNormal'=>'0',
+                'supportIp'=>'0'
+            ],//
+            'ssltrus-multi-dv' => [
+                'name' => 'sslTrust DV Multi Domain  SSL(DV)',
+                'maxDomain' => '3',
+                'isWildCard' => '0',
+                'isMultiDomain' => '1',
+                'sslValidationType' => 'dv',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'0',
+                'supportNormal'=>'1',
+                'supportIp'=>'0'
+            ],//
+            'ssltrus-ov-ssl' => [
+                'name' => 'sslTrust(OV)',
+                'maxDomain' => '1',
+                'isWildCard' => '0',
+                'isMultiDomain' => '0',
+                'sslValidationType' => 'ov',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'0',
+                'supportNormal'=>'1',
+                'supportIp'=>'1'
+            ],
+            'ssltrus-multi-ov-ssl' => [
+                'name' => 'sslTrust Multi Domain SSL (OV)',
+                'maxDomain' => '3',
+                'isWildCard' => '0',
+                'isMultiDomain' => '1',
+                'sslValidationType' => 'ov',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'0',
+                'supportNormal'=>'1',
+                'supportIp'=>'0'
+            ],
+            'ssltrus-wildcard-ov' => [
+                'name' => 'sslTrust OV Wildcard SSL (OV)',
+                'maxDomain' => '1',
+                'isWildCard' => '1',
+                'isMultiDomain' => '0',
+                'sslValidationType' => 'ov',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'1',
+                'supportNormal'=>'0',
+                'supportIp'=>'0'
+            ],//
+            'ssltrus-ev-ssl' => [
+                'name' => 'sslTrust EV SSL (EV)',
+                'maxDomain' => '1',
+                'isWildCard' => '0',
+                'isMultiDomain' => '0',
+                'sslValidationType' => 'ev',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'0',
+                'supportNormal'=>'1',
+                'supportIp'=>'0'
+            ],//baidutrust-ev-multi-domain
+            'ssltrus-ev-multi' => [
+                'name' => 'sslTrust EV Multi Domain  SSL (EV)',
+                'maxDomain' => '3',
+                'isWildCard' => '0',
+                'isMultiDomain' => '1',
+                'sslValidationType' => 'ev',
+                'sslType'=>'website_ssl',
+                'supportWild'=>'0',
+                'supportNormal'=>'1',
+                'supportIp'=>'0'
+            ],//baidutrust-dv-wildcard
+        ];
+
+        if (empty($type) && empty($attr)) {
+            return $certs;
+        }
+
+        if (isset($type) && !isset($attr)) {
+            return $certs[$type];
+        }
+
+        if (!isset($type) && isset($attr)) {
+            $attrArr = [];
+            foreach ($certs as $k => $v) {
+                $attrArr[$k] = $v[$attr];
+            }
+            return $attrArr;
+        }
+
+        return $certs[$type][$attr];
+
+    }
+
+}
