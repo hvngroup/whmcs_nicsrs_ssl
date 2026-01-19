@@ -110,6 +110,7 @@ class nicsrsSSLSql{
                 'serviceid' => $params['serviceid'],
                 'module' => 'nicsrs_ssl',
                 'certtype' => $params['certtype'],
+                'provisiondate' => date('Y-m-d'),
                 'status' => ORDER_STATUS_AWAIT_CONF
             ]);
 

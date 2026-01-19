@@ -152,8 +152,16 @@
                                     <strong><?php echo $helper->e($order['domain']); ?></strong>
                                 </td>
                                 <td>
-                                    <?php echo $helper->e($order['product_name'] ?: $order['certtype']); ?>
+                                    <?php 
+                                    $displayProductName = $order['product_name'] 
+                                        ?: $helper->getProductName($order['certtype']);
+                                    echo $helper->e($displayProductName);
+                                    ?>
+                                    <?php if ($order['certtype'] && $order['certtype'] !== $displayProductName): ?>
+                                    <br><small class="text-muted"><?php echo $helper->e($order['certtype']); ?></small>
+                                    <?php endif; ?>
                                 </td>
+
                                 <td>
                                     <?php if (!empty($order['userid'])): ?>
                                     <a href="clientssummary.php?userid=<?php echo $order['userid']; ?>" target="_blank">
@@ -249,7 +257,14 @@
                                     <strong><?php echo $helper->e($cert['domain']); ?></strong>
                                 </td>
                                 <td>
-                                    <?php echo $helper->e($cert['product_name'] ?: $cert['certtype']); ?>
+                                    <?php 
+                                    $displayProductName = $cert['product_name'] 
+                                        ?: $helper->getProductName($cert['certtype']);
+                                    echo $helper->e($displayProductName);
+                                    ?>
+                                    <?php if ($cert['certtype'] && $cert['certtype'] !== $displayProductName): ?>
+                                    <br><small class="text-muted"><?php echo $helper->e($cert['certtype']); ?></small>
+                                    <?php endif; ?>
                                 </td>
                                 <td>
                                     <?php if (!empty($cert['userid'])): ?>

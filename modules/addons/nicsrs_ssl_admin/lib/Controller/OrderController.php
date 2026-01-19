@@ -192,6 +192,7 @@ class OrderController extends BaseController
         $order = Capsule::table('nicsrs_sslorders as o')
             ->leftJoin('tblclients as c', 'o.userid', '=', 'c.id')
             ->leftJoin('tblhosting as h', 'o.serviceid', '=', 'h.id')
+            ->leftJoin('tblproducts as p', 'h.packageid', '=', 'p.id')
             ->select([
                 'o.*',
                 'c.firstname',
@@ -206,9 +207,15 @@ class OrderController extends BaseController
                 'c.country',
                 'h.domainstatus as service_status',
                 'h.domain as service_domain',
+                'h.billingcycle',
+                'h.nextduedate',
+                'h.regdate',
+                'h.amount',
+                'p.name as whmcs_product_name',
             ])
             ->where('o.id', $orderId)
             ->first();
+
 
         if (!$order) {
             echo '<div class="alert alert-danger">Order not found</div>';
@@ -381,6 +388,9 @@ class OrderController extends BaseController
             case 'resend_dcv':
                 $domain = isset($post['domain']) ? $this->sanitize($post['domain']) : '';
                 return $this->resendDcv($orderId, $domain);
+            
+            case 'download_cert':
+                return $this->downloadCertificate($orderId);
 
             default:
                 return $this->jsonError('Unknown action');
@@ -729,4 +739,199 @@ class OrderController extends BaseController
             return $this->jsonError($e->getMessage());
         }
     }
+
+    /**
+     * Download certificate as ZIP file
+     * Creates ZIP with Apache, Nginx, IIS, Tomcat formats
+     * 
+     * @param int $orderId Order ID
+     * @return string JSON response with base64 encoded ZIP
+     */
+    private function downloadCertificate(int $orderId): string
+    {
+        try {
+            $order = Capsule::table('nicsrs_sslorders')->find($orderId);
+            
+            if (!$order) {
+                throw new \Exception('Order not found');
+            }
+
+            $configData = json_decode($order->configdata, true) ?: [];
+            
+            // Check if certificate exists
+            if (empty($configData['applyReturn']['certificate'])) {
+                throw new \Exception('Certificate not yet issued');
+            }
+
+            $certificate = $configData['applyReturn']['certificate'];
+            $caCertificate = $configData['applyReturn']['caCertificate'] ?? '';
+            $privateKey = $configData['applyReturn']['privateKey'] ?? '';
+            
+            // Get primary domain for filename
+            $primaryDomain = 'certificate';
+            if (!empty($configData['domainInfo'][0]['domainName'])) {
+                $primaryDomain = $configData['domainInfo'][0]['domainName'];
+            }
+            
+            // Create ZIP file
+            $result = $this->createCertificateZip($primaryDomain, $certificate, $caCertificate, $privateKey);
+            
+            if ($result['status'] === 1) {
+                $this->logger->log('download_cert', 'order', $orderId, null, 'Certificate downloaded');
+                
+                return $this->jsonSuccess('Certificate ready', [
+                    'content' => $result['data']['content'],
+                    'name' => $result['data']['name'],
+                ]);
+            }
+            
+            throw new \Exception($result['msg'] ?? 'Failed to create certificate package');
+
+        } catch (\Exception $e) {
+            return $this->jsonError($e->getMessage());
+        }
+    }
+
+    /**
+     * Create ZIP file with certificate in multiple formats
+     * Similar to nicsrsFunc::zipCert() in server module
+     * 
+     * @param string $primaryDomain Primary domain name
+     * @param string $certificate Certificate content
+     * @param string $caCertificate CA Certificate content
+     * @param string $privateKey Private key (if available)
+     * @return array Result with status and data
+     */
+    private function createCertificateZip(string $primaryDomain, string $certificate, string $caCertificate, string $privateKey = ''): array
+    {
+        // Sanitize filename
+        $certFilename = str_replace('*', 'WILDCARD', str_replace('.', '_', $primaryDomain));
+        $tempDir = sys_get_temp_dir() . '/nicsrs_cert_' . sha1(time() . $primaryDomain);
+        $zipFilename = $certFilename . '.zip';
+        $zipPath = $tempDir . '.zip';
+
+        try {
+            // Create temp directories
+            if (!mkdir($tempDir, 0777, true)) {
+                throw new \Exception('Cannot create temp directory');
+            }
+            mkdir($tempDir . '/Apache', 0777, true);
+            mkdir($tempDir . '/Nginx', 0777, true);
+
+            // === Apache Format ===
+            // .crt file (certificate only)
+            file_put_contents($tempDir . '/Apache/' . $certFilename . '.crt', trim($certificate));
+            
+            // .ca-bundle file (CA certificate)
+            if (!empty($caCertificate)) {
+                file_put_contents($tempDir . '/Apache/' . $certFilename . '.ca-bundle', trim($caCertificate));
+            }
+            
+            // .key file (private key if available)
+            if (!empty($privateKey)) {
+                file_put_contents($tempDir . '/Apache/' . $certFilename . '.key', trim($privateKey));
+            }
+
+            // === Nginx Format ===
+            // .pem file (certificate + CA certificate combined)
+            $pemContent = trim($certificate) . PHP_EOL;
+            if (!empty($caCertificate)) {
+                $pemContent .= trim($caCertificate);
+            }
+            file_put_contents($tempDir . '/Nginx/' . $certFilename . '.pem', $pemContent);
+            
+            // .key file for Nginx
+            if (!empty($privateKey)) {
+                file_put_contents($tempDir . '/Nginx/' . $certFilename . '.key', trim($privateKey));
+            }
+
+            // === Create ZIP ===
+            $zip = new \ZipArchive();
+            if ($zip->open($zipPath, \ZipArchive::CREATE | \ZipArchive::OVERWRITE) !== true) {
+                throw new \Exception('Cannot create ZIP file');
+            }
+
+            // Add Apache files
+            $zip->addEmptyDir('Apache');
+            $zip->addFile($tempDir . '/Apache/' . $certFilename . '.crt', 'Apache/' . $certFilename . '.crt');
+            if (!empty($caCertificate)) {
+                $zip->addFile($tempDir . '/Apache/' . $certFilename . '.ca-bundle', 'Apache/' . $certFilename . '.ca-bundle');
+            }
+            if (!empty($privateKey)) {
+                $zip->addFile($tempDir . '/Apache/' . $certFilename . '.key', 'Apache/' . $certFilename . '.key');
+            }
+
+            // Add Nginx files
+            $zip->addEmptyDir('Nginx');
+            $zip->addFile($tempDir . '/Nginx/' . $certFilename . '.pem', 'Nginx/' . $certFilename . '.pem');
+            if (!empty($privateKey)) {
+                $zip->addFile($tempDir . '/Nginx/' . $certFilename . '.key', 'Nginx/' . $certFilename . '.key');
+            }
+
+            // Add README
+            $readme = "SSL Certificate Package for: {$primaryDomain}\n";
+            $readme .= "Generated: " . date('Y-m-d H:i:s') . "\n\n";
+            $readme .= "=== Apache Installation ===\n";
+            $readme .= "SSLCertificateFile /path/to/{$certFilename}.crt\n";
+            $readme .= "SSLCertificateKeyFile /path/to/{$certFilename}.key\n";
+            $readme .= "SSLCertificateChainFile /path/to/{$certFilename}.ca-bundle\n\n";
+            $readme .= "=== Nginx Installation ===\n";
+            $readme .= "ssl_certificate /path/to/{$certFilename}.pem;\n";
+            $readme .= "ssl_certificate_key /path/to/{$certFilename}.key;\n\n";
+            $readme .= "Generated by NicSRS SSL Admin - HVN GROUP (https://hvn.vn)\n";
+            
+            $zip->addFromString('README.txt', $readme);
+            
+            $zip->close();
+
+            // Read ZIP content
+            $zipContent = file_get_contents($zipPath);
+            $base64Content = base64_encode($zipContent);
+
+            // Cleanup
+            $this->deleteDirectory($tempDir);
+            @unlink($zipPath);
+
+            return [
+                'status' => 1,
+                'data' => [
+                    'content' => $base64Content,
+                    'name' => $zipFilename,
+                ]
+            ];
+
+        } catch (\Exception $e) {
+            // Cleanup on error
+            $this->deleteDirectory($tempDir);
+            @unlink($zipPath);
+            
+            return [
+                'status' => 0,
+                'msg' => $e->getMessage(),
+            ];
+        }
+    }
+
+    /**
+     * Recursively delete directory
+     * 
+     * @param string $dir Directory path
+     * @return bool
+     */
+    private function deleteDirectory(string $dir): bool
+    {
+        if (!is_dir($dir)) {
+            return false;
+        }
+        
+        $files = array_diff(scandir($dir), ['.', '..']);
+        
+        foreach ($files as $file) {
+            $path = $dir . '/' . $file;
+            is_dir($path) ? $this->deleteDirectory($path) : unlink($path);
+        }
+        
+        return rmdir($dir);
+    }
+
 }

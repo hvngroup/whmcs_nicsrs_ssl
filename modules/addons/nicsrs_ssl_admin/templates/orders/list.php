@@ -125,7 +125,12 @@
                             <?php endif; ?>
                         </td>
                         <td>
-                            <small><?php echo $helper->e($order['certtype']); ?></small>
+                            <?php 
+                            $productName = $helper->getProductName($order['certtype']);
+                            ?>
+                            <small title="<?php echo $helper->e($order['certtype']); ?>">
+                                <?php echo $helper->e($productName); ?>
+                            </small>
                         </td>
                         <td class="text-center">
                             <?php echo $helper->statusBadge($order['status']); ?>

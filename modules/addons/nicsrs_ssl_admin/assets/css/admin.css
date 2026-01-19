@@ -224,7 +224,8 @@
     white-space: nowrap;
 }
 
-.nicsrs-content .table tbody td {
+.nicsrs-content .table tbody td, 
+.nicsrs-content .table tbody th {
     padding: 12px;
     vertical-align: middle;
     border-top: 1px solid #f0f0f0;
@@ -345,6 +346,7 @@
 .nicsrs-content .pagination > li.active > span {
     background: var(--nicsrs-primary);
     border-color: var(--nicsrs-primary);
+    color: var(--nicsrs-white);
 }
 
 .nicsrs-content .pagination > li > a:hover {
@@ -404,6 +406,7 @@
 .nicsrs-content .nav-pills > li.active > a,
 .nicsrs-content .nav-pills > li.active > a:hover {
     background: var(--nicsrs-primary);
+    color: var(--nicsrs-white);
 }
 
 .nicsrs-content .nav-pills > li > a .badge {
@@ -439,8 +442,12 @@
     color: var(--nicsrs-heading);
 }
 
+.page-header h3 span {
+    margin-right: 15px;
+}
+
 .page-header h3 i {
-    margin-right: 10px;
+    margin-right: 5px;
     color: var(--nicsrs-text-secondary);
 }
 

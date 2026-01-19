@@ -9,9 +9,15 @@
  */
 
 namespace NicsrsAdmin\Helper;
+use WHMCS\Database\Capsule;
 
 class ViewHelper
 {
+    /**
+     * @var array Product name cache (static for performance across instances)
+     */
+    private static $productCache = [];
+
     /**
      * Format date for display
      * 
@@ -217,6 +223,101 @@ class ViewHelper
         }
         
         return sprintf('<span class="label label-%s">%d days</span>', $class, $days);
+    }
+
+    /**
+     * Get product name from product code
+     * Uses cached lookup from mod_nicsrs_products table
+     * Falls back to product code if not found
+     * 
+     * @param string|null $productCode Product code (certtype)
+     * @return string Product name or original code if not found
+     */
+    public function getProductName(?string $productCode): string
+    {
+        if (empty($productCode)) {
+            return '-';
+        }
+        
+        // Check cache first
+        if (isset(self::$productCache[$productCode])) {
+            return self::$productCache[$productCode];
+        }
+        
+        try {
+            $product = Capsule::table('mod_nicsrs_products')
+                ->where('product_code', $productCode)
+                ->first();
+            
+            if ($product && !empty($product->product_name)) {
+                self::$productCache[$productCode] = $product->product_name;
+            } else {
+                // Fallback: Format code as readable name
+                self::$productCache[$productCode] = $this->formatProductCode($productCode);
+            }
+        } catch (\Exception $e) {
+            self::$productCache[$productCode] = $this->formatProductCode($productCode);
+        }
+        
+        return self::$productCache[$productCode];
+    }
+
+    /**
+     * Format product code as readable name (fallback)
+     * Converts "sectigo-positive-ssl" to "Sectigo Positive SSL"
+     * 
+     * @param string $code Product code
+     * @return string Formatted name
+     */
+    public function formatProductCode(string $code): string
+    {
+        // Replace dashes/underscores with spaces
+        $name = str_replace(['-', '_'], ' ', $code);
+        
+        // Uppercase known abbreviations
+        $abbreviations = ['ssl', 'ev', 'ov', 'dv', 'san', 'ucc'];
+        $words = explode(' ', $name);
+        
+        foreach ($words as $i => $word) {
+            if (in_array(strtolower($word), $abbreviations)) {
+                $words[$i] = strtoupper($word);
+            } else {
+                $words[$i] = ucfirst($word);
+            }
+        }
+        
+        return implode(' ', $words);
+    }
+
+    /**
+     * Get primary domain from order
+     * Extracts from configdata domainInfo or CSR
+     * 
+     * @param object $order Order object with configdata
+     * @return string Primary domain or '-'
+     */
+    public function getPrimaryDomain($order): string
+    {
+        if (empty($order->configdata)) {
+            return '-';
+        }
+        
+        $config = json_decode($order->configdata, true);
+        
+        // Try domainInfo first
+        if (!empty($config['domainInfo'][0]['domainName'])) {
+            return $config['domainInfo'][0]['domainName'];
+        }
+        
+        // Try CSR common name
+        if (!empty($config['csr'])) {
+            $parsed = openssl_csr_get_subject($config['csr']);
+            if (!empty($parsed['CN'])) {
+                return $parsed['CN'];
+            }
+        }
+        
+        return '-';
     }
 
     /**
