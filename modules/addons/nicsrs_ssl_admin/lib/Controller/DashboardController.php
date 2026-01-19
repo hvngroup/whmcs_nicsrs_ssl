@@ -42,7 +42,7 @@ class DashboardController extends BaseController
         $data = [
             'statistics' => $this->getStatistics(),
             'recentOrders' => $this->getRecentOrders(10),
-            'expiringCertificates' => $this->getExpiringCertificates(30, 10),
+            'expiringCertificates' => $this->getExpiringCertificates(30, 20),
             'statusDistribution' => $this->getStatusDistribution(),
             'monthlyOrders' => $this->getMonthlyOrders(6),
             'apiConnected' => $this->testApiConnection(),
@@ -138,7 +138,7 @@ class DashboardController extends BaseController
     }
 
     /**
-     * Get recent orders
+     * Get recent orders with full details
      * 
      * @param int $limit Number of orders to return
      * @return array Orders
@@ -147,8 +147,12 @@ class DashboardController extends BaseController
     {
         $orders = Capsule::table('nicsrs_sslorders as o')
             ->leftJoin('tblclients as c', 'o.userid', '=', 'c.id')
+            ->leftJoin('tblhosting as h', 'o.serviceid', '=', 'h.id')
+            ->leftJoin('tblproducts as p', 'h.packageid', '=', 'p.id')
             ->select([
                 'o.id',
+                'o.userid',
+                'o.serviceid',
                 'o.remoteid',
                 'o.certtype',
                 'o.status',
@@ -157,6 +161,9 @@ class DashboardController extends BaseController
                 'c.firstname',
                 'c.lastname',
                 'c.companyname',
+                'c.email',
+                'h.domain as service_domain',
+                'p.name as service_product_name',
             ])
             ->orderBy('o.id', 'desc')
             ->limit($limit)
@@ -165,24 +172,45 @@ class DashboardController extends BaseController
         $result = [];
         foreach ($orders as $order) {
             $config = json_decode($order->configdata, true);
+            
+            // Get domain from config
             $domain = 'N/A';
             if (isset($config['domainInfo'][0]['domainName'])) {
                 $domain = $config['domainInfo'][0]['domainName'];
             }
             
-            $clientName = trim($order->firstname . ' ' . $order->lastname);
-            if ($order->companyname) {
-                $clientName .= " ({$order->companyname})";
+            // Build client name
+            $clientName = trim(($order->firstname ?? '') . ' ' . ($order->lastname ?? ''));
+            if (empty($clientName)) {
+                $clientName = 'Unknown';
+            }
+
+            // Get product name from mod_nicsrs_products if available
+            $productName = null;
+            if ($order->certtype) {
+                $product = Capsule::table('mod_nicsrs_products')
+                    ->where('product_code', $order->certtype)
+                    ->first();
+                if ($product) {
+                    $productName = $product->product_name;
+                }
             }
 
             $result[] = [
                 'id' => $order->id,
+                'userid' => $order->userid,
+                'serviceid' => $order->serviceid,
                 'remoteid' => $order->remoteid,
                 'domain' => $domain,
                 'certtype' => $order->certtype,
-                'status' => $order->status,
+                'product_name' => $productName ?: $order->service_product_name,
+                'status' => $order->status ?: 'unknown',
                 'provisiondate' => $order->provisiondate,
-                'client_name' => $clientName ?: 'Unknown',
+                'client_name' => $clientName,
+                'companyname' => $order->companyname,
+                'email' => $order->email,
+                'service_domain' => $order->service_domain,
+                'service_product_name' => $order->service_product_name,
             ];
         }
 
@@ -190,18 +218,29 @@ class DashboardController extends BaseController
     }
 
     /**
-     * Get certificates expiring within days
+     * Get certificates expiring within days with full details
      * 
      * @param int $days Number of days
      * @param int $limit Maximum results
      * @return array Expiring certificates
      */
-    private function getExpiringCertificates(int $days = 30, int $limit = 10): array
+    private function getExpiringCertificates(int $days = 30, int $limit = 20): array
     {
         $result = [];
+        
         $orders = Capsule::table('nicsrs_sslorders as o')
             ->leftJoin('tblclients as c', 'o.userid', '=', 'c.id')
-            ->select(['o.*', 'c.firstname', 'c.lastname', 'c.email'])
+            ->leftJoin('tblhosting as h', 'o.serviceid', '=', 'h.id')
+            ->leftJoin('tblproducts as p', 'h.packageid', '=', 'p.id')
+            ->select([
+                'o.*', 
+                'c.firstname', 
+                'c.lastname', 
+                'c.companyname',
+                'c.email',
+                'h.domain as service_domain',
+                'p.name as service_product_name',
+            ])
             ->where('o.status', 'complete')
             ->get();
 
@@ -210,29 +249,57 @@ class DashboardController extends BaseController
 
         foreach ($orders as $order) {
             $config = json_decode($order->configdata, true);
+            
             if (isset($config['applyReturn']['endDate'])) {
                 $endDate = strtotime($config['applyReturn']['endDate']);
+                
                 if ($endDate && $endDate > $now && $endDate <= $threshold) {
+                    // Get domain
                     $domain = isset($config['domainInfo'][0]['domainName']) 
                         ? $config['domainInfo'][0]['domainName'] 
                         : 'N/A';
                     
-                    $daysLeft = ceil(($endDate - $now) / 86400);
+                    // Calculate days left
+                    $daysLeft = (int) ceil(($endDate - $now) / 86400);
+                    
+                    // Build client name
+                    $clientName = trim(($order->firstname ?? '') . ' ' . ($order->lastname ?? ''));
+                    if (empty($clientName)) {
+                        $clientName = 'Unknown';
+                    }
+
+                    // Get product name
+                    $productName = null;
+                    if ($order->certtype) {
+                        $product = Capsule::table('mod_nicsrs_products')
+                            ->where('product_code', $order->certtype)
+                            ->first();
+                        if ($product) {
+                            $productName = $product->product_name;
+                        }
+                    }
                     
                     $result[] = [
                         'id' => $order->id,
+                        'userid' => $order->userid,
+                        'serviceid' => $order->serviceid,
                         'domain' => $domain,
                         'certtype' => $order->certtype,
+                        'product_name' => $productName ?: $order->service_product_name,
                         'end_date' => $config['applyReturn']['endDate'],
                         'days_left' => $daysLeft,
-                        'client_name' => trim($order->firstname . ' ' . $order->lastname),
+                        'client_name' => $clientName,
+                        'companyname' => $order->companyname,
                         'client_email' => $order->email,
+                        'remoteid' => $order->remoteid,
+                        'service_domain' => $order->service_domain,
+                        'service_product_name' => $order->service_product_name,
                     ];
                 }
             }
         }
 
-        // Sort by days left ascending
+        // Sort by days left ascending (most urgent first)
         usort($result, function ($a, $b) {
             return $a['days_left'] - $b['days_left'];
         });
@@ -248,20 +315,21 @@ class DashboardController extends BaseController
     private function getStatusDistribution(): array
     {
         $statuses = Capsule::table('nicsrs_sslorders')
-            ->selectRaw('status, COUNT(*) as count')
+            ->selectRaw('LOWER(status) as status, COUNT(*) as count')
             ->groupBy('status')
             ->get();
 
         $result = [];
         foreach ($statuses as $status) {
-            $result[$status->status] = (int) $status->count;
+            $statusKey = $status->status ?: 'unknown';
+            $result[$statusKey] = (int) $status->count;
         }
 
         return $result;
     }
 
     /**
-     * Get monthly order counts for chart
+     * Get monthly order counts for chart - FIXED
      * 
      * @param int $months Number of months to include
      * @return array Monthly data
@@ -275,13 +343,16 @@ class DashboardController extends BaseController
             $monthEnd = date('Y-m-t', strtotime("-{$i} months"));
             
             $count = Capsule::table('nicsrs_sslorders')
+                ->whereNotNull('provisiondate')
+                ->where('provisiondate', '!=', '0000-00-00')
                 ->whereBetween('provisiondate', [$monthStart, $monthEnd])
                 ->count();
             
             $data[] = [
                 'month' => date('M Y', strtotime($monthStart)),
                 'short' => date('M', strtotime($monthStart)),
-                'count' => $count,
+                'year' => date('Y', strtotime($monthStart)),
+                'count' => (int) $count,
             ];
         }
         

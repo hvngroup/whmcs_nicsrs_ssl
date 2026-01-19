@@ -138,8 +138,8 @@ class OrderController extends BaseController
                 'domain' => $domain,
                 'certtype' => $order->certtype,
                 'status' => $order->status,
-                'provisiondate' => $order->provisiondate,
-                'completiondate' => $order->completiondate,
+                'provisiondate' => $this->formatDbDate($order->provisiondate),
+                'completiondate' => $this->formatDbDate($order->completiondate),
                 'end_date' => $endDate,
                 'client_name' => $clientName ?: 'Unknown',
                 'client_email' => $order->email,
@@ -262,9 +262,91 @@ class OrderController extends BaseController
             'certInfo' => $certInfo,
             'activityLogs' => $activityLogs,
             'clientName' => trim($order->firstname . ' ' . $order->lastname),
+            'provisiondate' => $this->formatDbDate($order->provisiondate),
+            'completiondate' => $this->formatDbDate($order->completiondate),
         ];
 
         $this->includeTemplate('orders/detail', $data);
+    }
+
+    /**
+     * Helper to format database date (handle 0000-00-00)
+     */
+    private function formatDbDate($date): ?string
+    {
+        if (empty($date) || $date === '0000-00-00' || $date === '0000-00-00 00:00:00') {
+            return null;
+        }
+        return $date;
+    }
+
+    /**
+     * Check if date is valid (not empty or 0000-00-00)
+     */
+    private function isValidDate($date): bool
+    {
+        return !empty($date) && $date !== '0000-00-00' && $date !== '0000-00-00 00:00:00';
+    }
+
+    /**
+     * Fix dates for existing orders
+     */
+    private function fixOrderDates(int $orderId): string
+    {
+        try {
+            $order = Capsule::table('nicsrs_sslorders')->find($orderId);
+            
+            if (!$order) {
+                throw new \Exception('Order not found');
+            }
+
+            $configData = json_decode($order->configdata, true) ?: [];
+            $updateData = [];
+            $changes = [];
+
+            // Fix provisiondate
+            if (!$this->isValidDate($order->provisiondate)) {
+                // Try to get from configdata or use current date
+                $provDate = date('Y-m-d');
+                if (isset($configData['importedAt'])) {
+                    $provDate = date('Y-m-d', strtotime($configData['importedAt']));
+                } elseif (isset($configData['linkedAt'])) {
+                    $provDate = date('Y-m-d', strtotime($configData['linkedAt']));
+                }
+                $updateData['provisiondate'] = $provDate;
+                $changes[] = "provisiondate set to {$provDate}";
+            }
+
+            // Fix completiondate for complete orders
+            if ($order->status === 'complete' && !$this->isValidDate($order->completiondate)) {
+                $compDate = date('Y-m-d H:i:s');
+                if (isset($configData['applyReturn']['beginDate'])) {
+                    $compDate = $configData['applyReturn']['beginDate'];
+                    if (strlen($compDate) === 10) {
+                        $compDate .= ' 00:00:00';
+                    }
+                }
+                $updateData['completiondate'] = $compDate;
+                $changes[] = "completiondate set to {$compDate}";
+            }
+
+            if (empty($updateData)) {
+                return $this->jsonSuccess('No date fixes needed');
+            }
+
+            Capsule::table('nicsrs_sslorders')
+                ->where('id', $orderId)
+                ->update($updateData);
+
+            $this->logger->log('fix_dates', 'order', $orderId, null, json_encode($changes));
+
+            return $this->jsonSuccess('Dates fixed: ' . implode(', ', $changes), [
+                'changes' => $changes,
+            ]);
+
+        } catch (\Exception $e) {
+            return $this->jsonError($e->getMessage());
+        }
     }
 
     /**
@@ -327,42 +409,85 @@ class OrderController extends BaseController
             $result = $this->apiService->collect($order->remoteid);
             
             if ($result['code'] == 1 || $result['code'] == 2) {
-                // Update order
                 $configData = json_decode($order->configdata, true) ?: [];
                 
+                // Properly merge API response data
                 if (isset($result['data'])) {
+                    if (!isset($configData['applyReturn'])) {
+                        $configData['applyReturn'] = [];
+                    }
+                    
+                    // Update certificate data
                     $configData['applyReturn'] = array_merge(
-                        $configData['applyReturn'] ?? [],
-                        $result['data']
+                        $configData['applyReturn'],
+                        [
+                            'certId' => $order->remoteid,
+                            'beginDate' => $result['data']['beginDate'] ?? $configData['applyReturn']['beginDate'] ?? null,
+                            'endDate' => $result['data']['endDate'] ?? $configData['applyReturn']['endDate'] ?? null,
+                            'certificate' => $result['data']['certificate'] ?? $configData['applyReturn']['certificate'] ?? null,
+                            'caCertificate' => $result['data']['caCertificate'] ?? $configData['applyReturn']['caCertificate'] ?? null,
+                        ]
                     );
+                    
+                    // Update DCV list if available
+                    if (!empty($result['data']['dcvList'])) {
+                        $configData['domainInfo'] = [];
+                        foreach ($result['data']['dcvList'] as $dcv) {
+                            $configData['domainInfo'][] = [
+                                'domainName' => $dcv['domainName'] ?? '',
+                                'dcvMethod' => $dcv['dcvMethod'] ?? 'EMAIL',
+                                'dcvEmail' => $dcv['dcvEmail'] ?? '',
+                                'isVerified' => ($dcv['is_verify'] ?? '') === 'verified',
+                                'is_verify' => $dcv['is_verify'] ?? '',
+                            ];
+                        }
+                    }
                 }
+
+                // Add last refresh timestamp
+                $configData['lastRefresh'] = date('Y-m-d H:i:s');
 
                 $newStatus = isset($result['status']) ? strtolower($result['status']) : $order->status;
                 
+                // Build update data with proper date handling
                 $updateData = [
                     'status' => $newStatus,
                     'configdata' => json_encode($configData),
                 ];
                 
-                // Update completion date if complete
-                if ($newStatus === 'complete' && empty($order->completiondate)) {
-                    $updateData['completiondate'] = date('Y-m-d H:i:s');
+                // Set provisiondate if empty
+                if (!$this->isValidDate($order->provisiondate)) {
+                    $updateData['provisiondate'] = date('Y-m-d');
+                }
+                
+                // Set completiondate when status is complete
+                if ($newStatus === 'complete') {
+                    if (!$this->isValidDate($order->completiondate)) {
+                        // Use certificate begin date or current date
+                        $completionDate = $result['data']['beginDate'] ?? date('Y-m-d H:i:s');
+                        // Ensure it's datetime format
+                        if (strlen($completionDate) === 10) {
+                            $completionDate .= ' 00:00:00';
+                        }
+                        $updateData['completiondate'] = $completionDate;
+                    }
                 }
 
                 Capsule::table('nicsrs_sslorders')
                     ->where('id', $orderId)
                     ->update($updateData);
 
-                // Log activity
                 $this->logger->log('refresh_status', 'order', $orderId, $order->status, $newStatus);
 
-                return $this->jsonSuccess('Status refreshed', [
+                return $this->jsonSuccess('Status refreshed successfully', [
                     'status' => $newStatus,
+                    'old_status' => $order->status,
+                    'completiondate' => $updateData['completiondate'] ?? null,
                     'data' => $result['data'] ?? null,
                 ]);
             }
 
-            throw new \Exception($result['msg'] ?? 'API error');
+            throw new \Exception($result['msg'] ?? 'API error (code: ' . $result['code'] . ')');
             
         } catch (\Exception $e) {
             return $this->jsonError($e->getMessage());

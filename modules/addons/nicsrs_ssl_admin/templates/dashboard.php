@@ -106,16 +106,15 @@
         </div>
     </div>
 
-    <!-- Recent Orders & Expiring Certificates -->
+    <!-- Recent Orders - Full Width -->
     <div class="row" style="margin-top: 20px;">
-        <!-- Recent Orders -->
-        <div class="col-md-7">
+        <div class="col-md-12">
             <div class="panel panel-default">
                 <div class="panel-heading">
                     <h3 class="panel-title">
                         <i class="fa fa-list"></i> Recent Orders
                         <a href="<?php echo $modulelink; ?>&action=orders" class="btn btn-xs btn-default pull-right">
-                            View All
+                            View All <i class="fa fa-arrow-right"></i>
                         </a>
                     </h3>
                 </div>
@@ -123,69 +122,77 @@
                     <table class="table table-striped table-hover" style="margin-bottom: 0;">
                         <thead>
                             <tr>
-                                <th>ID</th>
+                                <th style="width: 70px;">Order ID</th>
                                 <th>Domain</th>
                                 <th>Product</th>
-                                <th>Status</th>
-                                <th>Date</th>
+                                <th>Client</th>
+                                <th>Service</th>
+                                <th style="width: 100px;">Status</th>
+                                <th style="width: 120px;">Created</th>
+                                <th style="width: 80px;">Actions</th>
                             </tr>
                         </thead>
                         <tbody>
                             <?php if (empty($recentOrders)): ?>
                             <tr>
-                                <td colspan="5" class="text-center text-muted">No orders found</td>
+                                <td colspan="8" class="text-center text-muted" style="padding: 30px;">
+                                    <i class="fa fa-inbox fa-2x"></i><br>
+                                    No orders found
+                                </td>
                             </tr>
                             <?php else: ?>
                             <?php foreach ($recentOrders as $order): ?>
                             <tr>
                                 <td>
                                     <a href="<?php echo $modulelink; ?>&action=order&id=<?php echo $order['id']; ?>">
-                                        #<?php echo $order['id']; ?>
+                                        <strong>#<?php echo $order['id']; ?></strong>
                                     </a>
                                 </td>
-                                <td><?php echo $helper->truncate($order['domain'], 30); ?></td>
-                                <td><small><?php echo $helper->e($order['certtype']); ?></small></td>
-                                <td><?php echo $helper->statusBadge($order['status']); ?></td>
-                                <td><small><?php echo $helper->formatDate($order['provisiondate']); ?></small></td>
-                            </tr>
-                            <?php endforeach; ?>
-                            <?php endif; ?>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-        
-        <!-- Expiring Certificates -->
-        <div class="col-md-5">
-            <div class="panel panel-default">
-                <div class="panel-heading">
-                    <h3 class="panel-title">
-                        <i class="fa fa-calendar-times-o"></i> Expiring Soon
-                    </h3>
-                </div>
-                <div class="panel-body" style="padding: 0;">
-                    <table class="table table-striped" style="margin-bottom: 0;">
-                        <thead>
-                            <tr>
-                                <th>Domain</th>
-                                <th>Days Left</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php if (empty($expiringCertificates)): ?>
-                            <tr>
-                                <td colspan="2" class="text-center text-muted">No expiring certificates</td>
-                            </tr>
-                            <?php else: ?>
-                            <?php foreach ($expiringCertificates as $cert): ?>
-                            <tr>
                                 <td>
-                                    <a href="<?php echo $modulelink; ?>&action=order&id=<?php echo $cert['id']; ?>">
-                                        <?php echo $helper->truncate($cert['domain'], 25); ?>
+                                    <strong><?php echo $helper->e($order['domain']); ?></strong>
+                                </td>
+                                <td>
+                                    <?php echo $helper->e($order['product_name'] ?: $order['certtype']); ?>
+                                </td>
+                                <td>
+                                    <?php if (!empty($order['userid'])): ?>
+                                    <a href="clientssummary.php?userid=<?php echo $order['userid']; ?>" target="_blank">
+                                        <?php echo $helper->e($order['client_name']); ?>
+                                    </a>
+                                    <?php if (!empty($order['companyname'])): ?>
+                                    <br><small class="text-muted"><?php echo $helper->e($order['companyname']); ?></small>
+                                    <?php endif; ?>
+                                    <?php else: ?>
+                                    <span class="text-muted">N/A</span>
+                                    <?php endif; ?>
+                                </td>
+                                <td>
+                                    <?php if (!empty($order['serviceid'])): ?>
+                                    <a href="clientsservices.php?id=<?php echo $order['serviceid']; ?>" target="_blank">
+                                        #<?php echo $order['serviceid']; ?>
+                                    </a>
+                                    <?php if (!empty($order['service_product_name'])): ?>
+                                    <br><small class="text-muted"><?php echo $helper->e($order['service_product_name']); ?></small>
+                                    <?php endif; ?>
+                                    <?php if (!empty($order['service_domain'])): ?>
+                                    <br><small class="text-muted"><?php echo $helper->e($order['service_domain']); ?></small>
+                                    <?php endif; ?>
+                                    <?php else: ?>
+                                    <span class="text-muted">Not linked</span>
+                                    <?php endif; ?>
+                                </td>
+                                <td>
+                                    <?php echo $helper->statusBadge($order['status']); ?>
+                                </td>
+                                <td>
+                                    <?php echo $helper->formatDate($order['provisiondate'], 'Y-m-d'); ?>
+                                </td>
+                                <td>
+                                    <a href="<?php echo $modulelink; ?>&action=order&id=<?php echo $order['id']; ?>" 
+                                       class="btn btn-xs btn-primary" title="View Details">
+                                        <i class="fa fa-eye"></i> View
                                     </a>
                                 </td>
-                                <td><?php echo $helper->daysLeftBadge($cert['end_date']); ?></td>
                             </tr>
                             <?php endforeach; ?>
                             <?php endif; ?>
@@ -195,72 +202,220 @@
             </div>
         </div>
     </div>
+
+    <!-- Expiring Soon - Full Width -->
+    <div class="row">
+        <div class="col-md-12">
+            <div class="panel panel-default">
+                <div class="panel-heading">
+                    <h3 class="panel-title">
+                        <i class="fa fa-calendar-times-o text-danger"></i> Certificates Expiring Soon (30 days)
+                        <span class="badge" style="background: #ff4d4f; margin-left: 10px;">
+                            <?php echo count($expiringCertificates); ?>
+                        </span>
+                    </h3>
+                </div>
+                <div class="panel-body" style="padding: 0;">
+                    <table class="table table-striped table-hover" style="margin-bottom: 0;">
+                        <thead>
+                            <tr>
+                                <th style="width: 70px;">Order ID</th>
+                                <th>Domain</th>
+                                <th>Product</th>
+                                <th>Client</th>
+                                <th>Service</th>
+                                <th style="width: 100px;">Expires</th>
+                                <th style="width: 100px;">Days Left</th>
+                                <th style="width: 80px;">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php if (empty($expiringCertificates)): ?>
+                            <tr>
+                                <td colspan="8" class="text-center text-muted" style="padding: 30px;">
+                                    <i class="fa fa-check-circle fa-2x text-success"></i><br>
+                                    No certificates expiring in the next 30 days
+                                </td>
+                            </tr>
+                            <?php else: ?>
+                            <?php foreach ($expiringCertificates as $cert): ?>
+                            <tr>
+                                <td>
+                                    <a href="<?php echo $modulelink; ?>&action=order&id=<?php echo $cert['id']; ?>">
+                                        <strong>#<?php echo $cert['id']; ?></strong>
+                                    </a>
+                                </td>
+                                <td>
+                                    <strong><?php echo $helper->e($cert['domain']); ?></strong>
+                                </td>
+                                <td>
+                                    <?php echo $helper->e($cert['product_name'] ?: $cert['certtype']); ?>
+                                </td>
+                                <td>
+                                    <?php if (!empty($cert['userid'])): ?>
+                                    <a href="clientssummary.php?userid=<?php echo $cert['userid']; ?>" target="_blank">
+                                        <?php echo $helper->e($cert['client_name']); ?>
+                                    </a>
+                                    <?php if (!empty($cert['companyname'])): ?>
+                                    <br><small class="text-muted"><?php echo $helper->e($cert['companyname']); ?></small>
+                                    <?php endif; ?>
+                                    <?php else: ?>
+                                    <span class="text-muted">N/A</span>
+                                    <?php endif; ?>
+                                </td>
+                                <td>
+                                    <?php if (!empty($cert['serviceid'])): ?>
+                                    <a href="clientsservices.php?id=<?php echo $cert['serviceid']; ?>" target="_blank">
+                                        #<?php echo $cert['serviceid']; ?>
+                                    </a>
+                                    <?php if (!empty($cert['service_product_name'])): ?>
+                                    <br><small class="text-muted"><?php echo $helper->e($cert['service_product_name']); ?></small>
+                                    <?php endif; ?>
+                                    <?php if (!empty($cert['service_domain'])): ?>
+                                    <br><small class="text-muted"><?php echo $helper->e($cert['service_domain']); ?></small>
+                                    <?php endif; ?>
+                                    <?php else: ?>
+                                    <span class="text-muted">Not linked</span>
+                                    <?php endif; ?>
+                                </td>
+                                <td>
+                                    <?php echo $helper->formatDate($cert['end_date'], 'Y-m-d'); ?>
+                                </td>
+                                <td>
+                                    <?php echo $helper->daysLeftBadge($cert['end_date']); ?>
+                                </td>
+                                <td>
+                                    <a href="<?php echo $modulelink; ?>&action=order&id=<?php echo $cert['id']; ?>" 
+                                       class="btn btn-xs btn-warning" title="View & Renew">
+                                        <i class="fa fa-refresh"></i> Renew
+                                    </a>
+                                </td>
+                            </tr>
+                            <?php endforeach; ?>
+                            <?php endif; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
 </div>
 
 <!-- Chart.js -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    // Status Distribution Pie Chart
+    
+    // ===== Status Distribution Pie Chart =====
     var statusData = <?php echo json_encode($statusDistribution); ?>;
-    var statusLabels = Object.keys(statusData).map(function(s) {
-        return s.charAt(0).toUpperCase() + s.slice(1);
-    });
-    var statusValues = Object.values(statusData);
-    var statusColors = {
+    var statusLabels = [];
+    var statusValues = [];
+    var statusColors = [];
+    
+    var colorMap = {
         'complete': '#52c41a',
         'pending': '#faad14',
         'awaiting': '#8c8c8c',
         'draft': '#1890ff',
         'cancelled': '#ff4d4f',
-        'revoked': '#ff4d4f'
+        'revoked': '#ff7875'
     };
-    var bgColors = Object.keys(statusData).map(function(s) {
-        return statusColors[s] || '#d9d9d9';
-    });
-
-    new Chart(document.getElementById('statusChart'), {
-        type: 'doughnut',
-        data: {
-            labels: statusLabels,
-            datasets: [{
-                data: statusValues,
-                backgroundColor: bgColors,
-                borderWidth: 0
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-                legend: { position: 'bottom' }
-            }
+    
+    // Build arrays from object
+    for (var status in statusData) {
+        if (statusData.hasOwnProperty(status)) {
+            statusLabels.push(status.charAt(0).toUpperCase() + status.slice(1));
+            statusValues.push(statusData[status]);
+            statusColors.push(colorMap[status] || '#d9d9d9');
         }
-    });
-
-    // Monthly Orders Bar Chart
-    var monthlyData = <?php echo json_encode($monthlyOrders); ?>;
-    new Chart(document.getElementById('ordersChart'), {
-        type: 'bar',
-        data: {
-            labels: monthlyData.map(function(d) { return d.short; }),
-            datasets: [{
-                label: 'Orders',
-                data: monthlyData.map(function(d) { return d.count; }),
-                backgroundColor: '#1890ff',
-                borderRadius: 4
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-                legend: { display: false }
+    }
+    
+    // Only create chart if there's data
+    if (statusValues.length > 0) {
+        new Chart(document.getElementById('statusChart'), {
+            type: 'doughnut',
+            data: {
+                labels: statusLabels,
+                datasets: [{
+                    data: statusValues,
+                    backgroundColor: statusColors,
+                    borderWidth: 0
+                }]
             },
-            scales: {
-                y: { beginAtZero: true, ticks: { stepSize: 1 } }
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: {
+                            padding: 15,
+                            usePointStyle: true
+                        }
+                    }
+                }
             }
+        });
+    }
+
+    // ===== Monthly Orders Bar Chart =====
+    var monthlyData = <?php echo json_encode(array_values($monthlyOrders)); ?>;
+    
+    // Extract labels and values
+    var monthLabels = [];
+    var monthValues = [];
+    
+    if (monthlyData && monthlyData.length > 0) {
+        for (var i = 0; i < monthlyData.length; i++) {
+            monthLabels.push(monthlyData[i].short || monthlyData[i].month);
+            monthValues.push(monthlyData[i].count || 0);
         }
-    });
+    }
+    
+    // Only create chart if there's data
+    if (monthLabels.length > 0) {
+        new Chart(document.getElementById('ordersChart'), {
+            type: 'bar',
+            data: {
+                labels: monthLabels,
+                datasets: [{
+                    label: 'Orders',
+                    data: monthValues,
+                    backgroundColor: '#1890ff',
+                    borderRadius: 4,
+                    barThickness: 30
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: false
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: {
+                            stepSize: 1,
+                            precision: 0
+                        }
+                    },
+                    x: {
+                        grid: {
+                            display: false
+                        }
+                    }
+                }
+            }
+        });
+    } else {
+        // Show message if no data
+        document.getElementById('ordersChart').parentNode.innerHTML = 
+            '<div class="text-center text-muted" style="padding: 50px;">' +
+            '<i class="fa fa-bar-chart fa-2x"></i><br>No order data available</div>';
+    }
 });
 </script>

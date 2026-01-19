@@ -251,6 +251,17 @@ class ImportController extends BaseController
                 $serviceId = $this->createWhmcsService($userId, $productId, $primaryDomain, $certData);
             }
 
+            $provisionDate = date('Y-m-d'); // Today
+            
+            // Set completiondate based on status and cert data
+            $completionDate = null;
+            if ($status === 'complete') {
+                // Use beginDate from certificate if available, otherwise use today
+                $completionDate = !empty($certData['beginDate']) 
+                    ? $certData['beginDate'] . ' 00:00:00'
+                    : date('Y-m-d H:i:s');
+            }
+
             // Create SSL order record
             $orderId = Capsule::table('nicsrs_sslorders')->insertGetId([
                 'userid' => $userId ?: 0,
@@ -260,8 +271,8 @@ class ImportController extends BaseController
                 'module' => 'nicsrs_ssl',
                 'certtype' => $post['cert_type'] ?? 'imported',
                 'configdata' => json_encode($configData),
-                'provisiondate' => date('Y-m-d'),
-                'completiondate' => $status === 'complete' ? date('Y-m-d H:i:s') : '0000-00-00 00:00:00',
+                'provisiondate' => $provisionDate,
+                'completiondate' => $completionDate ?? date('Y-m-d H:i:s'),
                 'status' => $status,
             ]);
 
@@ -350,6 +361,19 @@ class ImportController extends BaseController
                 }
             }
 
+            $provisionDate = date('Y-m-d');
+            if (!empty($service->regdate) && $service->regdate !== '0000-00-00') {
+                $provisionDate = $service->regdate;
+            }
+            
+            // Set completiondate based on status
+            $completionDate = null;
+            if ($status === 'complete') {
+                $completionDate = !empty($certData['beginDate']) 
+                    ? $certData['beginDate'] . ' 00:00:00'
+                    : date('Y-m-d H:i:s');
+            }
+
             // Create SSL order linked to service
             $orderId = Capsule::table('nicsrs_sslorders')->insertGetId([
                 'userid' => $service->userid,
@@ -359,8 +383,8 @@ class ImportController extends BaseController
                 'module' => 'nicsrs_ssl',
                 'certtype' => $service->cert_type ?: 'linked',
                 'configdata' => json_encode($configData),
-                'provisiondate' => $service->regdate ?: date('Y-m-d'),
-                'completiondate' => $status === 'complete' ? date('Y-m-d H:i:s') : '0000-00-00 00:00:00',
+                'provisiondate' => $provisionDate,
+                'completiondate' => $completionDate ?? date('Y-m-d H:i:s'),
                 'status' => $status,
             ]);
 
@@ -532,6 +556,14 @@ class ImportController extends BaseController
                     }
                 }
 
+                $provisionDate = date('Y-m-d');
+                $completionDate = null;
+                if ($status === 'complete') {
+                    $completionDate = !empty($certData['beginDate']) 
+                        ? $certData['beginDate'] . ' 00:00:00'
+                        : date('Y-m-d H:i:s');
+                }
+
                 Capsule::table('nicsrs_sslorders')->insert([
                     'userid' => 0,
                     'serviceid' => 0,
@@ -539,8 +571,8 @@ class ImportController extends BaseController
                     'module' => 'nicsrs_ssl',
                     'certtype' => 'bulk-imported',
                     'configdata' => json_encode($configData),
-                    'provisiondate' => date('Y-m-d'),
-                    'completiondate' => $status === 'complete' ? date('Y-m-d H:i:s') : '0000-00-00 00:00:00',
+                    'provisiondate' => $provisionDate,
+                    'completiondate' => $completionDate ?? date('Y-m-d H:i:s'),
                     'status' => $status,
                 ]);
 
