@@ -327,6 +327,14 @@ $dcvData = [
                             <i class="fa fa-refresh"></i> Refresh Status
                         </button>
                         
+                        <button type="button" class="btn btn-info" id="btnEditOrder" title="Edit Order">
+                            <i class="fa fa-edit"></i> Edit
+                        </button>
+
+                        <button type="button" class="btn btn-danger" id="btnDeleteOrder" title="Delete Order">
+                            <i class="fa fa-trash"></i> Delete
+                        </button>
+
                         <!-- Download CSR -->
                         <button type="button" class="btn btn-default" id="btnDownloadCsr"
                                 <?php echo !$hasCsr ? 'disabled' : ''; ?>
@@ -587,6 +595,141 @@ $dcvData = [
     </div>
 </div>
 
+<!-- Edit Order Modal -->
+<div class="modal fade" id="editOrderModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <button type="button" class="close" data-dismiss="modal">&times;</button>
+                <h4 class="modal-title">
+                    <i class="fa fa-edit"></i> Edit Order #<?php echo $order->id; ?>
+                </h4>
+            </div>
+            <div class="modal-body">
+                <!-- Remote ID Field -->
+                <div class="form-group">
+                    <label for="editRemoteId">
+                        <i class="fa fa-certificate"></i> Remote ID (Certificate ID)
+                    </label>
+                    <input type="text" 
+                           class="form-control" 
+                           id="editRemoteId" 
+                           value="<?php echo $helper->e($order->remoteid); ?>"
+                           placeholder="e.g., CERT-123456789">
+                    <p class="help-block text-muted">
+                        The certificate ID from NicSRS API. Leave empty to clear.
+                    </p>
+                </div>
+                
+                <!-- Service ID Field -->
+                <div class="form-group">
+                    <label for="editServiceId">
+                        <i class="fa fa-link"></i> Linked WHMCS Service ID
+                    </label>
+                    <div class="input-group">
+                        <input type="number" 
+                               class="form-control" 
+                               id="editServiceId" 
+                               value="<?php echo (int) $order->serviceid; ?>"
+                               min="0"
+                               placeholder="Enter Service ID">
+                        <?php if ($order->serviceid): ?>
+                        <span class="input-group-btn">
+                            <a href="clientsservices.php?id=<?php echo $order->serviceid; ?>" 
+                               target="_blank" 
+                               class="btn btn-default" 
+                               title="View Current Service">
+                                <i class="fa fa-external-link"></i>
+                            </a>
+                        </span>
+                        <?php endif; ?>
+                    </div>
+                    <p class="help-block text-muted">
+                        The WHMCS hosting service ID. Set to 0 to unlink.
+                    </p>
+                </div>
+                
+                <div class="alert alert-warning">
+                    <i class="fa fa-exclamation-triangle"></i>
+                    <strong>Warning:</strong> Changing these values may affect certificate operations.
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-default" data-dismiss="modal">
+                    <i class="fa fa-times"></i> Cancel
+                </button>
+                <button type="button" class="btn btn-primary" id="confirmEditOrder">
+                    <i class="fa fa-save"></i> Save Changes
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Delete Order Modal -->
+<div class="modal fade" id="deleteOrderModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header" style="background-color: #d9534f; color: white;">
+                <button type="button" class="close" data-dismiss="modal" style="color: white;">&times;</button>
+                <h4 class="modal-title">
+                    <i class="fa fa-trash"></i> Delete Order #<?php echo $order->id; ?>
+                </h4>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-danger">
+                    <i class="fa fa-exclamation-triangle fa-lg"></i>
+                    <strong>Warning:</strong> This will permanently delete Order #<?php echo $order->id; ?> 
+                    from the local database. This cannot be undone!
+                </div>
+                
+                <div class="panel panel-default">
+                    <div class="panel-heading"><strong>Order Details:</strong></div>
+                    <div class="panel-body">
+                        <table class="table table-condensed" style="margin-bottom: 0;">
+                            <tr>
+                                <td width="35%"><strong>Order ID:</strong></td>
+                                <td>#<?php echo $order->id; ?></td>
+                            </tr>
+                            <tr>
+                                <td><strong>Remote ID:</strong></td>
+                                <td><code><?php echo $helper->e($order->remoteid) ?: 'N/A'; ?></code></td>
+                            </tr>
+                            <tr>
+                                <td><strong>Domain:</strong></td>
+                                <td><?php echo $helper->e($order->domain ?? 'N/A'); ?></td>
+                            </tr>
+                            <tr>
+                                <td><strong>Status:</strong></td>
+                                <td><?php echo $helper->statusBadge($order->status); ?></td>
+                            </tr>
+                        </table>
+                    </div>
+                </div>
+                
+                <div class="alert alert-info">
+                    <i class="fa fa-info-circle"></i>
+                    <strong>Note:</strong> This only removes the local record. 
+                    The certificate on NicSRS will NOT be affected.
+                </div>
+                
+                <div class="checkbox">
+                    <label>
+                        <input type="checkbox" id="confirmDeleteCheck">
+                        <strong>I understand this action is permanent.</strong>
+                    </label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-default" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger" id="confirmDeleteOrder" disabled>
+                    <i class="fa fa-trash"></i> Yes, Delete
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     var modulelink = '<?php echo $modulelink; ?>';
@@ -819,5 +962,86 @@ document.addEventListener('DOMContentLoaded', function() {
             setTimeout(function() { btn.innerHTML = origHtml; }, 2000);
         }
     }
+
+    // ===== Edit Order =====
+    document.getElementById('btnEditOrder').addEventListener('click', function() {
+        $('#editOrderModal').modal('show');
+    });
+
+    document.getElementById('confirmEditOrder').addEventListener('click', function() {
+        var remoteId = document.getElementById('editRemoteId').value;
+        var serviceId = document.getElementById('editServiceId').value;
+        
+        $('#editOrderModal').modal('hide');
+        $('#loadingModal').modal('show');
+        $('#loadingMessage').text('Saving changes...');
+        
+        $.ajax({
+            url: modulelink + '&action=order&id=' + orderId,
+            type: 'POST',
+            dataType: 'json',
+            data: {
+                ajax_action: 'edit_order',
+                order_id: orderId,
+                remote_id: remoteId,
+                service_id: serviceId
+            },
+            success: function(response) {
+                $('#loadingModal').modal('hide');
+                if (response.success) {
+                    alert(response.message || 'Order updated successfully');
+                    location.reload();
+                } else {
+                    alert('Error: ' + (response.message || 'Failed to update order'));
+                }
+            },
+            error: function() {
+                $('#loadingModal').modal('hide');
+                alert('Request failed. Please try again.');
+            }
+        });
+    });
+
+    // ===== Delete Order =====
+    document.getElementById('btnDeleteOrder').addEventListener('click', function() {
+        document.getElementById('confirmDeleteCheck').checked = false;
+        document.getElementById('confirmDeleteOrder').disabled = true;
+        $('#deleteOrderModal').modal('show');
+    });
+
+    document.getElementById('confirmDeleteCheck').addEventListener('change', function() {
+        document.getElementById('confirmDeleteOrder').disabled = !this.checked;
+    });
+
+    document.getElementById('confirmDeleteOrder').addEventListener('click', function() {
+        if (!document.getElementById('confirmDeleteCheck').checked) return;
+        
+        $('#deleteOrderModal').modal('hide');
+        $('#loadingModal').modal('show');
+        $('#loadingMessage').text('Deleting order...');
+        
+        $.ajax({
+            url: modulelink + '&action=order&id=' + orderId,
+            type: 'POST',
+            dataType: 'json',
+            data: {
+                ajax_action: 'delete_order',
+                order_id: orderId
+            },
+            success: function(response) {
+                $('#loadingModal').modal('hide');
+                if (response.success) {
+                    alert(response.message || 'Order deleted successfully');
+                    window.location.href = modulelink + '&action=orders';
+                } else {
+                    alert('Error: ' + (response.message || 'Failed to delete order'));
+                }
+            },
+            error: function() {
+                $('#loadingModal').modal('hide');
+                alert('Request failed. Please try again.');
+            }
+        });
+    });
 });
 </script>

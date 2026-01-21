@@ -450,6 +450,14 @@ class OrderController extends BaseController
             case 'refresh_status':
                 return $this->refreshStatus($orderId);
 
+            case 'edit_order':
+                $remoteId = isset($post['remote_id']) ? trim($post['remote_id']) : null;
+                $serviceId = isset($post['service_id']) ? (int) $post['service_id'] : null;
+                return $this->editOrder($orderId, $remoteId, $serviceId);
+
+            case 'delete_order':
+                return $this->deleteOrder($orderId);
+
             case 'cancel':
                 $reason = isset($post['reason']) ? $this->sanitize($post['reason']) : '';
                 return $this->cancelOrder($orderId, $reason);
@@ -673,6 +681,182 @@ class OrderController extends BaseController
 
             throw new \Exception($result['msg'] ?? 'API error (code: ' . $result['code'] . ')');
             
+        } catch (\Exception $e) {
+            return $this->jsonError($e->getMessage());
+        }
+    }
+
+    /**
+     * Edit order - update remote ID and/or service ID
+     * 
+     * @param int $orderId Order ID
+     * @param string|null $newRemoteId New remote ID (null to skip)
+     * @param int|null $newServiceId New service ID (null to skip)
+     * @return string JSON response
+     */
+    private function editOrder(int $orderId, ?string $newRemoteId, ?int $newServiceId): string
+    {
+        try {
+            $order = Capsule::table('nicsrs_sslorders')->find($orderId);
+            
+            if (!$order) {
+                throw new \Exception('Order not found');
+            }
+
+            $updateData = [];
+            $changes = [];
+
+            // Process remote ID change
+            if ($newRemoteId !== null) {
+                $newRemoteId = trim($newRemoteId);
+                
+                // Allow empty string to clear the remote ID
+                if ($newRemoteId !== ($order->remoteid ?? '')) {
+                    // Validate format if not empty
+                    if (!empty($newRemoteId) && !preg_match('/^[a-zA-Z0-9_\-\.]+$/', $newRemoteId)) {
+                        throw new \Exception('Invalid Remote ID format. Only alphanumeric, dash, underscore, and dot allowed.');
+                    }
+                    
+                    // Check if remote ID already exists for another order
+                    if (!empty($newRemoteId)) {
+                        $existingOrder = Capsule::table('nicsrs_sslorders')
+                            ->where('remoteid', $newRemoteId)
+                            ->where('id', '!=', $orderId)
+                            ->first();
+                        
+                        if ($existingOrder) {
+                            throw new \Exception("Remote ID already used by Order #{$existingOrder->id}");
+                        }
+                    }
+                    
+                    $updateData['remoteid'] = $newRemoteId ?: null;
+                    $changes['remoteid'] = [
+                        'old' => $order->remoteid ?: '(empty)',
+                        'new' => $newRemoteId ?: '(empty)'
+                    ];
+                }
+            }
+
+            // Process service ID change
+            if ($newServiceId !== null && $newServiceId != (int) $order->serviceid) {
+                if ($newServiceId > 0) {
+                    // Validate service exists
+                    $service = Capsule::table('tblhosting as h')
+                        ->leftJoin('tblclients as c', 'h.userid', '=', 'c.id')
+                        ->select(['h.*', 'c.firstname', 'c.lastname'])
+                        ->where('h.id', $newServiceId)
+                        ->first();
+                    
+                    if (!$service) {
+                        throw new \Exception("WHMCS Service ID #{$newServiceId} not found");
+                    }
+                    
+                    // Check if service already linked to another order
+                    $existingOrder = Capsule::table('nicsrs_sslorders')
+                        ->where('serviceid', $newServiceId)
+                        ->where('id', '!=', $orderId)
+                        ->first();
+                    
+                    if ($existingOrder) {
+                        throw new \Exception("Service #{$newServiceId} is already linked to Order #{$existingOrder->id}");
+                    }
+                    
+                    // Update user ID from service
+                    $updateData['userid'] = $service->userid;
+                } else {
+                    // Setting to 0 means unlinking
+                    $updateData['userid'] = 0;
+                }
+                
+                $updateData['serviceid'] = $newServiceId;
+                $changes['serviceid'] = [
+                    'old' => $order->serviceid ?: 0,
+                    'new' => $newServiceId
+                ];
+            }
+
+            // Check if there are changes
+            if (empty($updateData)) {
+                return $this->jsonSuccess('No changes to save');
+            }
+
+            // Perform update
+            Capsule::table('nicsrs_sslorders')
+                ->where('id', $orderId)
+                ->update($updateData);
+
+            // Log activity
+            $this->logger->log('edit_order', 'order', $orderId, null, json_encode([
+                'changes' => $changes,
+                'updated_by' => $this->adminId
+            ]));
+
+            return $this->jsonSuccess('Order updated successfully', [
+                'changes' => $changes,
+                'order_id' => $orderId
+            ]);
+
+        } catch (\Exception $e) {
+            return $this->jsonError($e->getMessage());
+        }
+    }
+
+    /**
+     * Delete order from local database
+     * 
+     * WARNING: This only deletes the local record, NOT the certificate on NicSRS
+     * 
+     * @param int $orderId Order ID
+     * @return string JSON response
+     */
+    private function deleteOrder(int $orderId): string
+    {
+        try {
+            $order = Capsule::table('nicsrs_sslorders')->find($orderId);
+            
+            if (!$order) {
+                throw new \Exception('Order not found');
+            }
+
+            // Get config data for logging
+            $configData = json_decode($order->configdata, true) ?: [];
+
+            // Store complete order info for audit log
+            $orderInfo = [
+                'id' => $order->id,
+                'remoteid' => $order->remoteid,
+                'serviceid' => $order->serviceid,
+                'userid' => $order->userid,
+                'certtype' => $order->certtype,
+                'status' => $order->status,
+                'domain' => $configData['domainInfo'][0]['domainName'] ?? 
+                        ($configData['applyReturn']['domain'] ?? 'N/A'),
+                'deleted_at' => date('Y-m-d H:i:s'),
+                'deleted_by' => $this->adminId
+            ];
+
+            // Also delete related activity logs (optional - comment out to keep logs)
+            // Capsule::table('mod_nicsrs_activity_log')
+            //     ->where('entity_type', 'order')
+            //     ->where('entity_id', $orderId)
+            //     ->delete();
+
+            // Delete the order
+            $deleted = Capsule::table('nicsrs_sslorders')
+                ->where('id', $orderId)
+                ->delete();
+
+            if (!$deleted) {
+                throw new \Exception('Failed to delete order');
+            }
+
+            // Log activity (this creates a log entry even though the order is deleted)
+            $this->logger->log('delete_order', 'order', $orderId, $order->status, json_encode($orderInfo));
+
+            return $this->jsonSuccess('Order deleted successfully', [
+                'deleted_order' => $orderInfo
+            ]);
+
         } catch (\Exception $e) {
             return $this->jsonError($e->getMessage());
         }
