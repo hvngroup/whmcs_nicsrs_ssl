@@ -4,6 +4,8 @@
  * 
  * @var array $orders Orders list
  * @var array $statusCounts Status counts
+ * @var int $expiringCount Count of expiring certificates
+ * @var int $expiredCount Count of expired certificates  
  * @var string $currentStatus Current status filter
  * @var string $search Search query
  * @var \NicsrsAdmin\Helper\Pagination $pagination Pagination object
@@ -39,6 +41,7 @@
             'complete' => 'Complete',
             'cancelled' => 'Cancelled',
             'revoked' => 'Revoked',
+            'expired' => 'Expired',
         ];
         foreach ($statusList as $statusKey => $statusLabel): 
             $count = isset($statusCounts[$statusKey]) ? $statusCounts[$statusKey] : 0;
@@ -51,6 +54,16 @@
             </a>
         </li>
         <?php endforeach; ?>
+        <!-- Special filter: Expiring Soon (dynamic, based on endDate) -->
+        <?php if (isset($expiringCount) && ($expiringCount > 0 || $currentStatus === 'expiring')): ?>
+        <li class="<?php echo $currentStatus === 'expiring' ? 'active' : ''; ?>">
+            <a href="<?php echo $modulelink; ?>&action=orders&status=expiring" 
+               style="<?php echo $currentStatus !== 'expiring' ? 'color: #d48806; background-color: #fffbe6;' : ''; ?>">
+                <i class="fa fa-clock-o"></i> Expiring Soon 
+                <span class="badge" style="background-color: #d48806;"><?php echo $expiringCount; ?></span>
+            </a>
+        </li>
+        <?php endif; ?>
     </ul>
 
     <!-- Search Form -->

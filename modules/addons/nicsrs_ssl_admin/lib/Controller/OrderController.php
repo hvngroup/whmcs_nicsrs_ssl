@@ -18,6 +18,11 @@ use NicsrsAdmin\Helper\Pagination;
 class OrderController extends BaseController
 {
     /**
+     * Days threshold for "expiring soon" filter
+     */
+    const EXPIRING_DAYS = 30;
+    
+    /**
      * @var NicsrsApiService API service
      */
     private $apiService;
@@ -66,6 +71,9 @@ class OrderController extends BaseController
         $status = isset($_GET['status']) ? $this->sanitize($_GET['status']) : '';
         $search = isset($_GET['search']) ? $this->sanitize($_GET['search']) : '';
 
+        // Check if filtering by "expiring" (special dynamic filter)
+        $isExpiringFilter = ($status === 'expiring');
+        
         // Build query
         $query = Capsule::table('nicsrs_sslorders as o')
             ->leftJoin('tblclients as c', 'o.userid', '=', 'c.id')
@@ -87,8 +95,8 @@ class OrderController extends BaseController
                 'h.domainstatus as service_status',
             ]);
 
-        // Apply filters
-        if ($status) {
+        // Apply status filter (but not for 'expiring' - that's handled separately)
+        if ($status && !$isExpiringFilter) {
             // Map short status names to actual database values
             $statusMap = [
                 'awaiting' => 'Awaiting Configuration',
@@ -97,6 +105,7 @@ class OrderController extends BaseController
                 'complete' => 'complete',
                 'cancelled' => 'cancelled',
                 'revoked' => 'revoked',
+                'expired' => 'expired',
             ];
             
             // Check if it's a short name that needs mapping
@@ -106,6 +115,11 @@ class OrderController extends BaseController
                 // Direct match (for full status names like "Awaiting Configuration")
                 $query->where('o.status', $status);
             }
+        }
+
+        // For expiring filter, only show complete certificates
+        if ($isExpiringFilter) {
+            $query->where('o.status', 'complete');
         }
 
         if ($search) {
@@ -119,19 +133,15 @@ class OrderController extends BaseController
             });
         }
 
-        // Get total
-        $total = $query->count();
-
-        // Get orders
-        $orders = $query
-            ->orderBy('o.id', 'desc')
-            ->offset(($page - 1) * $perPage)
-            ->limit($perPage)
-            ->get();
-
-        // Process orders
+        // Get all orders for special filtering
+        $allOrders = $query->orderBy('o.id', 'desc')->get();
+        
+        // Process orders and apply expiring filter if needed
         $processedOrders = [];
-        foreach ($orders as $order) {
+        $now = time();
+        $expiringThreshold = strtotime('+' . self::EXPIRING_DAYS . ' days');
+        
+        foreach ($allOrders as $order) {
             $config = json_decode($order->configdata, true) ?: [];
             
             $domain = 'N/A';
@@ -140,8 +150,18 @@ class OrderController extends BaseController
             }
             
             $endDate = null;
+            $endDateTimestamp = null;
             if (isset($config['applyReturn']['endDate'])) {
                 $endDate = $config['applyReturn']['endDate'];
+                $endDateTimestamp = strtotime($endDate);
+            }
+
+            // For expiring filter, check if certificate is expiring within threshold
+            if ($isExpiringFilter) {
+                // Skip if no end date or already expired or not expiring soon
+                if (!$endDateTimestamp || $endDateTimestamp <= $now || $endDateTimestamp > $expiringThreshold) {
+                    continue;
+                }
             }
 
             $clientName = trim($order->firstname . ' ' . $order->lastname);
@@ -157,6 +177,7 @@ class OrderController extends BaseController
                 'provisiondate' => $this->formatDbDate($order->provisiondate),
                 'completiondate' => $this->formatDbDate($order->completiondate),
                 'end_date' => $endDate,
+                'end_date_timestamp' => $endDateTimestamp,
                 'client_name' => $clientName ?: 'Unknown',
                 'client_email' => $order->email,
                 'companyname' => $order->companyname,
@@ -164,15 +185,27 @@ class OrderController extends BaseController
             ];
         }
 
+        // Sort by expiring date for expiring filter
+        if ($isExpiringFilter) {
+            usort($processedOrders, function($a, $b) {
+                return ($a['end_date_timestamp'] ?? 0) - ($b['end_date_timestamp'] ?? 0);
+            });
+        }
+
+        // Get total (after filtering)
+        $total = count($processedOrders);
+        
+        // Apply pagination manually for expiring filter
+        $processedOrders = array_slice($processedOrders, ($page - 1) * $perPage, $perPage);
+
         // Get status counts for filters
-        // Normalize status names for consistent counting
         $rawStatusCounts = Capsule::table('nicsrs_sslorders')
             ->selectRaw('status, COUNT(*) as count')
             ->groupBy('status')
             ->pluck('count', 'status')
             ->toArray();
 
-        // Normalize status keys (map "Awaiting Configuration" to "awaiting", etc.)
+        // Normalize status keys
         $statusCounts = [];
         foreach ($rawStatusCounts as $dbStatus => $count) {
             $normalizedStatus = $this->normalizeStatus($dbStatus);
@@ -182,6 +215,9 @@ class OrderController extends BaseController
                 $statusCounts[$normalizedStatus] = $count;
             }
         }
+
+        // Calculate expiring count (certificates expiring within 30 days)
+        $expiringCount = $this->getExpiringCount(self::EXPIRING_DAYS);
 
         // Create pagination
         $paginationParams = [];
@@ -199,6 +235,7 @@ class OrderController extends BaseController
         $data = [
             'orders' => $processedOrders,
             'statusCounts' => $statusCounts,
+            'expiringCount' => $expiringCount,
             'currentStatus' => $status,
             'search' => $search,
             'pagination' => $pagination,
@@ -206,6 +243,37 @@ class OrderController extends BaseController
         ];
 
         $this->includeTemplate('orders/list', $data);
+    }
+
+    /**
+     * Get count of certificates expiring within specified days
+     * 
+     * @param int $days Number of days
+     * @return int Count of expiring certificates
+     */
+    private function getExpiringCount(int $days = 30): int
+    {
+        $count = 0;
+        $now = time();
+        $threshold = strtotime("+{$days} days");
+        
+        $orders = Capsule::table('nicsrs_sslorders')
+            ->where('status', 'complete')
+            ->select(['configdata'])
+            ->get();
+            
+        foreach ($orders as $order) {
+            $config = json_decode($order->configdata, true);
+            if (isset($config['applyReturn']['endDate'])) {
+                $endDate = strtotime($config['applyReturn']['endDate']);
+                // Count only if: has end date, not yet expired, and within threshold
+                if ($endDate && $endDate > $now && $endDate <= $threshold) {
+                    $count++;
+                }
+            }
+        }
+        
+        return $count;
     }
 
     /**
@@ -267,13 +335,16 @@ class OrderController extends BaseController
      */
     private function renderDetail(int $orderId): void
     {
-        // Get order with client info
+        // Get order with client info AND full service details
         $order = Capsule::table('nicsrs_sslorders as o')
             ->leftJoin('tblclients as c', 'o.userid', '=', 'c.id')
             ->leftJoin('tblhosting as h', 'o.serviceid', '=', 'h.id')
             ->leftJoin('tblproducts as p', 'h.packageid', '=', 'p.id')
             ->select([
+                // SSL Order fields
                 'o.*',
+                
+                // Client fields
                 'c.firstname',
                 'c.lastname',
                 'c.companyname',
@@ -284,17 +355,25 @@ class OrderController extends BaseController
                 'c.state',
                 'c.postcode',
                 'c.country',
-                'h.domainstatus as service_status',
+                
+                // WHMCS Service fields (tblhosting) - UPDATED
                 'h.domain as service_domain',
-                'h.billingcycle',
-                'h.nextduedate',
-                'h.regdate',
-                'h.amount',
+                'h.domainstatus as service_status',
+                'h.regdate as service_regdate',
+                'h.firstpaymentamount as service_firstpaymentamount',
+                'h.amount as service_amount',
+                'h.billingcycle as service_billingcycle',
+                'h.nextduedate as service_nextduedate',
+                'h.nextinvoicedate as service_nextinvoicedate',
+                'h.paymentmethod as service_paymentmethod',
+                'h.notes as service_notes',
+                
+                // WHMCS Product fields (tblproducts)
                 'p.name as whmcs_product_name',
+                'p.configoption1 as whmcs_product_code',
             ])
             ->where('o.id', $orderId)
             ->first();
-
 
         if (!$order) {
             echo '<div class="alert alert-danger">Order not found</div>';
@@ -335,10 +414,37 @@ class OrderController extends BaseController
             $certInfo = [
                 'cert_id' => $configData['applyReturn']['certId'] ?? '',
                 'vendor_id' => $configData['applyReturn']['vendorId'] ?? '',
-                'begin_date' => $configData['applyReturn']['beginDate'] ?? '',
-                'end_date' => $configData['applyReturn']['endDate'] ?? '',
+                'vendor_cert_id' => $configData['applyReturn']['vendorCertId'] ?? '',
+                'begin_date' => $configData['applyReturn']['beginDate'] ?? null,
+                'end_date' => $configData['applyReturn']['endDate'] ?? null,
                 'has_certificate' => !empty($configData['applyReturn']['certificate']),
+                'has_ca' => !empty($configData['applyReturn']['caCertificate']),
+                'has_jks' => !empty($configData['applyReturn']['jks']),
+                'has_pkcs12' => !empty($configData['applyReturn']['pkcs12']),
             ];
+        }
+
+        // Build client name
+        $clientName = trim(($order->firstname ?? '') . ' ' . ($order->lastname ?? ''));
+        if (empty($clientName)) {
+            $clientName = 'Unknown';
+        }
+
+        // Get primary domain
+        $primaryDomain = '-';
+        if (!empty($domains)) {
+            $primaryDomain = $domains[0]['domain'];
+        } elseif (!empty($order->service_domain)) {
+            $primaryDomain = $order->service_domain;
+        }
+
+        // Calculate renewal due (30 days before expiry)
+        $renewalDue = null;
+        if (!empty($certInfo['end_date'])) {
+            $endTimestamp = strtotime($certInfo['end_date']);
+            if ($endTimestamp) {
+                $renewalDue = date('Y-m-d', $endTimestamp - (30 * 86400));
+            }
         }
 
         $data = [
@@ -347,14 +453,14 @@ class OrderController extends BaseController
             'domains' => $domains,
             'certInfo' => $certInfo,
             'activityLogs' => $activityLogs,
-            'clientName' => trim($order->firstname . ' ' . $order->lastname),
-            'provisiondate' => $this->formatDbDate($order->provisiondate),
-            'completiondate' => $this->formatDbDate($order->completiondate),
+            'clientName' => $clientName,
+            'primaryDomain' => $primaryDomain,
+            'renewalDue' => $renewalDue,
         ];
 
         $this->includeTemplate('orders/detail', $data);
     }
-
+    
     /**
      * Helper to format database date (handle 0000-00-00)
      */
@@ -1332,7 +1438,7 @@ class OrderController extends BaseController
             $readme .= "=== Nginx Installation ===\n";
             $readme .= "ssl_certificate /path/to/{$certFilename}.pem;\n";
             $readme .= "ssl_certificate_key /path/to/{$certFilename}.key;\n\n";
-            $readme .= "Generated by NicSRS SSL Admin - HVN GROUP (https://hvn.vn)\n";
+            $readme .= "Generated by HVN GROUP SSL System -  (https://hvn.vn)\n";
             
             $zip->addFromString('README.txt', $readme);
             

@@ -206,15 +206,19 @@ $dcvData = [
                 </div>
             </div>
 
-            <!-- Client Information -->
+            <!-- Client & Product/Service Information (UPDATED) -->
             <div class="panel panel-default">
                 <div class="panel-heading">
-                    <h3 class="panel-title"><i class="fa fa-user"></i> Client Information</h3>
+                    <h3 class="panel-title"><i class="fa fa-user"></i> Client & Product/Service Information</h3>
                 </div>
                 <div class="panel-body">
-                    <table class="table table-condensed">
+                    <!-- Client Information -->
+                    <h5 style="margin-top: 0; color: #1890ff; border-bottom: 1px solid #e8e8e8; padding-bottom: 8px;">
+                        <i class="fa fa-user-circle-o"></i> Client Details
+                    </h5>
+                    <table class="table table-condensed" style="margin-bottom: 15px;">
                         <tr>
-                            <th style="width: 140px;">Name:</th>
+                            <th style="width: 160px;">Name:</th>
                             <td>
                                 <?php if ($order->userid): ?>
                                 <a href="clientssummary.php?userid=<?php echo $order->userid; ?>" target="_blank">
@@ -233,9 +237,147 @@ $dcvData = [
                         <?php endif; ?>
                         <tr>
                             <th>Email:</th>
-                            <td><?php echo $helper->e($order->client_email); ?></td>
+                            <td>
+                                <?php if (!empty($order->client_email)): ?>
+                                <a href="mailto:<?php echo $helper->e($order->client_email); ?>">
+                                    <?php echo $helper->e($order->client_email); ?>
+                                </a>
+                                <?php else: ?>
+                                <span class="text-muted">N/A</span>
+                                <?php endif; ?>
+                            </td>
                         </tr>
                     </table>
+
+                    <!-- WHMCS Product/Service Information (NEW) -->
+                    <?php if ($order->serviceid): ?>
+                    <h5 style="color: #52c41a; border-bottom: 1px solid #e8e8e8; padding-bottom: 8px;">
+                        <i class="fa fa-cube"></i> WHMCS Product/Service
+                        <a href="clientsservices.php?userid=<?php echo $order->userid; ?>&id=<?php echo $order->serviceid; ?>" 
+                           target="_blank" class="btn btn-xs btn-success pull-right">
+                            <i class="fa fa-external-link"></i> View Service
+                        </a>
+                    </h5>
+                    <table class="table table-condensed" style="margin-bottom: 0;">
+                        <tr>
+                            <th style="width: 160px;">Service ID:</th>
+                            <td>
+                                <code>#<?php echo $order->serviceid; ?></code>
+                                <?php if (!empty($order->service_status)): ?>
+                                <?php 
+                                $serviceStatusClass = 'default';
+                                $serviceStatusLower = strtolower($order->service_status);
+                                if ($serviceStatusLower === 'active') $serviceStatusClass = 'success';
+                                elseif ($serviceStatusLower === 'suspended') $serviceStatusClass = 'warning';
+                                elseif (in_array($serviceStatusLower, ['terminated', 'cancelled'])) $serviceStatusClass = 'danger';
+                                elseif ($serviceStatusLower === 'pending') $serviceStatusClass = 'info';
+                                ?>
+                                <span class="label label-<?php echo $serviceStatusClass; ?>" style="margin-left: 5px;">
+                                    <?php echo $helper->e($order->service_status); ?>
+                                </span>
+                                <?php endif; ?>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th>Product/Service:</th>
+                            <td>
+                                <?php if (!empty($order->whmcs_product_name)): ?>
+                                <strong><?php echo $helper->e($order->whmcs_product_name); ?></strong>
+                                <?php else: ?>
+                                <span class="text-muted">N/A</span>
+                                <?php endif; ?>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th>Domain:</th>
+                            <td>
+                                <?php if (!empty($order->service_domain)): ?>
+                                <code><?php echo $helper->e($order->service_domain); ?></code>
+                                <?php else: ?>
+                                <span class="text-muted">Not set</span>
+                                <?php endif; ?>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th>Registration Date:</th>
+                            <td>
+                                <?php if (!empty($order->service_regdate) && $order->service_regdate !== '0000-00-00'): ?>
+                                <?php echo $helper->formatDate($order->service_regdate); ?>
+                                <?php else: ?>
+                                <span class="text-muted">N/A</span>
+                                <?php endif; ?>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th>First Payment:</th>
+                            <td>
+                                <?php if (isset($order->service_firstpaymentamount)): ?>
+                                <strong><?php echo $helper->formatCurrency($order->service_firstpaymentamount); ?></strong>
+                                <?php else: ?>
+                                <span class="text-muted">N/A</span>
+                                <?php endif; ?>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th>Recurring Amount:</th>
+                            <td>
+                                <?php if (isset($order->service_amount)): ?>
+                                <strong><?php echo $helper->formatCurrency($order->service_amount); ?></strong>
+                                <?php if (!empty($order->service_billingcycle)): ?>
+                                <span class="text-muted">/ <?php echo $helper->e($order->service_billingcycle); ?></span>
+                                <?php endif; ?>
+                                <?php else: ?>
+                                <span class="text-muted">N/A</span>
+                                <?php endif; ?>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th>Billing Cycle:</th>
+                            <td>
+                                <?php if (!empty($order->service_billingcycle)): ?>
+                                <?php echo $helper->e($order->service_billingcycle); ?>
+                                <?php else: ?>
+                                <span class="text-muted">N/A</span>
+                                <?php endif; ?>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th>Next Due Date:</th>
+                            <td>
+                                <?php if (!empty($order->service_nextduedate) && $order->service_nextduedate !== '0000-00-00'): ?>
+                                <?php 
+                                $nextDue = strtotime($order->service_nextduedate);
+                                $now = time();
+                                $daysUntilDue = ceil(($nextDue - $now) / 86400);
+                                ?>
+                                <?php echo $helper->formatDate($order->service_nextduedate); ?>
+                                <?php if ($daysUntilDue <= 0): ?>
+                                <span class="label label-danger">Overdue</span>
+                                <?php elseif ($daysUntilDue <= 7): ?>
+                                <span class="label label-warning"><?php echo $daysUntilDue; ?> days</span>
+                                <?php elseif ($daysUntilDue <= 30): ?>
+                                <span class="label label-info"><?php echo $daysUntilDue; ?> days</span>
+                                <?php endif; ?>
+                                <?php else: ?>
+                                <span class="text-muted">N/A</span>
+                                <?php endif; ?>
+                            </td>
+                        </tr>
+                    </table>
+                    <?php else: ?>
+                    <!-- No linked service -->
+                    <h5 style="color: #8c8c8c; border-bottom: 1px solid #e8e8e8; padding-bottom: 8px;">
+                        <i class="fa fa-cube"></i> WHMCS Product/Service
+                    </h5>
+                    <div class="alert alert-warning" style="margin-bottom: 0;">
+                        <i class="fa fa-exclamation-triangle"></i> 
+                        This SSL order is not linked to any WHMCS service.
+                        <br>
+                        <small class="text-muted">
+                            You can link it via the Import page or create a new service manually.
+                        </small>
+                    </div>
+                    <?php endif; ?>
                 </div>
             </div>
         </div>
@@ -446,7 +588,7 @@ $dcvData = [
             </table>
         </div>
         
-        <!-- NEW: DCV Instructions Section for pending orders -->
+        <!-- DCV Instructions Section for pending orders -->
         <?php if ($isPending && !empty($domainList)): ?>
         <?php 
         $firstDomain = $domainList[0];
@@ -571,7 +713,7 @@ $dcvData = [
     </div>
 </div>
 
-<!-- NEW: Password Display Modal -->
+<!-- Password Display Modal -->
 <div class="modal fade" id="passwordModal" tabindex="-1">
     <div class="modal-dialog modal-sm">
         <div class="modal-content">

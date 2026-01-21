@@ -173,6 +173,69 @@ class ViewHelper
     }
 
     /**
+     * Format currency for display (using WHMCS default currency)
+     * 
+     * ADD this method to lib/Helper/ViewHelper.php
+     * 
+     * @param float|string|null $amount Amount value
+     * @param bool $includeSymbol Whether to include currency symbol
+     * @return string Formatted currency
+     */
+    public function formatCurrency($amount, bool $includeSymbol = true): string
+    {
+        if ($amount === null || $amount === '') {
+            return '-';
+        }
+        
+        $amount = (float) $amount;
+        
+        // Get WHMCS default currency
+        try {
+            $currency = Capsule::table('tblcurrencies')
+                ->where('default', 1)
+                ->first();
+            
+            if ($currency) {
+                $prefix = $includeSymbol ? $currency->prefix : '';
+                $suffix = $includeSymbol ? $currency->suffix : '';
+                $formatted = number_format($amount, 2, '.', ',');
+                return $prefix . $formatted . $suffix;
+            }
+        } catch (\Exception $e) {
+            // Fallback if database query fails
+        }
+        
+        // Fallback to USD format
+        return ($includeSymbol ? '$' : '') . number_format($amount, 2);
+    }
+
+    /**
+     * Format billing cycle for display
+     * 
+     * @param string|null $cycle Billing cycle value
+     * @return string Formatted cycle
+     */
+    public function formatBillingCycle(?string $cycle): string
+    {
+        if (empty($cycle)) {
+            return '-';
+        }
+        
+        $cycles = [
+            'Free Account' => 'Free',
+            'One Time' => 'One Time',
+            'Monthly' => 'Monthly',
+            'Quarterly' => 'Quarterly',
+            'Semi-Annually' => 'Semi-Annual',
+            'Annually' => 'Annually',
+            'Biennially' => 'Biennially',
+            'Triennially' => 'Triennially',
+        ];
+        
+        return isset($cycles[$cycle]) ? $cycles[$cycle] : $cycle;
+    }
+
+    /**
      * Render Yes/No icon
      * 
      * @param bool $value Boolean value

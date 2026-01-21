@@ -86,61 +86,46 @@
                     <form id="linkForm">
                         <input type="hidden" id="linkCertId" name="cert_id">
                         
+                        <!-- Option 1: Link to existing service by ID -->
                         <div class="form-group">
-                            <label>Select WHMCS Service to Link:</label>
-                            <select class="form-control" id="serviceSelect" name="service_id">
-                                <option value="">-- Select a Service --</option>
-                                <?php foreach ($availableServices as $service): ?>
-                                <option value="<?php echo $service->serviceid; ?>" 
-                                        data-user="<?php echo $helper->e($service->firstname . ' ' . $service->lastname); ?>"
-                                        data-email="<?php echo $helper->e($service->email); ?>">
-                                    #<?php echo $service->serviceid; ?> - 
-                                    <?php echo $helper->e($service->domain ?: 'No domain'); ?> 
-                                    (<?php echo $helper->e($service->firstname . ' ' . $service->lastname); ?>)
-                                    [<?php echo $service->domainstatus; ?>]
-                                </option>
-                                <?php endforeach; ?>
-                            </select>
-                            <p class="help-block">Only SSL services without linked certificate are shown</p>
-                        </div>
-
-                        <div class="form-group">
-                            <label>Or Search Service:</label>
-                            <input type="text" class="form-control" id="searchService" 
-                                   placeholder="Search by service ID, domain, or client name...">
-                        </div>
-
-                        <div id="searchResults" style="display: none; max-height: 200px; overflow-y: auto; margin-bottom: 15px;">
-                        </div>
-
-                        <hr>
-
-                        <div class="checkbox">
                             <label>
-                                <input type="checkbox" id="createNewService" name="create_service">
-                                <strong>Create new WHMCS service</strong> (if no existing service to link)
+                                <input type="radio" name="link_option" value="existing" id="optionExisting" checked>
+                                Link to existing WHMCS Service
                             </label>
                         </div>
-
-                        <div id="newServiceFields" style="display: none; margin-top: 15px;">
+                        
+                        <div id="existingServiceFields">
                             <div class="form-group">
-                                <label>Select Client:</label>
-                                <select class="form-control" id="newUserId" name="user_id">
-                                    <option value="">-- Select Client --</option>
-                                </select>
-                            </div>
-                            <div class="form-group">
-                                <label>Select SSL Product:</label>
-                                <select class="form-control" id="newProductId" name="product_id">
-                                    <option value="">-- Select Product --</option>
-                                </select>
+                                <label>Service ID:</label>
+                                <input type="text" class="form-control" id="serviceId" name="service_id" 
+                                       placeholder="Enter WHMCS Service ID (e.g., 123)">
+                                <p class="help-block">
+                                    <i class="fa fa-info-circle"></i> 
+                                    <strong>How to find Service ID:</strong><br>
+                                    Go to <strong>Clients → Products/Services</strong>, find the SSL product, 
+                                    and look at the URL - the <code>id=XXX</code> parameter is the Service ID.<br>
+                                    Example: <code>clientsservices.php?userid=1&<strong>id=123</strong></code> → Service ID is <strong>123</strong>
+                                </p>
                             </div>
                         </div>
 
                         <hr>
 
-                        <button type="submit" class="btn btn-success btn-lg">
-                            <i class="fa fa-check"></i> Import & Link Certificate
+                        <!-- Option 2: Import without linking -->
+                        <div class="form-group">
+                            <label>
+                                <input type="radio" name="link_option" value="import_only" id="optionImportOnly">
+                                Import without linking (can link later)
+                            </label>
+                            <p class="help-block text-muted" style="margin-left: 20px;">
+                                Certificate will be imported to Orders list. You can link it to a WHMCS service later.
+                            </p>
+                        </div>
+
+                        <hr>
+
+                        <button type="submit" class="btn btn-success btn-lg" id="submitBtn">
+                            <i class="fa fa-check"></i> <span id="submitBtnText">Import & Link Certificate</span>
                         </button>
                     </form>
                 </div>
@@ -160,7 +145,7 @@
                     <ol>
                         <li><strong>Get Certificate ID</strong> from your NicSRS portal (Orders → SSL Orders → Instance ID)</li>
                         <li><strong>Lookup</strong> the certificate using the form</li>
-                        <li><strong>Link</strong> to an existing WHMCS service OR create a new one</li>
+                        <li><strong>Link</strong> to an existing WHMCS service OR import without linking</li>
                         <li>The certificate will appear in Orders list and be manageable from admin</li>
                     </ol>
                     
@@ -172,6 +157,17 @@
                         <li>Migrate existing certificates to WHMCS management</li>
                         <li>Link certificates issued outside WHMCS workflow</li>
                     </ul>
+
+                    <hr>
+
+                    <h5><i class="fa fa-question-circle"></i> Finding Service ID:</h5>
+                    <ol>
+                        <li>Go to <strong>Clients → Products/Services</strong></li>
+                        <li>Search for the client or SSL product</li>
+                        <li>Click on the service to open it</li>
+                        <li>Look at the URL in your browser</li>
+                        <li>Find <code>id=XXX</code> - that number is the Service ID</li>
+                    </ol>
                 </div>
             </div>
 
@@ -263,6 +259,25 @@ document.addEventListener('DOMContentLoaded', function() {
     var modulelink = '<?php echo $modulelink; ?>';
     var certData = null;
 
+    // Handle radio button changes
+    document.querySelectorAll('input[name="link_option"]').forEach(function(radio) {
+        radio.addEventListener('change', function() {
+            var existingFields = document.getElementById('existingServiceFields');
+            var submitBtnText = document.getElementById('submitBtnText');
+            var serviceIdInput = document.getElementById('serviceId');
+            
+            if (this.value === 'existing') {
+                existingFields.style.display = 'block';
+                submitBtnText.textContent = 'Import & Link Certificate';
+                serviceIdInput.required = false; // Not required, will be validated on submit
+            } else {
+                existingFields.style.display = 'none';
+                submitBtnText.textContent = 'Import Certificate';
+                serviceIdInput.required = false;
+            }
+        });
+    });
+
     // Lookup Certificate
     document.getElementById('lookupForm').addEventListener('submit', function(e) {
         e.preventDefault();
@@ -334,117 +349,46 @@ document.addEventListener('DOMContentLoaded', function() {
         return badges[status.toLowerCase()] || '<span class="label label-default">' + status + '</span>';
     }
 
-    // Toggle new service fields
-    document.getElementById('createNewService').addEventListener('change', function() {
-        var fields = document.getElementById('newServiceFields');
-        var serviceSelect = document.getElementById('serviceSelect');
-        
-        if (this.checked) {
-            fields.style.display = 'block';
-            serviceSelect.disabled = true;
-            loadClientsAndProducts();
-        } else {
-            fields.style.display = 'none';
-            serviceSelect.disabled = false;
-        }
-    });
-
-    // Load clients and products for new service
-    function loadClientsAndProducts() {
-        // Load clients - simplified, in production use AJAX search
-        var userSelect = document.getElementById('newUserId');
-        if (userSelect.options.length <= 1) {
-            // This would typically be an AJAX call
-            userSelect.innerHTML = '<option value="">-- Type to search clients --</option>';
-        }
-    }
-
-    // Search services
-    var searchTimeout;
-    document.getElementById('searchService').addEventListener('input', function() {
-        var query = this.value.trim();
-        clearTimeout(searchTimeout);
-        
-        if (query.length < 2) {
-            document.getElementById('searchResults').style.display = 'none';
-            return;
-        }
-
-        searchTimeout = setTimeout(function() {
-            $.ajax({
-                url: modulelink + '&action=import',
-                method: 'POST',
-                data: { ajax_action: 'search_services', query: query },
-                dataType: 'json',
-                success: function(response) {
-                    if (response.success && response.services) {
-                        displaySearchResults(response.services);
-                    }
-                }
-            });
-        }, 300);
-    });
-
-    function displaySearchResults(services) {
-        var container = document.getElementById('searchResults');
-        if (!services.length) {
-            container.innerHTML = '<p class="text-muted">No services found</p>';
-            container.style.display = 'block';
-            return;
-        }
-
-        var html = '<table class="table table-condensed table-hover" style="margin-bottom:0;">';
-        services.forEach(function(s) {
-            html += '<tr class="search-result-row" data-id="' + s.serviceid + '" style="cursor:pointer;">';
-            html += '<td>#' + s.serviceid + '</td>';
-            html += '<td>' + (s.domain || 'N/A') + '</td>';
-            html += '<td>' + s.firstname + ' ' + s.lastname + '</td>';
-            html += '<td><span class="label label-default">' + s.domainstatus + '</span></td>';
-            html += '</tr>';
-        });
-        html += '</table>';
-        
-        container.innerHTML = html;
-        container.style.display = 'block';
-
-        // Click to select
-        container.querySelectorAll('.search-result-row').forEach(function(row) {
-            row.addEventListener('click', function() {
-                var id = this.dataset.id;
-                document.getElementById('serviceSelect').value = id;
-                container.style.display = 'none';
-                document.getElementById('searchService').value = '';
-            });
-        });
-    }
-
     // Link Form Submit
     document.getElementById('linkForm').addEventListener('submit', function(e) {
         e.preventDefault();
         
         var certId = document.getElementById('linkCertId').value;
-        var serviceId = document.getElementById('serviceSelect').value;
-        var createNew = document.getElementById('createNewService').checked;
-
         if (!certId) {
             alert('Please lookup a certificate first');
             return;
         }
 
-        if (!serviceId && !createNew) {
-            alert('Please select a service to link or check "Create new service"');
-            return;
+        var linkOption = document.querySelector('input[name="link_option"]:checked').value;
+        var serviceId = document.getElementById('serviceId').value.trim();
+
+        // Validate service ID if linking to existing
+        if (linkOption === 'existing') {
+            if (!serviceId) {
+                alert('Please enter a Service ID to link the certificate');
+                return;
+            }
+            // Validate it's a number
+            if (!/^\d+$/.test(serviceId)) {
+                alert('Service ID must be a number');
+                return;
+            }
         }
 
-        var action = serviceId ? 'link_existing' : 'import_cert';
+        var action = (linkOption === 'existing' && serviceId) ? 'link_existing' : 'import_cert';
         var data = {
             ajax_action: action,
             cert_id: certId,
-            service_id: serviceId,
-            create_service: createNew ? 1 : 0,
-            user_id: document.getElementById('newUserId').value,
-            product_id: document.getElementById('newProductId').value
+            service_id: serviceId || 0
         };
+
+        var confirmMsg = (action === 'link_existing') 
+            ? 'Import certificate and link to Service #' + serviceId + '?'
+            : 'Import certificate without linking to a service?';
+
+        if (!confirm(confirmMsg)) {
+            return;
+        }
 
         showLoading('Importing certificate...');
 
@@ -462,8 +406,9 @@ document.addEventListener('DOMContentLoaded', function() {
                     alert('Error: ' + response.message);
                 }
             },
-            error: function() {
+            error: function(xhr, status, error) {
                 hideLoading();
+                console.error('AJAX Error:', status, error);
                 alert('Request failed. Please try again.');
             }
         });
