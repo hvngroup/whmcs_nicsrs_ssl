@@ -9,7 +9,7 @@
  * @package    nicsrs_ssl_admin
  * @author     HVN GROUP
  * @copyright  Copyright (c) HVN GROUP (https://hvn.vn)
- * @version    1.2.1
+ * @version    1.2.2
  */
 
 namespace NicsrsAdmin\Service;
@@ -44,15 +44,24 @@ class SyncService
     private $maxRetries = 3;
     
     /**
-     * @var array Certificate statuses that need syncing
+     * @var array Certificate statuses that need syncing (pending → complete)
      */
-    private const SYNCABLE_STATUSES = [
+    private const PENDING_STATUSES = [
         'pending',
         'processing',
         'awaiting_issuance',
         'awaiting',
         'draft',
         'awaiting configuration',
+    ];
+    
+    /**
+     * @var array Certificate statuses that need expiry check
+     */
+    private const ACTIVE_STATUSES = [
+        'complete',
+        'active',
+        'issued',
     ];
     
     /**
@@ -73,8 +82,6 @@ class SyncService
 
     /**
      * Constructor
-     * 
-     * Initializes the sync service with settings and dependencies.
      */
     public function __construct()
     {
@@ -84,8 +91,6 @@ class SyncService
 
     /**
      * Load module settings from database
-     * 
-     * @return void
      */
     private function loadSettings(): void
     {
@@ -98,16 +103,7 @@ class SyncService
             
             // Set batch size from settings
             $this->batchSize = (int) ($this->settings['sync_batch_size'] ?? 50);
-            
-            // Ensure minimum batch size
-            if ($this->batchSize < 10) {
-                $this->batchSize = 10;
-            }
-            
-            // Ensure maximum batch size
-            if ($this->batchSize > 200) {
-                $this->batchSize = 200;
-            }
+            $this->batchSize = max(10, min(200, $this->batchSize));
             
         } catch (\Exception $e) {
             $this->logError('Failed to load settings: ' . $e->getMessage());
@@ -116,57 +112,61 @@ class SyncService
 
     /**
      * Initialize required services
-     * 
-     * @return void
      */
     private function initializeServices(): void
     {
         $basePath = __DIR__ . '/';
         
         // Load API Service
-        if (file_exists($basePath . 'NicsrsApiService.php')) {
+        if (!class_exists(NicsrsApiService::class) && file_exists($basePath . 'NicsrsApiService.php')) {
             require_once $basePath . 'NicsrsApiService.php';
         }
         
         // Load Activity Logger
-        if (file_exists($basePath . 'ActivityLogger.php')) {
+        if (!class_exists(ActivityLogger::class) && file_exists($basePath . 'ActivityLogger.php')) {
             require_once $basePath . 'ActivityLogger.php';
             $this->logger = new ActivityLogger();
-        }
-        
-        // Load API Config
-        $configPath = __DIR__ . '/../Config/ApiConfig.php';
-        if (file_exists($configPath)) {
-            require_once $configPath;
         }
         
         // Initialize API service with token
         $apiToken = $this->getApiToken();
         
         if (!empty($apiToken)) {
-            $this->apiService = new NicsrsApiService($apiToken);
-            $this->apiService->setTimeout(60); // Longer timeout for batch operations
+            try {
+                $this->apiService = new NicsrsApiService($apiToken);
+                $this->apiService->setTimeout(60);
+            } catch (\Exception $e) {
+                $this->logError('Failed to initialize API service: ' . $e->getMessage());
+                $this->apiService = null;
+            }
+        } else {
+            $this->logError('API token is empty or not configured');
         }
     }
 
     /**
-     * Get API token from shared config or module settings
+     * Get API token from tbladdonmodules (PRIMARY)
      * 
      * @return string|null
      */
     private function getApiToken(): ?string
     {
-        // Try shared config first
-        if (class_exists('\NicsrsAdmin\Config\ApiConfig')) {
-            $token = \NicsrsAdmin\Config\ApiConfig::getApiToken();
-            if (!empty($token)) {
-                return $token;
+        // 1. PRIMARY: Get from tbladdonmodules
+        try {
+            $addonToken = Capsule::table('tbladdonmodules')
+                ->where('module', 'nicsrs_ssl_admin')
+                ->where('setting', 'api_token')
+                ->value('value');
+            
+            if (!empty($addonToken)) {
+                return $addonToken;
             }
+        } catch (\Exception $e) {
+            $this->logError('Failed to get API token from tbladdonmodules: ' . $e->getMessage());
         }
         
-        // Fallback to direct database query
+        // 2. FALLBACK: Try tblservers (server module)
         try {
-            // Check server module config
             $serverConfig = Capsule::table('tblservers')
                 ->where('type', 'nicsrs_ssl')
                 ->where('disabled', 0)
@@ -175,19 +175,8 @@ class SyncService
             if ($serverConfig && !empty($serverConfig->password)) {
                 return decrypt($serverConfig->password);
             }
-            
-            // Check addon module config  
-            $addonConfig = Capsule::table('tbladdonmodules')
-                ->where('module', 'nicsrs_ssl_admin')
-                ->where('setting', 'api_token')
-                ->value('value');
-            
-            if (!empty($addonConfig)) {
-                return $addonConfig;
-            }
-            
         } catch (\Exception $e) {
-            $this->logError('Failed to get API token: ' . $e->getMessage());
+            $this->logError('Failed to get API token from tblservers: ' . $e->getMessage());
         }
         
         return null;
@@ -196,9 +185,7 @@ class SyncService
     /**
      * Run scheduled sync based on settings
      * 
-     * Main entry point for cron-triggered sync.
-     * 
-     * @return array Results summary
+     * @return array Sync results
      */
     public function runScheduledSync(): array
     {
@@ -208,24 +195,19 @@ class SyncService
             'timestamp' => date('Y-m-d H:i:s'),
         ];
 
-        // Check if auto-sync is enabled
         if (empty($this->settings['auto_sync_status'])) {
             return $results;
         }
 
-        // Check API availability
         if (!$this->apiService) {
-            $this->logError('API service not available - token may be missing');
-            $this->incrementErrorCount();
+            $this->logError('Scheduled sync skipped: API service not available');
             return $results;
         }
 
-        // Run Status Sync if due
         if ($this->shouldRunStatusSync()) {
             $results['status_sync'] = $this->syncCertificateStatuses();
         }
 
-        // Run Product Sync if due
         if ($this->shouldRunProductSync()) {
             $results['product_sync'] = $this->syncProducts();
         }
@@ -234,64 +216,98 @@ class SyncService
     }
 
     /**
-     * Check if status sync should run based on interval
+     * Force sync now (manual trigger)
      * 
-     * @return bool
+     * @param string $type Sync type: 'status', 'products', or 'all'
+     * @return array Sync results
+     */
+    public function forceSyncNow(string $type = 'all'): array
+    {
+        $results = [
+            'status_sync' => null,
+            'product_sync' => null,
+            'timestamp' => date('Y-m-d H:i:s'),
+        ];
+
+        if (!$this->apiService) {
+            $tokenExists = $this->getApiToken() !== null;
+            
+            return [
+                'error' => 'API service not available. ' . 
+                    ($tokenExists 
+                        ? 'Failed to initialize API service.' 
+                        : 'API token not configured.'),
+                'timestamp' => date('Y-m-d H:i:s'),
+            ];
+        }
+
+        try {
+            set_time_limit(300);
+            
+            if ($type === 'status' || $type === 'all') {
+                $results['status_sync'] = $this->syncCertificateStatuses();
+            }
+
+            if ($type === 'products' || $type === 'all') {
+                $results['product_sync'] = $this->syncProducts();
+            }
+            
+        } catch (\Exception $e) {
+            $this->logError('Force sync exception: ' . $e->getMessage());
+            
+            return [
+                'error' => 'Sync failed: ' . $e->getMessage(),
+                'timestamp' => date('Y-m-d H:i:s'),
+            ];
+        }
+
+        return $results;
+    }
+
+    /**
+     * Check if status sync should run
      */
     private function shouldRunStatusSync(): bool
     {
         $intervalHours = (int) ($this->settings['sync_interval_hours'] ?? 6);
         $lastSync = $this->settings['last_status_sync'] ?? null;
         
-        // Always run if never synced
         if (empty($lastSync)) {
             return true;
         }
         
         $lastSyncTime = strtotime($lastSync);
-        
-        // Handle invalid timestamp
         if (!$lastSyncTime) {
             return true;
         }
         
-        $nextSyncTime = $lastSyncTime + ($intervalHours * 3600);
-        
-        return time() >= $nextSyncTime;
+        return time() >= ($lastSyncTime + ($intervalHours * 3600));
     }
 
     /**
-     * Check if product sync should run based on interval
-     * 
-     * @return bool
+     * Check if product sync should run
      */
     private function shouldRunProductSync(): bool
     {
         $intervalHours = (int) ($this->settings['product_sync_hours'] ?? 24);
         $lastSync = $this->settings['last_product_sync'] ?? null;
         
-        // Always run if never synced
         if (empty($lastSync)) {
             return true;
         }
         
         $lastSyncTime = strtotime($lastSync);
-        
-        // Handle invalid timestamp
         if (!$lastSyncTime) {
             return true;
         }
         
-        $nextSyncTime = $lastSyncTime + ($intervalHours * 3600);
-        
-        return time() >= $nextSyncTime;
+        return time() >= ($lastSyncTime + ($intervalHours * 3600));
     }
 
     /**
      * Sync certificate statuses from NicSRS API
      * 
-     * Fetches pending certificates and updates their status
-     * by calling the /collect API endpoint.
+     * This syncs PENDING certificates to check if they became COMPLETE
      * 
      * @return array Sync results
      */
@@ -306,23 +322,17 @@ class SyncService
             'unchanged' => 0,
             'failed' => 0,
             'skipped' => 0,
+            'expired_checked' => 0,
+            'expired_updated' => 0,
             'errors' => [],
-            'completed_orders' => [],
         ];
 
         try {
-            // Get certificates needing sync
-            $certificates = $this->getCertificatesToSync();
-            $results['total'] = count($certificates);
+            // PART 1: Sync pending certificates (check if complete)
+            $pendingCerts = $this->getPendingCertificates();
+            $results['total'] = count($pendingCerts);
             
-            if ($results['total'] === 0) {
-                $this->updateSetting('last_status_sync', date('Y-m-d H:i:s'));
-                return $results;
-            }
-
-            // Process each certificate
-            foreach ($certificates as $cert) {
-                // Skip if no remote ID
+            foreach ($pendingCerts as $cert) {
                 if (empty($cert->remoteid)) {
                     $results['skipped']++;
                     continue;
@@ -335,16 +345,8 @@ class SyncService
                         if ($syncResult['status_changed']) {
                             $results['updated']++;
                             
-                            // Track completed certificates for notifications
                             if ($syncResult['new_status'] === 'complete') {
                                 $results['completed']++;
-                                $results['completed_orders'][] = [
-                                    'id' => $cert->id,
-                                    'remoteid' => $cert->remoteid,
-                                    'old_status' => $syncResult['old_status'],
-                                ];
-                                
-                                // Send notification
                                 $this->sendCompletionNotification($cert, $syncResult);
                             }
                         } else {
@@ -362,14 +364,21 @@ class SyncService
                     $results['errors'][] = "Order #{$cert->id}: " . $e->getMessage();
                 }
                 
-                // Small delay to avoid API rate limiting
-                usleep(100000); // 100ms
+                usleep(100000); // 100ms delay
             }
 
-            // Update last sync timestamp
-            $this->updateSetting('last_status_sync', date('Y-m-d H:i:s'));
+            // PART 2: Check expired certificates
+            $expiryResults = $this->checkExpiredCertificates();
+            $results['expired_checked'] = $expiryResults['checked'];
+            $results['expired_updated'] = $expiryResults['updated'];
+            $results['expired_no_enddate'] = $expiryResults['no_enddate'] ?? 0;
             
-            // Reset error count on successful sync
+            if (!empty($expiryResults['errors'])) {
+                $results['errors'] = array_merge($results['errors'], $expiryResults['errors']);
+            }
+
+            // Update timestamps
+            $this->updateSetting('last_status_sync', date('Y-m-d H:i:s'));
             $this->updateSetting('sync_error_count', '0');
 
             // Log activity
@@ -377,10 +386,12 @@ class SyncService
             
             if ($this->logger) {
                 $this->logger->log('auto_sync_status', 'cron', null, null, json_encode([
-                    'total' => $results['total'],
+                    'pending_total' => $results['total'],
                     'updated' => $results['updated'],
                     'completed' => $results['completed'],
                     'failed' => $results['failed'],
+                    'expired_checked' => $results['expired_checked'],
+                    'expired_updated' => $results['expired_updated'],
                     'duration_seconds' => $duration,
                 ]));
             }
@@ -395,15 +406,15 @@ class SyncService
     }
 
     /**
-     * Get certificates that need syncing
+     * Get PENDING certificates that need status sync
      * 
      * @return array Array of certificate records
      */
-    private function getCertificatesToSync(): array
+    private function getPendingCertificates(): array
     {
         try {
             return Capsule::table('nicsrs_sslorders')
-                ->whereIn('status', self::SYNCABLE_STATUSES)
+                ->whereIn('status', self::PENDING_STATUSES)
                 ->whereNotNull('remoteid')
                 ->where('remoteid', '!=', '')
                 ->orderBy('id', 'asc')
@@ -411,15 +422,235 @@ class SyncService
                 ->get()
                 ->toArray();
         } catch (\Exception $e) {
-            $this->logError('Failed to get certificates: ' . $e->getMessage());
+            $this->logError('Failed to get pending certificates: ' . $e->getMessage());
             return [];
+        }
+    }
+
+    /**
+     * Check and update EXPIRED certificates
+     * 
+     * Certificates that are 'complete' but endDate has passed
+     * 
+     * @return array Check results
+     */
+    private function checkExpiredCertificates(): array
+    {
+        $results = [
+            'checked' => 0,
+            'updated' => 0,
+            'already_expired' => 0,
+            'no_enddate' => 0,
+            'errors' => [],
+        ];
+        
+        try {
+            // Get active certificates - check ALL that are not already 'expired', 'cancelled', 'revoked'
+            $excludeStatuses = ['expired', 'cancelled', 'revoked', 'refunded'];
+            
+            $activeCerts = Capsule::table('nicsrs_sslorders')
+                ->whereNotIn('status', $excludeStatuses)
+                ->whereNotNull('remoteid')
+                ->where('remoteid', '!=', '')
+                ->limit($this->batchSize)
+                ->get();
+            
+            // Convert to array if needed
+            if (!is_array($activeCerts)) {
+                $activeCerts = $activeCerts->toArray();
+            }
+            
+            $results['checked'] = count($activeCerts);
+            $today = date('Y-m-d');
+            $expiredCerts = [];
+            
+            // Debug log
+            $this->logDebug('checkExpiredCertificates', [
+                'total_checked' => $results['checked'],
+                'today' => $today,
+                'exclude_statuses' => $excludeStatuses,
+            ]);
+            
+            foreach ($activeCerts as $cert) {
+                // Handle both object and array
+                $certId = is_object($cert) ? $cert->id : $cert['id'];
+                $certStatus = is_object($cert) ? $cert->status : $cert['status'];
+                $configDataRaw = is_object($cert) ? $cert->configdata : $cert['configdata'];
+                
+                $configData = json_decode($configDataRaw, true) ?: [];
+                
+                // Try multiple locations for endDate
+                $endDate = $configData['applyReturn']['endDate'] 
+                    ?? $configData['endDate'] 
+                    ?? null;
+                
+                if (!$endDate) {
+                    $results['no_enddate']++;
+                    continue;
+                }
+                
+                // Extract date part (API returns Y-m-d H:i:s)
+                $endDateOnly = substr($endDate, 0, 10);
+                
+                // Debug log for each certificate
+                $this->logDebug('checkExpiredCertificates_cert', [
+                    'cert_id' => $certId,
+                    'current_status' => $certStatus,
+                    'end_date' => $endDateOnly,
+                    'today' => $today,
+                    'is_expired' => ($endDateOnly < $today),
+                ]);
+                
+                // Check if certificate has expired (endDate < today)
+                if ($endDateOnly < $today) {
+                    // Skip if already marked as expired
+                    if ($certStatus === 'expired') {
+                        $results['already_expired']++;
+                        continue;
+                    }
+                    
+                    try {
+                        // Update configdata with expiry info
+                        $configData['expiredAt'] = date('Y-m-d H:i:s');
+                        $configData['lastAutoSync'] = date('Y-m-d H:i:s');
+                        $configData['previousStatus'] = $certStatus;
+                        
+                        // Update status to expired
+                        Capsule::table('nicsrs_sslorders')
+                            ->where('id', $certId)
+                            ->update([
+                                'status' => 'expired',
+                                'configdata' => json_encode($configData),
+                            ]);
+                        
+                        $results['updated']++;
+                        
+                        // Store for notification
+                        $expiredCerts[] = (object) [
+                            'id' => $certId,
+                            'remoteid' => is_object($cert) ? $cert->remoteid : $cert['remoteid'],
+                            'configdata' => json_encode($configData),
+                            'old_status' => $certStatus,
+                        ];
+                        
+                        // Log the expiry
+                        if ($this->logger) {
+                            $this->logger->log('certificate_expired', 'order', $certId, $certStatus, 'expired');
+                        }
+                        
+                        $this->logDebug('certificate_marked_expired', [
+                            'cert_id' => $certId,
+                            'old_status' => $certStatus,
+                            'end_date' => $endDateOnly,
+                        ]);
+                        
+                    } catch (\Exception $e) {
+                        $results['errors'][] = "Expiry update #{$certId}: " . $e->getMessage();
+                        $this->logError("Failed to update expired cert #{$certId}: " . $e->getMessage());
+                    }
+                }
+            }
+            
+            // Send expiry notification if any certificates expired
+            if (!empty($expiredCerts)) {
+                $this->sendExpiryNotification($expiredCerts);
+            }
+            
+        } catch (\Exception $e) {
+            $this->logError('Failed to check expired certificates: ' . $e->getMessage());
+            $results['errors'][] = $e->getMessage();
+        }
+        
+        return $results;
+    }
+
+    /**
+     * Send expiry notification email to admin
+     * 
+     * @param array $expiredCerts Array of expired certificate records
+     */
+    private function sendExpiryNotification(array $expiredCerts): void
+    {
+        if (empty($expiredCerts) || empty($this->settings['email_on_expiry'])) {
+            return;
+        }
+        
+        try {
+            $subject = '[NicSRS SSL] Certificates Expired - ' . date('Y-m-d');
+            
+            $body = "NicSRS SSL - Expired Certificates\n";
+            $body .= "==================================\n\n";
+            $body .= "The following certificates have expired:\n\n";
+            
+            foreach ($expiredCerts as $cert) {
+                $configData = json_decode($cert->configdata, true) ?: [];
+                $domain = $configData['domainInfo'][0]['domainName'] ?? 'Unknown';
+                $endDate = $configData['applyReturn']['endDate'] ?? 'Unknown';
+                
+                $body .= sprintf(
+                    "- Order #%d: %s\n  Remote ID: %s\n  Expired: %s\n\n",
+                    $cert->id,
+                    $domain,
+                    $cert->remoteid,
+                    $endDate
+                );
+            }
+            
+            $body .= "---\n";
+            $body .= "Total expired: " . count($expiredCerts) . "\n";
+            $body .= "NicSRS SSL Admin Module - Auto Sync";
+            
+            // Use WHMCS Local API
+            $results = localAPI('SendAdminEmail', [
+                'customsubject' => $subject,
+                'custommessage' => $body,
+                'type' => 'system',
+            ]);
+            
+            if ($results['result'] !== 'success') {
+                $this->logError('SendAdminEmail (expiry) failed: ' . ($results['message'] ?? 'Unknown error'));
+            }
+            
+        } catch (\Exception $e) {
+            $this->logError('Failed to send expiry notification: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Refresh a single certificate from API (can be called for any status)
+     * 
+     * This is useful for manually refreshing a specific certificate
+     * regardless of its current status.
+     * 
+     * @param int $certId Certificate order ID
+     * @return array Sync result
+     */
+    public function refreshCertificate(int $certId): array
+    {
+        try {
+            $cert = Capsule::table('nicsrs_sslorders')->find($certId);
+            
+            if (!$cert) {
+                return ['success' => false, 'error' => 'Certificate not found'];
+            }
+            
+            if (empty($cert->remoteid)) {
+                return ['success' => false, 'error' => 'No remote ID'];
+            }
+            
+            return $this->syncSingleCertificate($cert);
+            
+        } catch (\Exception $e) {
+            return ['success' => false, 'error' => $e->getMessage()];
         }
     }
 
     /**
      * Sync a single certificate with NicSRS API
      * 
-     * @param object $cert Certificate record from database
+     * Based on OrderController::refreshStatus() logic - EXACT MATCH
+     * 
+     * @param object $cert Certificate record
      * @return array Sync result
      */
     private function syncSingleCertificate(object $cert): array
@@ -434,8 +665,8 @@ class SyncService
         
         $certId = $cert->remoteid;
         
-        // Call NicSRS API with retry
-        $apiResult = $this->callApiWithRetry('collect', ['certId' => $certId]);
+        // Call NicSRS API - use collect() method
+        $apiResult = $this->callApiWithRetry('collect', $certId);
         
         if (!$apiResult) {
             $result['error'] = 'API call failed after retries';
@@ -448,7 +679,7 @@ class SyncService
             return $result;
         }
         
-        // Code 2 means certificate is still being processed
+        // Code 2 = Certificate still being processed (not a failure)
         if ($apiResult['code'] == 2) {
             $result['success'] = true;
             return $result;
@@ -459,46 +690,89 @@ class SyncService
             return $result;
         }
         
-        // Determine new status
-        $newStatus = strtolower($apiResult['status'] ?? $apiResult['certStatus'] ?? $cert->status);
-        $result['new_status'] = $newStatus;
-        $result['status_changed'] = ($newStatus !== $cert->status);
-        
-        // Parse and update config data
+        // Parse existing config data
         $configData = json_decode($cert->configdata, true) ?: [];
         
-        // Update applyReturn with API data
+        // Initialize applyReturn if not exists
+        if (!isset($configData['applyReturn'])) {
+            $configData['applyReturn'] = [];
+        }
+        
+        // Merge API response data into configdata (SAME as OrderController::refreshStatus)
         if (isset($apiResult['data']) && is_array($apiResult['data'])) {
             $data = $apiResult['data'];
             
-            $configData['applyReturn'] = array_merge(
-                $configData['applyReturn'] ?? [],
-                [
-                    'certId' => $certId,
-                    'beginDate' => $data['beginDate'] ?? null,
-                    'endDate' => $data['endDate'] ?? null,
-                    'dueDate' => $data['dueDate'] ?? null,
-                    'certificate' => $data['certificate'] ?? null,
-                    'caCertificate' => $data['caCertificate'] ?? null,
-                    'rsaPrivateKey' => $data['rsaPrivateKey'] ?? null,
-                    'jks' => $data['jks'] ?? null,
-                    'pkcs12' => $data['pkcs12'] ?? null,
-                    'jksPass' => $data['jksPass'] ?? null,
-                    'pkcsPass' => $data['pkcsPass'] ?? null,
-                    'vendorId' => $data['vendorId'] ?? null,
-                    'vendorCertId' => $data['vendorCertId'] ?? null,
-                ]
-            );
+            // Core certificate data
+            $configData['applyReturn']['certId'] = $certId;
             
-            // Update DCV information
-            $configData['applyReturn']['DCVfileName'] = $data['DCVfileName'] ?? null;
-            $configData['applyReturn']['DCVfileContent'] = $data['DCVfileContent'] ?? null;
-            $configData['applyReturn']['DCVfilePath'] = $data['DCVfilePath'] ?? null;
-            $configData['applyReturn']['DCVdnsHost'] = $data['DCVdnsHost'] ?? null;
-            $configData['applyReturn']['DCVdnsValue'] = $data['DCVdnsValue'] ?? null;
-            $configData['applyReturn']['DCVdnsType'] = $data['DCVdnsType'] ?? null;
+            // Vendor tracking fields
+            if (!empty($data['vendorId'])) {
+                $configData['applyReturn']['vendorId'] = $data['vendorId'];
+            }
+            if (!empty($data['vendorCertId'])) {
+                $configData['applyReturn']['vendorCertId'] = $data['vendorCertId'];
+            }
             
-            // Update DCV list
+            // Certificate dates
+            if (!empty($data['beginDate'])) {
+                $configData['applyReturn']['beginDate'] = $data['beginDate'];
+            }
+            if (!empty($data['endDate'])) {
+                $configData['applyReturn']['endDate'] = $data['endDate'];
+            }
+            if (!empty($data['dueDate'])) {
+                $configData['applyReturn']['dueDate'] = $data['dueDate'];
+            }
+            if (!empty($data['applyTime'])) {
+                $configData['applyReturn']['applyTime'] = $data['applyTime'];
+            }
+            
+            // Certificate content
+            if (!empty($data['certificate'])) {
+                $configData['applyReturn']['certificate'] = $data['certificate'];
+            }
+            if (!empty($data['caCertificate'])) {
+                $configData['applyReturn']['caCertificate'] = $data['caCertificate'];
+            }
+            if (!empty($data['rsaPrivateKey'])) {
+                $configData['applyReturn']['rsaPrivateKey'] = $data['rsaPrivateKey'];
+            }
+            
+            // JKS and PKCS12 data
+            if (!empty($data['jks'])) {
+                $configData['applyReturn']['jks'] = $data['jks'];
+            }
+            if (!empty($data['pkcs12'])) {
+                $configData['applyReturn']['pkcs12'] = $data['pkcs12'];
+            }
+            if (!empty($data['jksPass'])) {
+                $configData['applyReturn']['jksPass'] = $data['jksPass'];
+            }
+            if (!empty($data['pkcsPass'])) {
+                $configData['applyReturn']['pkcsPass'] = $data['pkcsPass'];
+            }
+            
+            // DCV information
+            if (!empty($data['DCVfileName'])) {
+                $configData['applyReturn']['DCVfileName'] = $data['DCVfileName'];
+            }
+            if (!empty($data['DCVfileContent'])) {
+                $configData['applyReturn']['DCVfileContent'] = $data['DCVfileContent'];
+            }
+            if (!empty($data['DCVfilePath'])) {
+                $configData['applyReturn']['DCVfilePath'] = $data['DCVfilePath'];
+            }
+            if (!empty($data['DCVdnsHost'])) {
+                $configData['applyReturn']['DCVdnsHost'] = $data['DCVdnsHost'];
+            }
+            if (!empty($data['DCVdnsValue'])) {
+                $configData['applyReturn']['DCVdnsValue'] = $data['DCVdnsValue'];
+            }
+            if (!empty($data['DCVdnsType'])) {
+                $configData['applyReturn']['DCVdnsType'] = $data['DCVdnsType'];
+            }
+            
+            // DCV list (domain validation status)
             if (!empty($data['dcvList']) && is_array($data['dcvList'])) {
                 $configData['dcvList'] = [];
                 foreach ($data['dcvList'] as $dcv) {
@@ -511,22 +785,24 @@ class SyncService
                     ];
                 }
             }
-            
-            // Update application status
-            if (isset($data['application'])) {
-                $configData['applicationStatus'] = $data['application'];
-            }
-            if (isset($data['dcv'])) {
-                $configData['dcvStatus'] = $data['dcv'];
-            }
-            if (isset($data['issued'])) {
-                $configData['issuedStatus'] = $data['issued'];
-            }
         }
         
-        // Add sync metadata
+        // Add lastRefresh timestamp (same key as OrderController uses)
+        $configData['lastRefresh'] = date('Y-m-d H:i:s');
+        
+        // Also keep lastAutoSync for tracking auto-sync vs manual refresh
         $configData['lastAutoSync'] = date('Y-m-d H:i:s');
-        $configData['syncSource'] = 'cron';
+        
+        // Determine new status from API response
+        $newStatus = $cert->status;
+        if (isset($apiResult['status'])) {
+            $newStatus = strtolower($apiResult['status']);
+        } elseif (isset($apiResult['certStatus'])) {
+            $newStatus = strtolower($apiResult['certStatus']);
+        }
+        
+        $result['new_status'] = $newStatus;
+        $result['status_changed'] = ($newStatus !== $cert->status);
         
         // Build update data
         $updateData = [
@@ -534,18 +810,22 @@ class SyncService
             'configdata' => json_encode($configData),
         ];
         
-        // Set completiondate when status changes to complete
-        if ($newStatus === 'complete' && $cert->status !== 'complete') {
-            $beginDate = $configData['applyReturn']['beginDate'] ?? null;
-            
-            if ($beginDate) {
-                // Handle datetime format from API (Y-m-d H:i:s)
-                $completionDate = substr($beginDate, 0, 10);
-            } else {
-                $completionDate = date('Y-m-d');
+        // Set provisiondate if empty (same logic as OrderController)
+        if (!$this->isValidDate($cert->provisiondate)) {
+            $updateData['provisiondate'] = date('Y-m-d');
+        }
+        
+        // Set completiondate when status is complete
+        if ($newStatus === 'complete') {
+            if (!$this->isValidDate($cert->completiondate)) {
+                // Use certificate begin date or current date
+                $completionDate = $configData['applyReturn']['beginDate'] ?? date('Y-m-d H:i:s');
+                // Ensure it's datetime format
+                if (strlen($completionDate) === 10) {
+                    $completionDate .= ' 00:00:00';
+                }
+                $updateData['completiondate'] = $completionDate;
             }
-            
-            $updateData['completiondate'] = $completionDate;
         }
         
         // Update database
@@ -562,27 +842,39 @@ class SyncService
         
         return $result;
     }
+    
+    /**
+     * Check if date is valid (not empty or 0000-00-00)
+     * Same logic as OrderController::isValidDate()
+     * 
+     * @param mixed $date Date value
+     * @return bool
+     */
+    private function isValidDate($date): bool
+    {
+        return !empty($date) && $date !== '0000-00-00' && $date !== '0000-00-00 00:00:00';
+    }
 
     /**
      * Call API with retry mechanism
      * 
-     * @param string $method API method name
-     * @param array $params API parameters
+     * @param string $method API method name (e.g., 'collect', 'productList')
+     * @param mixed $param Parameter for API call
      * @return array|null API response or null on failure
      */
-    private function callApiWithRetry(string $method, array $params): ?array
+    private function callApiWithRetry(string $method, $param): ?array
     {
         $lastException = null;
         
         for ($attempt = 1; $attempt <= $this->maxRetries; $attempt++) {
             try {
-                $result = $this->apiService->$method($params['certId'] ?? $params);
+                $result = $this->apiService->$method($param);
                 return $result;
                 
             } catch (\Exception $e) {
                 $lastException = $e;
                 
-                // Wait before retry (exponential backoff)
+                // Exponential backoff
                 if ($attempt < $this->maxRetries) {
                     sleep(pow(2, $attempt - 1));
                 }
@@ -590,7 +882,7 @@ class SyncService
         }
         
         if ($lastException) {
-            $this->logError("API call failed after {$this->maxRetries} retries: " . $lastException->getMessage());
+            $this->logError("API call {$method} failed after {$this->maxRetries} retries: " . $lastException->getMessage());
         }
         
         return null;
@@ -599,8 +891,7 @@ class SyncService
     /**
      * Sync products from NicSRS API
      * 
-     * Fetches product list and pricing from all vendors
-     * and updates the local product catalog.
+     * Based on ProductService::syncFromApi() logic
      * 
      * @return array Sync results
      */
@@ -613,12 +904,20 @@ class SyncService
             'total_products' => 0,
             'updated' => 0,
             'inserted' => 0,
+            'price_changes' => [],
             'errors' => [],
         ];
 
         foreach (self::VENDORS as $vendor) {
             try {
-                $apiResult = $this->apiService->getProductList($vendor);
+                // Use productList() method - NOT getProductList()
+                $apiResult = $this->apiService->productList($vendor);
+                
+                // Debug log API response
+                $this->logDebug("Product sync for {$vendor}", [
+                    'code' => $apiResult['code'] ?? 'null',
+                    'data_count' => isset($apiResult['data']) ? count($apiResult['data']) : 0,
+                ]);
                 
                 if (!isset($apiResult['code']) || $apiResult['code'] != 1) {
                     $results['errors'][] = "{$vendor}: " . ($apiResult['msg'] ?? 'Unknown error');
@@ -639,16 +938,26 @@ class SyncService
                 $results['updated'] += $vendorResults['updated'];
                 $results['inserted'] += $vendorResults['inserted'];
                 
+                // Collect price changes for notification
+                if (!empty($vendorResults['price_changes'])) {
+                    $results['price_changes'] = array_merge($results['price_changes'], $vendorResults['price_changes']);
+                }
+                
             } catch (\Exception $e) {
                 $results['errors'][] = "{$vendor}: " . $e->getMessage();
+                $this->logError("Product sync error for {$vendor}: " . $e->getMessage());
             }
             
-            // Small delay between vendor calls
-            usleep(500000); // 500ms
+            usleep(500000); // 500ms delay between vendors
         }
 
         // Update last sync timestamp
         $this->updateSetting('last_product_sync', date('Y-m-d H:i:s'));
+
+        // Send price change notification if any
+        if (!empty($results['price_changes'])) {
+            $this->sendPriceChangeNotification($results['price_changes']);
+        }
 
         // Log activity
         $duration = round(microtime(true) - $startTime, 2);
@@ -656,6 +965,9 @@ class SyncService
         if ($this->logger) {
             $this->logger->log('auto_sync_products', 'cron', null, null, json_encode([
                 'total_products' => $results['total_products'],
+                'updated' => $results['updated'],
+                'inserted' => $results['inserted'],
+                'price_changes_count' => count($results['price_changes']),
                 'vendors' => $results['vendors'],
                 'duration_seconds' => $duration,
             ]));
@@ -667,6 +979,22 @@ class SyncService
     /**
      * Save products to database
      * 
+     * Based on ProductService::syncFromApi() logic
+     * API response format:
+     * {
+     *   "code": "sectigo-ov",
+     *   "productName": "Sectigo OV SSL",
+     *   "supportWildcard": "N",
+     *   "supportSan": "Y",
+     *   "validationType": "ov",
+     *   "maxDomain": 5,
+     *   "maxYear": 2,
+     *   "price": {
+     *     "basePrice": { "price012": 59.00, "price024": 99.00 },
+     *     "sanPrice": { "price012": 15.00, "price024": 25.00 }
+     *   }
+     * }
+     * 
      * @param array $products Product list from API
      * @param string $vendor Vendor name
      * @return array Save results
@@ -677,28 +1005,39 @@ class SyncService
             'total' => 0,
             'updated' => 0,
             'inserted' => 0,
+            'price_changes' => [],
         ];
         
+        $now = date('Y-m-d H:i:s');
+        
         foreach ($products as $product) {
-            $productCode = $product['product_code'] ?? $product['productCode'] ?? null;
+            // API returns 'code' as product_code (not 'product_code' or 'productCode')
+            $productCode = $product['code'] ?? null;
             
             if (!$productCode) {
                 continue;
             }
             
+            // Extract prices from nested structure
+            $price = $product['price'] ?? [];
+            $basePrice = $price['basePrice'] ?? [];
+            
+            $price1Year = $this->extractPrice($basePrice, 'price012');
+            $price2Year = $this->extractPrice($basePrice, 'price024');
+            $price3Year = $this->extractPrice($basePrice, 'price036');
+            
             $data = [
                 'product_code' => $productCode,
-                'product_name' => $product['product_name'] ?? $product['productName'] ?? $productCode,
+                'product_name' => $product['productName'] ?? $productCode,
                 'vendor' => $vendor,
-                'product_type' => $product['product_type'] ?? $product['productType'] ?? 'DV',
-                'validation_type' => $product['validation_type'] ?? $product['validationType'] ?? 'DV',
-                'price_1year' => $this->parsePrice($product['price_1year'] ?? $product['price1Year'] ?? null),
-                'price_2year' => $this->parsePrice($product['price_2year'] ?? $product['price2Year'] ?? null),
-                'price_3year' => $this->parsePrice($product['price_3year'] ?? $product['price3Year'] ?? null),
-                'is_wildcard' => (int) ($product['is_wildcard'] ?? $product['isWildcard'] ?? 0),
-                'is_multidomain' => (int) ($product['is_multidomain'] ?? $product['isMultidomain'] ?? 0),
-                'max_domains' => (int) ($product['max_domains'] ?? $product['maxDomains'] ?? 1),
-                'updated_at' => date('Y-m-d H:i:s'),
+                'validation_type' => $this->normalizeValidationType($product['validationType'] ?? 'dv'),
+                'support_wildcard' => $this->normalizeBoolean($product['supportWildcard'] ?? 'N'),
+                'support_san' => $this->normalizeBoolean($product['supportSan'] ?? 'N'),
+                'max_domains' => (int) ($product['maxDomain'] ?? 1),
+                'max_years' => (int) ($product['maxYear'] ?? 1),
+                'price_data' => json_encode($price),
+                'last_sync' => $now,
+                'updated_at' => $now,
             ];
             
             try {
@@ -709,12 +1048,33 @@ class SyncService
                     ->first();
                 
                 if ($existing) {
+                    // Check for price changes before updating
+                    $oldPriceData = json_decode($existing->price_data, true) ?: [];
+                    $oldBasePrice = $oldPriceData['basePrice'] ?? [];
+                    
+                    $oldPrice1Year = $this->extractPrice($oldBasePrice, 'price012');
+                    
+                    // Detect price change
+                    if ($oldPrice1Year !== null && $price1Year !== null && $oldPrice1Year != $price1Year) {
+                        $results['price_changes'][] = [
+                            'product_code' => $productCode,
+                            'product_name' => $data['product_name'],
+                            'vendor' => $vendor,
+                            'old_price' => $oldPrice1Year,
+                            'new_price' => $price1Year,
+                            'change' => $price1Year - $oldPrice1Year,
+                            'change_percent' => $oldPrice1Year > 0 
+                                ? round((($price1Year - $oldPrice1Year) / $oldPrice1Year) * 100, 2) 
+                                : 0,
+                        ];
+                    }
+                    
                     Capsule::table('mod_nicsrs_products')
                         ->where('id', $existing->id)
                         ->update($data);
                     $results['updated']++;
                 } else {
-                    $data['created_at'] = date('Y-m-d H:i:s');
+                    $data['created_at'] = $now;
                     Capsule::table('mod_nicsrs_products')->insert($data);
                     $results['inserted']++;
                 }
@@ -730,30 +1090,137 @@ class SyncService
     }
 
     /**
-     * Parse price value
+     * Extract price from API price array
      * 
-     * @param mixed $price Price value
+     * @param array $priceArray Price array from API
+     * @param string $key Price key (e.g., 'price012', 'price024')
      * @return float|null
      */
-    private function parsePrice($price): ?float
+    private function extractPrice(array $priceArray, string $key): ?float
     {
-        if ($price === null || $price === '') {
+        if (!isset($priceArray[$key])) {
             return null;
         }
         
-        return (float) $price;
+        $value = $priceArray[$key];
+        
+        if ($value === null || $value === '') {
+            return null;
+        }
+        
+        return (float) $value;
+    }
+
+    /**
+     * Normalize validation type
+     */
+    private function normalizeValidationType(string $type): string
+    {
+        $type = strtolower(trim($type));
+        
+        $mapping = [
+            'dv' => 'dv',
+            'domain' => 'dv',
+            'domain validation' => 'dv',
+            'ov' => 'ov',
+            'organization' => 'ov',
+            'organization validation' => 'ov',
+            'ev' => 'ev',
+            'extended' => 'ev',
+            'extended validation' => 'ev',
+        ];
+        
+        return $mapping[$type] ?? 'dv';
+    }
+
+    /**
+     * Normalize boolean value from API
+     */
+    private function normalizeBoolean($value): int
+    {
+        if (is_bool($value)) {
+            return $value ? 1 : 0;
+        }
+        if (is_numeric($value)) {
+            return (int) $value;
+        }
+        
+        $value = strtoupper(trim((string) $value));
+        return in_array($value, ['Y', 'YES', 'TRUE', '1']) ? 1 : 0;
+    }
+
+    /**
+     * Send price change notification email to admin
+     * 
+     * Uses WHMCS Local API SendAdminEmail
+     * @see https://developers.whmcs.com/api-reference/sendadminemail/
+     * 
+     * @param array $priceChanges Array of price change records
+     */
+    private function sendPriceChangeNotification(array $priceChanges): void
+    {
+        if (empty($priceChanges)) {
+            return;
+        }
+        
+        try {
+            // Build email subject
+            $subject = '[NicSRS SSL] Product Price Changes - ' . date('Y-m-d');
+            
+            // Build plain text email body
+            $body = "NicSRS SSL Product Price Changes Detected\n";
+            $body .= "=========================================\n\n";
+            $body .= "Sync Time: " . date('Y-m-d H:i:s') . "\n";
+            $body .= "Total Changes: " . count($priceChanges) . "\n\n";
+            
+            foreach ($priceChanges as $change) {
+                $direction = $change['change'] > 0 ? 'UP' : 'DOWN';
+                $body .= sprintf(
+                    "- %s (%s)\n  Price: $%.2f -> $%.2f (%s %.2f%%)\n\n",
+                    $change['product_name'],
+                    $change['vendor'],
+                    $change['old_price'],
+                    $change['new_price'],
+                    $direction,
+                    abs($change['change_percent'])
+                );
+            }
+            
+            $body .= "---\n";
+            $body .= "NicSRS SSL Admin Module - Auto Sync";
+            
+            // Use WHMCS Local API SendAdminEmail
+            $command = 'SendAdminEmail';
+            $postData = [
+                'customsubject' => $subject,
+                'custommessage' => $body,
+                'type' => 'system',
+            ];
+            
+            $results = localAPI($command, $postData);
+            
+            if ($results['result'] === 'success') {
+                // Log notification sent
+                if ($this->logger) {
+                    $this->logger->log('price_change_notification', 'product', null, null, json_encode([
+                        'changes_count' => count($priceChanges),
+                        'status' => 'sent',
+                    ]));
+                }
+            } else {
+                $this->logError('SendAdminEmail failed: ' . ($results['message'] ?? 'Unknown error'));
+            }
+            
+        } catch (\Exception $e) {
+            $this->logError('Failed to send price change notification: ' . $e->getMessage());
+        }
     }
 
     /**
      * Send completion notification email
-     * 
-     * @param object $cert Certificate record
-     * @param array $syncResult Sync result data
-     * @return void
      */
     private function sendCompletionNotification(object $cert, array $syncResult): void
     {
-        // Check if notifications are enabled
         if (empty($this->settings['email_on_issuance'])) {
             return;
         }
@@ -777,10 +1244,6 @@ class SyncService
 
     /**
      * Update a setting value in database
-     * 
-     * @param string $key Setting key
-     * @param mixed $value Setting value
-     * @return void
      */
     private function updateSetting(string $key, $value): void
     {
@@ -791,6 +1254,7 @@ class SyncService
                     [
                         'setting_value' => (string) $value,
                         'setting_type' => 'string',
+                        'updated_at' => date('Y-m-d H:i:s'),
                     ]
                 );
             
@@ -803,8 +1267,6 @@ class SyncService
 
     /**
      * Increment error count
-     * 
-     * @return void
      */
     private function incrementErrorCount(): void
     {
@@ -814,15 +1276,12 @@ class SyncService
 
     /**
      * Log error message
-     * 
-     * @param string $message Error message
-     * @return void
      */
     private function logError(string $message): void
     {
         logModuleCall(
             'nicsrs_ssl_admin',
-            'SyncService',
+            'SyncService_Error',
             [],
             $message,
             'ERROR'
@@ -830,9 +1289,21 @@ class SyncService
     }
 
     /**
+     * Log debug message
+     */
+    private function logDebug(string $action, array $data): void
+    {
+        logModuleCall(
+            'nicsrs_ssl_admin',
+            'SyncService_Debug',
+            $data,
+            $action,
+            'DEBUG'
+        );
+    }
+
+    /**
      * Get sync status for display
-     * 
-     * @return array Sync status information
      */
     public function getSyncStatus(): array
     {
@@ -842,7 +1313,6 @@ class SyncService
         $lastStatusSync = $this->settings['last_status_sync'] ?? null;
         $lastProductSync = $this->settings['last_product_sync'] ?? null;
         
-        // Calculate next sync times
         $nextStatusSync = null;
         $nextProductSync = null;
         
@@ -854,11 +1324,11 @@ class SyncService
             $nextProductSync = date('Y-m-d H:i:s', strtotime($lastProductSync) + ($productSyncInterval * 3600));
         }
         
-        // Get pending certificates count
+        // Count pending certificates (need status sync)
         $pendingCount = 0;
         try {
             $pendingCount = Capsule::table('nicsrs_sslorders')
-                ->whereIn('status', self::SYNCABLE_STATUSES)
+                ->whereIn('status', self::PENDING_STATUSES)
                 ->whereNotNull('remoteid')
                 ->where('remoteid', '!=', '')
                 ->count();
@@ -866,13 +1336,47 @@ class SyncService
             // Ignore
         }
         
+        // Count active certificates (for expiry check)
+        $activeCount = 0;
+        try {
+            $activeCount = Capsule::table('nicsrs_sslorders')
+                ->whereIn('status', self::ACTIVE_STATUSES)
+                ->whereNotNull('remoteid')
+                ->where('remoteid', '!=', '')
+                ->count();
+        } catch (\Exception $e) {
+            // Ignore
+        }
+        
+        // Count expiring soon (within configured days)
+        $expiringCount = 0;
+        $expiryDays = (int) ($this->settings['expiry_days'] ?? 30);
+        try {
+            $expiringCount = $this->countExpiringSoon($expiryDays);
+        } catch (\Exception $e) {
+            // Ignore
+        }
+        
+        $apiConnected = false;
+        if ($this->apiService) {
+            try {
+                $apiConnected = $this->apiService->testConnection();
+            } catch (\Exception $e) {
+                // Ignore
+            }
+        }
+        
         return [
             'enabled' => !empty($this->settings['auto_sync_status']),
+            'api_connected' => $apiConnected,
             'status_sync' => [
                 'interval_hours' => $statusSyncInterval,
                 'last_sync' => $lastStatusSync,
                 'next_sync' => $nextStatusSync,
                 'pending_certificates' => $pendingCount,
+                'active_certificates' => $activeCount,
+                'expiring_soon' => $expiringCount,
+                'expiry_days' => $expiryDays,
             ],
             'product_sync' => [
                 'interval_hours' => $productSyncInterval,
@@ -883,36 +1387,107 @@ class SyncService
             'batch_size' => $this->batchSize,
         ];
     }
-
+    
     /**
-     * Force sync now (manual trigger)
+     * Count certificates expiring within X days
      * 
-     * @param string $type Sync type: 'status', 'products', or 'all'
-     * @return array Sync results
+     * @param int $days Number of days
+     * @return int Count
      */
-    public function forceSyncNow(string $type = 'all'): array
+    private function countExpiringSoon(int $days): int
     {
-        $results = [
-            'status_sync' => null,
-            'product_sync' => null,
-            'timestamp' => date('Y-m-d H:i:s'),
-        ];
-
-        if (!$this->apiService) {
-            return [
-                'error' => 'API service not available',
-                'timestamp' => date('Y-m-d H:i:s'),
-            ];
+        $count = 0;
+        $today = date('Y-m-d');
+        $futureDate = date('Y-m-d', strtotime("+{$days} days"));
+        
+        try {
+            $activeCerts = Capsule::table('nicsrs_sslorders')
+                ->whereIn('status', self::ACTIVE_STATUSES)
+                ->whereNotNull('remoteid')
+                ->get(['id', 'configdata']);
+            
+            foreach ($activeCerts as $cert) {
+                $configData = json_decode($cert->configdata, true) ?: [];
+                $endDate = $configData['applyReturn']['endDate'] ?? null;
+                
+                if (!$endDate) {
+                    continue;
+                }
+                
+                $endDateOnly = substr($endDate, 0, 10);
+                
+                // Check if expiring within the period (not already expired)
+                if ($endDateOnly >= $today && $endDateOnly <= $futureDate) {
+                    $count++;
+                }
+            }
+        } catch (\Exception $e) {
+            // Ignore
         }
-
-        if ($type === 'status' || $type === 'all') {
-            $results['status_sync'] = $this->syncCertificateStatuses();
+        
+        return $count;
+    }
+    
+    /**
+     * Get list of certificates expiring soon
+     * 
+     * @param int $days Number of days to look ahead
+     * @param int $limit Maximum results
+     * @return array List of expiring certificates
+     */
+    public function getExpiringSoonList(int $days = 30, int $limit = 50): array
+    {
+        $results = [];
+        $today = date('Y-m-d');
+        $futureDate = date('Y-m-d', strtotime("+{$days} days"));
+        
+        try {
+            $activeCerts = Capsule::table('nicsrs_sslorders as o')
+                ->leftJoin('tblclients as c', 'o.userid', '=', 'c.id')
+                ->whereIn('o.status', self::ACTIVE_STATUSES)
+                ->whereNotNull('o.remoteid')
+                ->select(['o.*', 'c.firstname', 'c.lastname', 'c.email', 'c.companyname'])
+                ->get();
+            
+            foreach ($activeCerts as $cert) {
+                $configData = json_decode($cert->configdata, true) ?: [];
+                $endDate = $configData['applyReturn']['endDate'] ?? null;
+                
+                if (!$endDate) {
+                    continue;
+                }
+                
+                $endDateOnly = substr($endDate, 0, 10);
+                
+                if ($endDateOnly >= $today && $endDateOnly <= $futureDate) {
+                    $daysLeft = (strtotime($endDateOnly) - strtotime($today)) / 86400;
+                    
+                    $results[] = [
+                        'id' => $cert->id,
+                        'remoteid' => $cert->remoteid,
+                        'domain' => $configData['domainInfo'][0]['domainName'] ?? 'Unknown',
+                        'product_code' => $configData['productCode'] ?? 'Unknown',
+                        'end_date' => $endDateOnly,
+                        'days_left' => (int) $daysLeft,
+                        'client_name' => trim(($cert->firstname ?? '') . ' ' . ($cert->lastname ?? '')),
+                        'client_email' => $cert->email ?? '',
+                        'company' => $cert->companyname ?? '',
+                    ];
+                }
+            }
+            
+            // Sort by days_left ascending
+            usort($results, function($a, $b) {
+                return $a['days_left'] - $b['days_left'];
+            });
+            
+            // Limit results
+            $results = array_slice($results, 0, $limit);
+            
+        } catch (\Exception $e) {
+            $this->logError('Failed to get expiring certificates: ' . $e->getMessage());
         }
-
-        if ($type === 'products' || $type === 'all') {
-            $results['product_sync'] = $this->syncProducts();
-        }
-
+        
         return $results;
     }
 }

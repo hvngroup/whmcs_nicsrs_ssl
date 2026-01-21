@@ -176,6 +176,7 @@ class SettingsController extends BaseController
                 'auto_sync_status' => 'boolean',
                 'sync_interval_hours' => 'integer',
                 'product_sync_hours' => 'integer',
+                'sync_batch_size' => 'integer',
                 // Display settings
                 'date_format' => 'string',
                 'admin_email' => 'string',
@@ -371,6 +372,9 @@ class SettingsController extends BaseController
                 return $this->jsonError('SyncService class not found. Check autoloader configuration.');
             }
             
+            // Extend execution time for sync
+            set_time_limit(300);
+            
             $syncService = new SyncService();
             $results = $syncService->forceSyncNow($syncType);
             
@@ -384,11 +388,30 @@ class SettingsController extends BaseController
             
             if (isset($results['status_sync']) && $results['status_sync'] !== null) {
                 $ss = $results['status_sync'];
+                
+                // Pending certificates sync info
                 $total = $ss['total'] ?? 0;
                 $updated = $ss['updated'] ?? 0;
                 $completed = $ss['completed'] ?? 0;
                 $failed = $ss['failed'] ?? 0;
-                $messages[] = "Status Sync: {$total} checked, {$updated} updated, {$completed} completed, {$failed} failed";
+                
+                $statusMsg = "Pending: {$total} checked";
+                if ($updated > 0) $statusMsg .= ", {$updated} updated";
+                if ($completed > 0) $statusMsg .= ", {$completed} completed";
+                if ($failed > 0) $statusMsg .= ", {$failed} failed";
+                
+                // Expired certificates info
+                $expiredChecked = $ss['expired_checked'] ?? 0;
+                $expiredUpdated = $ss['expired_updated'] ?? 0;
+                
+                if ($expiredChecked > 0) {
+                    $statusMsg .= ". Expiry: {$expiredChecked} checked";
+                    if ($expiredUpdated > 0) {
+                        $statusMsg .= ", {$expiredUpdated} marked expired";
+                    }
+                }
+                
+                $messages[] = $statusMsg;
             }
             
             if (isset($results['product_sync']) && $results['product_sync'] !== null) {
@@ -396,7 +419,14 @@ class SettingsController extends BaseController
                 $totalProducts = $ps['total_products'] ?? 0;
                 $updated = $ps['updated'] ?? 0;
                 $inserted = $ps['inserted'] ?? 0;
-                $messages[] = "Product Sync: {$totalProducts} products ({$inserted} new, {$updated} updated)";
+                $priceChanges = count($ps['price_changes'] ?? []);
+                
+                $productMsg = "Products: {$totalProducts} ({$inserted} new, {$updated} updated)";
+                if ($priceChanges > 0) {
+                    $productMsg .= ", {$priceChanges} price changes";
+                }
+                
+                $messages[] = $productMsg;
             }
             
             // If no messages, provide default
