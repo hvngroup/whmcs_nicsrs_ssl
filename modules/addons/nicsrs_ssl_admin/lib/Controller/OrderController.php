@@ -392,6 +392,12 @@ class OrderController extends BaseController
             case 'download_cert':
                 return $this->downloadCertificate($orderId);
 
+            case 'download_jks':
+                return $this->downloadJks($orderId);
+
+            case 'download_pkcs12':
+                return $this->downloadPkcs12($orderId);
+
             default:
                 return $this->jsonError('Unknown action');
         }
@@ -427,22 +433,94 @@ class OrderController extends BaseController
                         $configData['applyReturn'] = [];
                     }
                     
-                    // Update certificate data
-                    $configData['applyReturn'] = array_merge(
-                        $configData['applyReturn'],
-                        [
-                            'certId' => $order->remoteid,
-                            'beginDate' => $result['data']['beginDate'] ?? $configData['applyReturn']['beginDate'] ?? null,
-                            'endDate' => $result['data']['endDate'] ?? $configData['applyReturn']['endDate'] ?? null,
-                            'certificate' => $result['data']['certificate'] ?? $configData['applyReturn']['certificate'] ?? null,
-                            'caCertificate' => $result['data']['caCertificate'] ?? $configData['applyReturn']['caCertificate'] ?? null,
-                        ]
-                    );
+                    // Preserve existing data and merge new data
+                    $apiData = $result['data'];
+                    
+                    // Update certificate core data
+                    $configData['applyReturn']['certId'] = $order->remoteid;
+                    
+                    // Vendor tracking fields
+                    if (!empty($apiData['vendorId'])) {
+                        $configData['applyReturn']['vendorId'] = $apiData['vendorId'];
+                    }
+                    if (!empty($apiData['vendorCertId'])) {
+                        $configData['applyReturn']['vendorCertId'] = $apiData['vendorCertId'];
+                    }
+                    
+                    // Certificate dates
+                    if (!empty($apiData['beginDate'])) {
+                        $configData['applyReturn']['beginDate'] = $apiData['beginDate'];
+                    }
+                    if (!empty($apiData['endDate'])) {
+                        $configData['applyReturn']['endDate'] = $apiData['endDate'];
+                    }
+                    if (!empty($apiData['dueDate'])) {
+                        $configData['applyReturn']['dueDate'] = $apiData['dueDate'];
+                    }
+                    if (!empty($apiData['applyTime'])) {
+                        $configData['applyReturn']['applyTime'] = $apiData['applyTime'];
+                    }
+                    
+                    // Certificate content
+                    if (!empty($apiData['certificate'])) {
+                        $configData['applyReturn']['certificate'] = $apiData['certificate'];
+                    }
+                    if (!empty($apiData['caCertificate'])) {
+                        $configData['applyReturn']['caCertificate'] = $apiData['caCertificate'];
+                    }
+                    if (!empty($apiData['privateKey'])) {
+                        $configData['applyReturn']['privateKey'] = $apiData['privateKey'];
+                    }
+                    
+                    // JKS and PKCS12 data (important for download)
+                    if (!empty($apiData['jks'])) {
+                        $configData['applyReturn']['jks'] = $apiData['jks'];
+                    }
+                    if (!empty($apiData['jksPass'])) {
+                        $configData['applyReturn']['jksPass'] = $apiData['jksPass'];
+                    }
+                    if (!empty($apiData['pkcs12'])) {
+                        $configData['applyReturn']['pkcs12'] = $apiData['pkcs12'];
+                    }
+                    if (!empty($apiData['pkcsPass'])) {
+                        $configData['applyReturn']['pkcsPass'] = $apiData['pkcsPass'];
+                    }
+                    
+                    // DCV validation fields
+                    if (!empty($apiData['DCVfileName'])) {
+                        $configData['applyReturn']['DCVfileName'] = $apiData['DCVfileName'];
+                    }
+                    if (!empty($apiData['DCVfileContent'])) {
+                        $configData['applyReturn']['DCVfileContent'] = $apiData['DCVfileContent'];
+                    }
+                    if (!empty($apiData['DCVfilePath'])) {
+                        $configData['applyReturn']['DCVfilePath'] = $apiData['DCVfilePath'];
+                    }
+                    if (!empty($apiData['DCVdnsHost'])) {
+                        $configData['applyReturn']['DCVdnsHost'] = $apiData['DCVdnsHost'];
+                    }
+                    if (!empty($apiData['DCVdnsValue'])) {
+                        $configData['applyReturn']['DCVdnsValue'] = $apiData['DCVdnsValue'];
+                    }
+                    if (!empty($apiData['DCVdnsType'])) {
+                        $configData['applyReturn']['DCVdnsType'] = $apiData['DCVdnsType'];
+                    }
+                    
+                    // Process status tracking
+                    if (!empty($apiData['application'])) {
+                        $configData['applyReturn']['application'] = $apiData['application'];
+                    }
+                    if (!empty($apiData['dcv'])) {
+                        $configData['applyReturn']['dcv'] = $apiData['dcv'];
+                    }
+                    if (!empty($apiData['issued'])) {
+                        $configData['applyReturn']['issued'] = $apiData['issued'];
+                    }
                     
                     // Update DCV list if available
-                    if (!empty($result['data']['dcvList'])) {
+                    if (!empty($apiData['dcvList'])) {
                         $configData['domainInfo'] = [];
-                        foreach ($result['data']['dcvList'] as $dcv) {
+                        foreach ($apiData['dcvList'] as $dcv) {
                             $configData['domainInfo'][] = [
                                 'domainName' => $dcv['domainName'] ?? '',
                                 'dcvMethod' => $dcv['dcvMethod'] ?? 'EMAIL',
@@ -457,7 +535,13 @@ class OrderController extends BaseController
                 // Add last refresh timestamp
                 $configData['lastRefresh'] = date('Y-m-d H:i:s');
 
-                $newStatus = isset($result['status']) ? strtolower($result['status']) : $order->status;
+                // Determine new status
+                $newStatus = $order->status;
+                if (isset($result['status'])) {
+                    $newStatus = strtolower($result['status']);
+                } elseif (isset($result['certStatus'])) {
+                    $newStatus = strtolower($result['certStatus']);
+                }
                 
                 // Build update data with proper date handling
                 $updateData = [
@@ -474,7 +558,7 @@ class OrderController extends BaseController
                 if ($newStatus === 'complete') {
                     if (!$this->isValidDate($order->completiondate)) {
                         // Use certificate begin date or current date
-                        $completionDate = $result['data']['beginDate'] ?? date('Y-m-d H:i:s');
+                        $completionDate = $configData['applyReturn']['beginDate'] ?? date('Y-m-d H:i:s');
                         // Ensure it's datetime format
                         if (strlen($completionDate) === 10) {
                             $completionDate .= ' 00:00:00';
@@ -489,12 +573,23 @@ class OrderController extends BaseController
 
                 $this->logger->log('refresh_status', 'order', $orderId, $order->status, $newStatus);
 
-                return $this->jsonSuccess('Status refreshed successfully', [
+                // Prepare response data
+                $responseData = [
                     'status' => $newStatus,
                     'old_status' => $order->status,
-                    'completiondate' => $updateData['completiondate'] ?? null,
-                    'data' => $result['data'] ?? null,
-                ]);
+                    'lastRefresh' => $configData['lastRefresh'],
+                ];
+                
+                // Add cert status info if available
+                if (!empty($configData['applyReturn'])) {
+                    $responseData['has_certificate'] = !empty($configData['applyReturn']['certificate']);
+                    $responseData['has_jks'] = !empty($configData['applyReturn']['jks']);
+                    $responseData['has_pkcs12'] = !empty($configData['applyReturn']['pkcs12']);
+                    $responseData['vendor_id'] = $configData['applyReturn']['vendorId'] ?? null;
+                    $responseData['vendor_cert_id'] = $configData['applyReturn']['vendorCertId'] ?? null;
+                }
+
+                return $this->jsonSuccess('Status refreshed successfully', $responseData);
             }
 
             throw new \Exception($result['msg'] ?? 'API error (code: ' . $result['code'] . ')');
@@ -786,6 +881,102 @@ class OrderController extends BaseController
             }
             
             throw new \Exception($result['msg'] ?? 'Failed to create certificate package');
+
+        } catch (\Exception $e) {
+            return $this->jsonError($e->getMessage());
+        }
+    }
+
+    /**
+     * Download certificate as JKS file
+     * 
+     * @param int $orderId Order ID
+     * @return string JSON response with base64 encoded JKS and password
+     */
+    private function downloadJks(int $orderId): string
+    {
+        try {
+            $order = Capsule::table('nicsrs_sslorders')->find($orderId);
+            
+            if (!$order) {
+                throw new \Exception('Order not found');
+            }
+
+            $configData = json_decode($order->configdata, true) ?: [];
+            
+            // Check if JKS exists
+            if (empty($configData['applyReturn']['jks'])) {
+                throw new \Exception('JKS file not available for this certificate');
+            }
+
+            $jksData = $configData['applyReturn']['jks'];
+            $jksPass = $configData['applyReturn']['jksPass'] ?? '';
+            
+            // Get primary domain for filename
+            $primaryDomain = 'certificate';
+            if (!empty($configData['domainInfo'][0]['domainName'])) {
+                $primaryDomain = $configData['domainInfo'][0]['domainName'];
+            }
+            
+            // Sanitize filename
+            $filename = str_replace('*', 'wildcard', str_replace('.', '_', $primaryDomain)) . '.jks';
+            
+            $this->logger->log('download_jks', 'order', $orderId, null, 'JKS downloaded');
+
+            return $this->jsonSuccess('JKS ready', [
+                'content' => $jksData, // Already base64 encoded from API
+                'name' => $filename,
+                'password' => $jksPass,
+                'format' => 'jks',
+            ]);
+
+        } catch (\Exception $e) {
+            return $this->jsonError($e->getMessage());
+        }
+    }
+
+    /**
+     * Download certificate as PKCS12/PFX file
+     * 
+     * @param int $orderId Order ID
+     * @return string JSON response with base64 encoded PKCS12 and password
+     */
+    private function downloadPkcs12(int $orderId): string
+    {
+        try {
+            $order = Capsule::table('nicsrs_sslorders')->find($orderId);
+            
+            if (!$order) {
+                throw new \Exception('Order not found');
+            }
+
+            $configData = json_decode($order->configdata, true) ?: [];
+            
+            // Check if PKCS12 exists
+            if (empty($configData['applyReturn']['pkcs12'])) {
+                throw new \Exception('PKCS12/PFX file not available for this certificate');
+            }
+
+            $pkcs12Data = $configData['applyReturn']['pkcs12'];
+            $pkcsPass = $configData['applyReturn']['pkcsPass'] ?? '';
+            
+            // Get primary domain for filename
+            $primaryDomain = 'certificate';
+            if (!empty($configData['domainInfo'][0]['domainName'])) {
+                $primaryDomain = $configData['domainInfo'][0]['domainName'];
+            }
+            
+            // Sanitize filename
+            $filename = str_replace('*', 'wildcard', str_replace('.', '_', $primaryDomain)) . '.pfx';
+            
+            $this->logger->log('download_pkcs12', 'order', $orderId, null, 'PKCS12 downloaded');
+
+            return $this->jsonSuccess('PKCS12 ready', [
+                'content' => $pkcs12Data, // Already base64 encoded from API
+                'name' => $filename,
+                'password' => $pkcsPass,
+                'format' => 'pkcs12',
+            ]);
 
         } catch (\Exception $e) {
             return $this->jsonError($e->getMessage());

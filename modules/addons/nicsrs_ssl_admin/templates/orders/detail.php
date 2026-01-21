@@ -1,6 +1,6 @@
 <?php
 /**
- * Order Detail Template
+ * Order Detail Template - UPDATED VERSION
  * 
  * @var object $order Order object
  * @var array $config Configuration data
@@ -12,6 +12,8 @@
  * @var \NicsrsAdmin\Helper\ViewHelper $helper View helper
  */
 
+use NicsrsAdmin\Helper\DcvHelper;
+
 // Get primary domain and product name
 $primaryDomain = $helper->getPrimaryDomain($order);
 $productName = $helper->getProductName($order->certtype);
@@ -19,6 +21,44 @@ $productName = $helper->getProductName($order->certtype);
 // Check CSR and Certificate availability
 $hasCsr = !empty($config['csr']);
 $hasCert = !empty($config['applyReturn']['certificate']);
+$hasJks = !empty($config['applyReturn']['jks']);
+$hasPkcs12 = !empty($config['applyReturn']['pkcs12']);
+
+// Get vendor IDs
+$vendorId = $config['applyReturn']['vendorId'] ?? '';
+$vendorCertId = $config['applyReturn']['vendorCertId'] ?? '';
+
+// Get cert status from applyReturn
+$certStatus = '';
+if (!empty($config['applyReturn']['issued']['status'])) {
+    $certStatus = $config['applyReturn']['issued']['status'];
+} elseif (!empty($config['applyReturn']['dcv']['status'])) {
+    $certStatus = 'dcv_' . $config['applyReturn']['dcv']['status'];
+} elseif (!empty($config['applyReturn']['application']['status'])) {
+    $certStatus = 'app_' . $config['applyReturn']['application']['status'];
+}
+
+// Get last refresh time
+$lastRefresh = $config['lastRefresh'] ?? '';
+
+// Calculate renewal due (30 days before expiry)
+$renewalDue = '';
+if (!empty($config['applyReturn']['endDate'])) {
+    $endTimestamp = strtotime($config['applyReturn']['endDate']);
+    if ($endTimestamp) {
+        $renewalDue = date('Y-m-d', $endTimestamp - (30 * 86400));
+    }
+}
+
+// Get DCV data for instructions
+$dcvData = [
+    'DCVfileName' => $config['applyReturn']['DCVfileName'] ?? '',
+    'DCVfileContent' => $config['applyReturn']['DCVfileContent'] ?? '',
+    'DCVfilePath' => $config['applyReturn']['DCVfilePath'] ?? '',
+    'DCVdnsHost' => $config['applyReturn']['DCVdnsHost'] ?? '',
+    'DCVdnsValue' => $config['applyReturn']['DCVdnsValue'] ?? '',
+    'DCVdnsType' => $config['applyReturn']['DCVdnsType'] ?? '',
+];
 ?>
 
 <div class="nicsrs-order-detail">
@@ -30,7 +70,7 @@ $hasCert = !empty($config['applyReturn']['certificate']);
         <li class="active">Order #<?php echo $order->id; ?></li>
     </ol>
 
-    <!-- Enhanced Header: Order ID, Status, Product Name, Domain -->
+    <!-- Enhanced Header -->
     <div class="page-header clearfix" style="border-bottom: 2px solid #1890ff; padding-bottom: 15px; margin-bottom: 20px;">
         <div class="pull-left">
             <h3>
@@ -39,7 +79,12 @@ $hasCert = !empty($config['applyReturn']['certificate']);
                 <?php if ($primaryDomain !== '-'): ?>
                 <span title="Domain"><i class="fa fa-globe text-primary"></i> <?php echo $helper->e($primaryDomain); ?></span>
                 <?php endif; ?>
-                <?php echo $helper->statusBadge($order->status); ?>                                
+                <?php echo $helper->statusBadge($order->status); ?>
+                <?php if ($certStatus): ?>
+                <small class="text-muted" style="font-size: 12px;">
+                    (<?php echo ucfirst(str_replace('_', ' ', $certStatus)); ?>)
+                </small>
+                <?php endif; ?>
             </h3>
         </div>
         <div class="pull-right">
@@ -73,6 +118,23 @@ $hasCert = !empty($config['applyReturn']['certificate']);
                                 <?php endif; ?>
                             </td>
                         </tr>
+                        
+                        <!-- NEW: Vendor ID row -->
+                        <?php if ($vendorId): ?>
+                        <tr>
+                            <th>Vendor ID:</th>
+                            <td><code><?php echo $helper->e($vendorId); ?></code></td>
+                        </tr>
+                        <?php endif; ?>
+                        
+                        <!-- NEW: Vendor Cert ID row -->
+                        <?php if ($vendorCertId): ?>
+                        <tr>
+                            <th>Vendor Cert ID:</th>
+                            <td><code><?php echo $helper->e($vendorCertId); ?></code></td>
+                        </tr>
+                        <?php endif; ?>
+                        
                         <!-- Service ID with link -->
                         <tr class="info">
                             <th>Service ID:</th>
@@ -105,48 +167,20 @@ $hasCert = !empty($config['applyReturn']['certificate']);
                                 <?php endif; ?>
                             </td>
                         </tr>
-                        <!-- WHMCS Product Name (if different from SSL product) -->
-                        <?php if (!empty($order->whmcs_product_name)): ?>
+                        
+                        <!-- Status with cert_status badge -->
                         <tr>
-                            <th>WHMCS Product:</th>
-                            <td><?php echo $helper->e($order->whmcs_product_name); ?></td>
-                        </tr>
-                        <?php endif; ?>
-
-                        <!-- Billing Cycle -->
-                        <tr>
-                            <th>Billing Cycle:</th>
+                            <th>Status:</th>
                             <td>
-                                <?php if (!empty($order->billingcycle)): ?>
-                                <span class="label label-info"><?php echo $helper->e($order->billingcycle); ?></span>
-                                <?php if (!empty($order->amount) && $order->amount > 0): ?>
-                                <span class="text-muted"> - $<?php echo number_format($order->amount, 2); ?></span>
-                                <?php endif; ?>
-                                <?php else: ?>
-                                <span class="text-muted">N/A</span>
+                                <?php echo $helper->statusBadge($order->status); ?>
+                                <?php if ($certStatus && $certStatus !== 'done'): ?>
+                                <span class="label label-info" style="margin-left: 5px;">
+                                    <?php echo ucfirst(str_replace('_', ' ', $certStatus)); ?>
+                                </span>
                                 <?php endif; ?>
                             </td>
                         </tr>
-
-                        <!-- Next Due Date -->
-                        <?php if (!empty($order->nextduedate) && $order->nextduedate !== '0000-00-00'): ?>
-                        <tr>
-                            <th>Next Due Date:</th>
-                            <td><?php echo $helper->formatDate($order->nextduedate); ?></td>
-                        </tr>
-                        <?php endif; ?>
-
-                        <!-- Registration Date (Service) -->
-                        <?php if (!empty($order->regdate) && $order->regdate !== '0000-00-00'): ?>
-                        <tr>
-                            <th>Service Reg Date:</th>
-                            <td><?php echo $helper->formatDate($order->regdate); ?></td>
-                        </tr>
-                        <?php endif; ?>                        
-                        <tr>
-                            <th>Status:</th>
-                            <td><?php echo $helper->statusBadge($order->status); ?></td>
-                        </tr>
+                        
                         <tr>
                             <th>Created:</th>
                             <td><?php echo $helper->formatDateTime($order->provisiondate); ?></td>
@@ -155,6 +189,17 @@ $hasCert = !empty($config['applyReturn']['certificate']);
                         <tr>
                             <th>Completed:</th>
                             <td><?php echo $helper->formatDateTime($order->completiondate); ?></td>
+                        </tr>
+                        <?php endif; ?>
+                        
+                        <!-- NEW: Last Refresh row -->
+                        <?php if ($lastRefresh): ?>
+                        <tr>
+                            <th>Last Refresh:</th>
+                            <td>
+                                <span class="text-muted"><?php echo $helper->formatDateTime($lastRefresh); ?></span>
+                                <small class="text-muted">(<?php echo $helper->timeAgo($lastRefresh); ?>)</small>
+                            </td>
                         </tr>
                         <?php endif; ?>
                     </table>
@@ -190,12 +235,6 @@ $hasCert = !empty($config['applyReturn']['certificate']);
                             <th>Email:</th>
                             <td><?php echo $helper->e($order->client_email); ?></td>
                         </tr>
-                        <?php if (!empty($order->phonenumber)): ?>
-                        <tr>
-                            <th>Phone:</th>
-                            <td><?php echo $helper->e($order->phonenumber); ?></td>
-                        </tr>
-                        <?php endif; ?>
                     </table>
                 </div>
             </div>
@@ -226,6 +265,18 @@ $hasCert = !empty($config['applyReturn']['certificate']);
                                 <?php echo $helper->daysLeftBadge($certInfo['end_date']); ?>
                             </td>
                         </tr>
+                        
+                        <!-- NEW: Renewal Due row -->
+                        <?php if ($renewalDue): ?>
+                        <tr>
+                            <th>Renewal Due:</th>
+                            <td>
+                                <?php echo $helper->formatDate($renewalDue); ?>
+                                <small class="text-muted">(30 days before expiry)</small>
+                            </td>
+                        </tr>
+                        <?php endif; ?>
+                        
                         <tr>
                             <th>Certificate:</th>
                             <td>
@@ -236,6 +287,26 @@ $hasCert = !empty($config['applyReturn']['certificate']);
                                 <?php endif; ?>
                             </td>
                         </tr>
+                        
+                        <!-- NEW: JKS and PKCS12 badges -->
+                        <tr>
+                            <th>Formats:</th>
+                            <td>
+                                <?php if ($hasJks): ?>
+                                <span class="label label-success" title="Java KeyStore available">
+                                    <i class="fa fa-coffee"></i> JKS
+                                </span>
+                                <?php endif; ?>
+                                <?php if ($hasPkcs12): ?>
+                                <span class="label label-success" title="PKCS12/PFX available" style="margin-left: 5px;">
+                                    <i class="fa fa-windows"></i> PKCS12
+                                </span>
+                                <?php endif; ?>
+                                <?php if (!$hasJks && !$hasPkcs12): ?>
+                                <span class="text-muted">Standard formats only</span>
+                                <?php endif; ?>
+                            </td>
+                        </tr>
                     </table>
                     <?php else: ?>
                     <p class="text-muted">Certificate not yet issued.</p>
@@ -243,111 +314,177 @@ $hasCert = !empty($config['applyReturn']['certificate']);
                 </div>
             </div>
 
-            <!-- Domain Validation - Full Width -->
-            <?php 
-            // Get domains from config domainInfo
-            $domainList = isset($config['domainInfo']) ? $config['domainInfo'] : [];
-            ?>
-            <?php if (!empty($domainList)): ?>
-            <div class="panel panel-default">
-                <div class="panel-heading">
-                    <h3 class="panel-title"><i class="fa fa-globe"></i> Domain Validation</h3>
-                </div>
-                <div class="panel-body" style="padding: 0;">
-                    <table class="table table-striped table-hover" style="margin-bottom: 0;">
-                        <thead>
-                            <tr>
-                                <th>Domain</th>
-                                <th>DCV Method</th>
-                                <th class="text-center">Status</th>
-                                <th class="text-center">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php foreach ($domainList as $domain): ?>
-                            <?php 
-                            $domainName = isset($domain['domainName']) ? $domain['domainName'] : (isset($domain['domain']) ? $domain['domain'] : 'N/A');
-                            $dcvMethod = isset($domain['dcvMethod']) ? $domain['dcvMethod'] : (isset($domain['method']) ? $domain['method'] : '-');
-                            $isVerified = !empty($domain['isVerified']) || (isset($domain['is_verify']) && $domain['is_verify'] === 'verified');
-                            ?>
-                            <tr>
-                                <td><code><?php echo $helper->e($domainName); ?></code></td>
-                                <td><?php echo $helper->e(strtoupper($dcvMethod)); ?></td>
-                                <td class="text-center">
-                                    <?php if ($isVerified): ?>
-                                    <span class="label label-success"><i class="fa fa-check"></i> Verified</span>
-                                    <?php else: ?>
-                                    <span class="label label-warning"><i class="fa fa-clock-o"></i> Pending</span>
-                                    <?php endif; ?>
-                                </td>
-                                <td class="text-center">
-                                    <?php if (!$isVerified && !empty($order->remoteid)): ?>
-                                    <button type="button" class="btn btn-xs btn-primary btn-resend-dcv" 
-                                            data-domain="<?php echo $helper->e($domainName); ?>">
-                                        <i class="fa fa-send"></i> Resend
-                                    </button>
-                                    <?php else: ?>
-                                    <span class="text-muted">-</span>
-                                    <?php endif; ?>
-                                </td>
-                            </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-            <?php endif; ?>
-
-            <!-- Quick Actions -->
-            <div class="panel panel-default">
+            <!-- Quick Actions - UPDATED with JKS/PKCS12 buttons -->
+            <div class="panel panel-info">
                 <div class="panel-heading">
                     <h3 class="panel-title"><i class="fa fa-bolt"></i> Quick Actions</h3>
                 </div>
                 <div class="panel-body">
-                    <div class="btn-group-vertical btn-block">
-                        <button type="button" class="btn btn-default btn-action" data-action="refresh_status"
+                    <div class="btn-group-vertical" style="width: 100%;">
+                        <!-- Refresh Status -->
+                        <button type="button" class="btn btn-default btn-order-action" data-action="refresh_status"
                                 <?php echo empty($order->remoteid) ? 'disabled' : ''; ?>>
                             <i class="fa fa-refresh"></i> Refresh Status
                         </button>
                         
-                        <!-- Download CSR Button -->
+                        <!-- Download CSR -->
                         <button type="button" class="btn btn-default" id="btnDownloadCsr"
                                 <?php echo !$hasCsr ? 'disabled' : ''; ?>
                                 title="<?php echo $hasCsr ? 'Download CSR file' : 'CSR not available'; ?>">
                             <i class="fa fa-file-code-o"></i> Download CSR
                         </button>
                         
-                        <!-- Download Certificate Button -->
+                        <!-- Download Certificate (ZIP) -->
                         <button type="button" class="btn btn-success" id="btnDownloadCert"
                                 <?php echo !$hasCert ? 'disabled' : ''; ?>
-                                title="<?php echo $hasCert ? 'Download Certificate files (ZIP)' : 'Certificate not yet issued'; ?>">
-                            <i class="fa fa-download"></i> Download Certificate
+                                title="<?php echo $hasCert ? 'Download certificate package (ZIP)' : 'Certificate not yet issued'; ?>">
+                            <i class="fa fa-download"></i> Download Cert (ZIP)
                         </button>
                         
-                        <?php if ($order->status === 'complete'): ?>
-                        <button type="button" class="btn btn-warning btn-action" data-action="reissue">
+                        <!-- Download JKS -->
+                        <?php if ($hasJks): ?>
+                        <button type="button" class="btn btn-info" id="btnDownloadJks"
+                                title="Download Java KeyStore file">
+                            <i class="fa fa-coffee"></i> Download JKS
+                        </button>
+                        <?php endif; ?>
+                        
+                        <!-- Download PKCS12/PFX -->
+                        <?php if ($hasPkcs12): ?>
+                        <button type="button" class="btn btn-info" id="btnDownloadPkcs12"
+                                title="Download PKCS12/PFX file">
+                            <i class="fa fa-windows"></i> Download PFX
+                        </button>
+                        <?php endif; ?>
+                        
+                        <hr style="margin: 10px 0;">
+                        
+                        <!-- Other actions -->
+                        <button type="button" class="btn btn-warning btn-order-action" data-action="reissue"
+                                <?php echo $order->status !== 'complete' ? 'disabled' : ''; ?>>
                             <i class="fa fa-repeat"></i> Reissue Certificate
                         </button>
-                        <button type="button" class="btn btn-info btn-action" data-action="renew">
-                            <i class="fa fa-calendar-plus-o"></i> Renew Certificate
-                        </button>
-                        <button type="button" class="btn btn-danger btn-action" data-action="revoke">
-                            <i class="fa fa-ban"></i> Revoke Certificate
-                        </button>
-                        <?php endif; ?>
                         
-                        <?php if (in_array(strtolower($order->status), ['awaiting', 'draft', 'pending', 'awaiting configuration'])): ?>
-                        <button type="button" class="btn btn-danger btn-action" data-action="cancel">
+                        <button type="button" class="btn btn-primary btn-order-action" data-action="renew"
+                                <?php echo $order->status !== 'complete' ? 'disabled' : ''; ?>>
+                            <i class="fa fa-refresh"></i> Renew Certificate
+                        </button>
+                        
+                        <button type="button" class="btn btn-danger btn-order-action" data-action="cancel"
+                                <?php echo in_array($order->status, ['cancelled', 'revoked', 'complete']) ? 'disabled' : ''; ?>>
                             <i class="fa fa-times"></i> Cancel Order
                         </button>
-                        <?php endif; ?>
+                        
+                        <button type="button" class="btn btn-danger btn-order-action" data-action="revoke"
+                                <?php echo $order->status !== 'complete' ? 'disabled' : ''; ?>>
+                            <i class="fa fa-ban"></i> Revoke Certificate
+                        </button>
                     </div>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Activity Log - Keep Original Structure -->
+    <!-- Domain Validation - Full Width -->
+    <?php 
+    $domainList = isset($config['domainInfo']) ? $config['domainInfo'] : [];
+    $isPending = in_array($order->status, ['pending', 'draft']);
+    ?>
+    <?php if (!empty($domainList)): ?>
+    <div class="panel panel-default">
+        <div class="panel-heading">
+            <h3 class="panel-title"><i class="fa fa-globe"></i> Domain Validation</h3>
+        </div>
+        <div class="panel-body" style="padding: 0;">
+            <table class="table table-striped table-hover" style="margin-bottom: 0;">
+                <thead>
+                    <tr>
+                        <th>Domain</th>
+                        <th>DCV Method</th>
+                        <th class="text-center">Status</th>
+                        <th class="text-center">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($domainList as $domain): ?>
+                    <?php 
+                    $domainName = $domain['domainName'] ?? $domain['domain'] ?? 'N/A';
+                    $dcvMethod = $domain['dcvMethod'] ?? $domain['method'] ?? 'N/A';
+                    $isVerified = isset($domain['isVerified']) ? $domain['isVerified'] : false;
+                    $isVerifyStr = $domain['is_verify'] ?? '';
+                    ?>
+                    <tr>
+                        <td><code><?php echo $helper->e($domainName); ?></code></td>
+                        <td>
+                            <!-- UPDATED: Use DcvHelper for display -->
+                            <?php echo DcvHelper::getBadge($dcvMethod); ?>
+                        </td>
+                        <td class="text-center">
+                            <?php echo DcvHelper::getVerificationBadge($isVerified, $isVerifyStr); ?>
+                        </td>
+                        <td class="text-center">
+                            <?php if (!$isVerified && !($isVerifyStr === 'verified')): ?>
+                            <button type="button" class="btn btn-xs btn-warning btn-resend-dcv" 
+                                    data-domain="<?php echo $helper->e($domainName); ?>">
+                                <i class="fa fa-envelope"></i> Resend DCV
+                            </button>
+                            <?php else: ?>
+                            <span class="text-muted">-</span>
+                            <?php endif; ?>
+                        </td>
+                    </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+        
+        <!-- NEW: DCV Instructions Section for pending orders -->
+        <?php if ($isPending && !empty($domainList)): ?>
+        <?php 
+        $firstDomain = $domainList[0];
+        $firstDcvMethod = $firstDomain['dcvMethod'] ?? '';
+        $instructions = DcvHelper::getInstructions($firstDcvMethod, $dcvData);
+        ?>
+        <?php if (!empty($instructions['title']) && !empty($instructions['values'])): ?>
+        <div class="panel-footer">
+            <h5><i class="fa fa-info-circle"></i> <?php echo $helper->e($instructions['title']); ?></h5>
+            
+            <!-- Steps -->
+            <?php if (!empty($instructions['steps'])): ?>
+            <ol style="margin-bottom: 15px;">
+                <?php foreach ($instructions['steps'] as $step): ?>
+                <li><?php echo $helper->e($step); ?></li>
+                <?php endforeach; ?>
+            </ol>
+            <?php endif; ?>
+            
+            <!-- Values table -->
+            <?php if (!empty($instructions['values'])): ?>
+            <table class="table table-condensed table-bordered" style="margin-bottom: 0; background: #fff;">
+                <?php foreach ($instructions['values'] as $item): ?>
+                <?php if (!empty($item['value'])): ?>
+                <tr>
+                    <th style="width: 150px;"><?php echo $helper->e($item['label']); ?>:</th>
+                    <td>
+                        <code style="word-break: break-all;"><?php echo $helper->e($item['value']); ?></code>
+                        <button type="button" class="btn btn-xs btn-default pull-right btn-copy" 
+                                data-clipboard="<?php echo $helper->e($item['value']); ?>"
+                                title="Copy to clipboard">
+                            <i class="fa fa-copy"></i>
+                        </button>
+                    </td>
+                </tr>
+                <?php endif; ?>
+                <?php endforeach; ?>
+            </table>
+            <?php endif; ?>
+        </div>
+        <?php endif; ?>
+        <?php endif; ?>
+    </div>
+    <?php endif; ?>
+
+    <!-- Activity Log -->
     <div class="panel panel-default">
         <div class="panel-heading">
             <h3 class="panel-title"><i class="fa fa-history"></i> Activity Log</h3>
@@ -358,16 +495,14 @@ $hasCert = !empty($config['applyReturn']['certificate']);
                     <tr>
                         <th style="width: 150px;">Date</th>
                         <th style="width: 120px;">Action</th>
-                        <th style="width: 120px;">Admin</th>
+                        <th style="width: 150px;">Admin</th>
                         <th>Details</th>
                     </tr>
                 </thead>
                 <tbody>
                     <?php if (empty($activityLogs)): ?>
                     <tr>
-                        <td colspan="4" class="text-center text-muted" style="padding: 20px;">
-                            No activity recorded.
-                        </td>
+                        <td colspan="4" class="text-center text-muted">No activity recorded</td>
                     </tr>
                     <?php else: ?>
                     <?php foreach ($activityLogs as $log): ?>
@@ -415,7 +550,7 @@ $hasCert = !empty($config['applyReturn']['certificate']);
     </div>
 </div>
 
-<!-- Loading Modal for Download -->
+<!-- Loading Modal -->
 <div class="modal fade" id="loadingModal" tabindex="-1" data-backdrop="static" data-keyboard="false">
     <div class="modal-dialog modal-sm">
         <div class="modal-content">
@@ -423,6 +558,30 @@ $hasCert = !empty($config['applyReturn']['certificate']);
                 <i class="fa fa-spinner fa-spin fa-3x text-primary"></i>
                 <h4 style="margin-top: 15px;">Processing...</h4>
                 <p class="text-muted" id="loadingMessage">Please wait</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- NEW: Password Display Modal -->
+<div class="modal fade" id="passwordModal" tabindex="-1">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <div class="modal-header">
+                <button type="button" class="close" data-dismiss="modal">&times;</button>
+                <h4 class="modal-title"><i class="fa fa-key"></i> File Password</h4>
+            </div>
+            <div class="modal-body text-center">
+                <p class="text-muted">The password for the downloaded file is:</p>
+                <div class="alert alert-info" style="font-family: monospace; font-size: 18px;">
+                    <strong id="filePassword"></strong>
+                </div>
+                <button type="button" class="btn btn-default btn-copy-password" data-clipboard="">
+                    <i class="fa fa-copy"></i> Copy Password
+                </button>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-primary" data-dismiss="modal">OK</button>
             </div>
         </div>
     </div>
@@ -447,7 +606,6 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
         
-        // Create blob and download
         var blob = new Blob([csrData], { type: 'application/pkcs10' });
         var url = window.URL.createObjectURL(blob);
         var a = document.createElement('a');
@@ -459,27 +617,43 @@ document.addEventListener('DOMContentLoaded', function() {
         document.body.removeChild(a);
     });
 
-    // ===== Download Certificate Button (ZIP via AJAX) =====
+    // ===== Download Certificate (ZIP) =====
     document.getElementById('btnDownloadCert').addEventListener('click', function() {
-        var btn = this;
-        
-        // Show loading
+        downloadFile('download_cert', 'Preparing certificate files...', 'application/zip');
+    });
+
+    // ===== NEW: Download JKS =====
+    <?php if ($hasJks): ?>
+    document.getElementById('btnDownloadJks').addEventListener('click', function() {
+        downloadFile('download_jks', 'Preparing JKS file...', 'application/octet-stream', true);
+    });
+    <?php endif; ?>
+
+    // ===== NEW: Download PKCS12/PFX =====
+    <?php if ($hasPkcs12): ?>
+    document.getElementById('btnDownloadPkcs12').addEventListener('click', function() {
+        downloadFile('download_pkcs12', 'Preparing PFX file...', 'application/x-pkcs12', true);
+    });
+    <?php endif; ?>
+
+    /**
+     * Generic file download function
+     */
+    function downloadFile(action, loadingMsg, mimeType, showPassword) {
         $('#loadingModal').modal('show');
-        $('#loadingMessage').text('Preparing certificate files...');
+        $('#loadingMessage').text(loadingMsg);
         
-        // AJAX call to download certificate
         $.ajax({
             url: modulelink + '&action=order&id=' + orderId,
             type: 'POST',
             dataType: 'json',
             data: {
-                ajax_action: 'download_cert',
+                ajax_action: action,
                 order_id: orderId
             },
             success: function(response) {
                 $('#loadingModal').modal('hide');
                 
-                // Check success and content exists (content is at root level, not in response.data)
                 if (response.success && response.content) {
                     // Decode base64 and download
                     var binary = atob(response.content);
@@ -489,17 +663,24 @@ document.addEventListener('DOMContentLoaded', function() {
                         bytes[i] = binary.charCodeAt(i);
                     }
                     
-                    var blob = new Blob([bytes], { type: 'application/zip' });
+                    var blob = new Blob([bytes], { type: mimeType || 'application/octet-stream' });
                     var url = window.URL.createObjectURL(blob);
                     var a = document.createElement('a');
                     a.href = url;
-                    a.download = response.name || (primaryDomain.replace(/\*/g, 'wildcard').replace(/\./g, '_') + '.zip');
+                    a.download = response.name || 'download';
                     document.body.appendChild(a);
                     a.click();
                     window.URL.revokeObjectURL(url);
                     document.body.removeChild(a);
+                    
+                    // Show password modal if applicable
+                    if (showPassword && response.password) {
+                        $('#filePassword').text(response.password);
+                        $('.btn-copy-password').attr('data-clipboard', response.password);
+                        $('#passwordModal').modal('show');
+                    }
                 } else {
-                    alert('Error: ' + (response.message || 'Failed to download certificate'));
+                    alert('Error: ' + (response.message || 'Failed to download file'));
                 }
             },
             error: function(xhr, status, error) {
@@ -507,10 +688,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 alert('Request failed: ' + error);
             }
         });
-    });
+    }
 
     // ===== Action buttons (refresh, cancel, revoke, etc.) =====
-    document.querySelectorAll('.btn-action').forEach(function(btn) {
+    document.querySelectorAll('.btn-order-action').forEach(function(btn) {
         btn.addEventListener('click', function() {
             currentAction = this.dataset.action;
             var messages = {
@@ -534,12 +715,9 @@ document.addEventListener('DOMContentLoaded', function() {
         var reason = document.getElementById('actionReason').value;
         
         $('#actionModal').modal('hide');
-        
-        // Show loading
         $('#loadingModal').modal('show');
         $('#loadingMessage').text('Processing action...');
 
-        // Send AJAX request
         $.ajax({
             url: modulelink + '&action=order&id=' + orderId,
             type: 'POST',
@@ -572,9 +750,7 @@ document.addEventListener('DOMContentLoaded', function() {
             var domain = this.dataset.domain;
             var btnEl = this;
             
-            if (!confirm('Resend DCV validation email for ' + domain + '?')) {
-                return;
-            }
+            if (!confirm('Resend DCV validation for ' + domain + '?')) return;
             
             btnEl.disabled = true;
             btnEl.innerHTML = '<i class="fa fa-spinner fa-spin"></i>';
@@ -589,21 +765,59 @@ document.addEventListener('DOMContentLoaded', function() {
                     domain: domain
                 },
                 success: function(response) {
+                    btnEl.disabled = false;
+                    btnEl.innerHTML = '<i class="fa fa-envelope"></i> Resend DCV';
+                    
                     if (response.success) {
-                        alert(response.message || 'DCV email sent successfully');
+                        alert('DCV resent successfully!');
                     } else {
                         alert('Error: ' + (response.message || 'Unknown error'));
                     }
-                    btnEl.disabled = false;
-                    btnEl.innerHTML = '<i class="fa fa-send"></i> Resend';
                 },
                 error: function() {
-                    alert('Request failed');
                     btnEl.disabled = false;
-                    btnEl.innerHTML = '<i class="fa fa-send"></i> Resend';
+                    btnEl.innerHTML = '<i class="fa fa-envelope"></i> Resend DCV';
+                    alert('Request failed. Please try again.');
                 }
             });
         });
     });
+
+    // ===== Copy to clipboard functionality =====
+    document.querySelectorAll('.btn-copy').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            var text = this.dataset.clipboard;
+            copyToClipboard(text, this);
+        });
+    });
+
+    document.querySelectorAll('.btn-copy-password').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            var text = this.dataset.clipboard;
+            copyToClipboard(text, this);
+        });
+    });
+
+    function copyToClipboard(text, btn) {
+        if (navigator.clipboard) {
+            navigator.clipboard.writeText(text).then(function() {
+                var origHtml = btn.innerHTML;
+                btn.innerHTML = '<i class="fa fa-check"></i> Copied!';
+                setTimeout(function() { btn.innerHTML = origHtml; }, 2000);
+            });
+        } else {
+            // Fallback for older browsers
+            var textarea = document.createElement('textarea');
+            textarea.value = text;
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textarea);
+            
+            var origHtml = btn.innerHTML;
+            btn.innerHTML = '<i class="fa fa-check"></i> Copied!';
+            setTimeout(function() { btn.innerHTML = origHtml; }, 2000);
+        }
+    }
 });
 </script>

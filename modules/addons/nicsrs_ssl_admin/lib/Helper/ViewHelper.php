@@ -58,9 +58,27 @@ class ViewHelper
         if (!$timestamp) {
             return '-';
         }
-
+    
         $diff = time() - $timestamp;
         
+        if ($diff < 0) {
+            // Future date
+            $diff = abs($diff);
+            if ($diff < 60) {
+                return 'in a moment';
+            } elseif ($diff < 3600) {
+                $mins = floor($diff / 60);
+                return 'in ' . $mins . ' min' . ($mins > 1 ? 's' : '');
+            } elseif ($diff < 86400) {
+                $hours = floor($diff / 3600);
+                return 'in ' . $hours . ' hour' . ($hours > 1 ? 's' : '');
+            } else {
+                $days = floor($diff / 86400);
+                return 'in ' . $days . ' day' . ($days > 1 ? 's' : '');
+            }
+        }
+        
+        // Past date
         if ($diff < 60) {
             return 'Just now';
         } elseif ($diff < 3600) {
@@ -72,6 +90,9 @@ class ViewHelper
         } elseif ($diff < 604800) {
             $days = floor($diff / 86400);
             return $days . ' day' . ($days > 1 ? 's' : '') . ' ago';
+        } elseif ($diff < 2592000) {
+            $weeks = floor($diff / 604800);
+            return $weeks . ' week' . ($weeks > 1 ? 's' : '') . ' ago';
         } else {
             return $this->formatDate($date);
         }
@@ -367,6 +388,147 @@ class ViewHelper
         
         return '-';
     }
+        
+    /**
+     * Get certificate status badge with additional status info
+     * 
+     * @param string $status Main status
+     * @param string $certStatus Additional cert status from applyReturn
+     * @return string HTML badges
+     */
+    public function certStatusBadges(string $status, string $certStatus = ''): string
+    {
+        $html = $this->statusBadge($status);
+        
+        if (!empty($certStatus) && $certStatus !== 'done') {
+            $certStatus = strtolower(str_replace('_', ' ', $certStatus));
+            $class = 'default';
+            
+            if (strpos($certStatus, 'pending') !== false) {
+                $class = 'warning';
+            } elseif (strpos($certStatus, 'done') !== false) {
+                $class = 'success';
+            } elseif (strpos($certStatus, 'failed') !== false) {
+                $class = 'danger';
+            }
+            
+            $html .= sprintf(
+                ' <span class="label label-%s">%s</span>',
+                htmlspecialchars($class),
+                htmlspecialchars(ucfirst($certStatus))
+            );
+        }
+        
+        return $html;
+    }
+    
+    /**
+     * Get format availability badges (JKS, PKCS12)
+     * 
+     * @param bool $hasJks Has JKS format
+     * @param bool $hasPkcs12 Has PKCS12 format
+     * @return string HTML badges
+     */
+    public function formatBadges(bool $hasJks, bool $hasPkcs12): string
+    {
+        $badges = [];
+        
+        if ($hasJks) {
+            $badges[] = '<span class="label label-success" title="Java KeyStore available"><i class="fa fa-coffee"></i> JKS</span>';
+        }
+        
+        if ($hasPkcs12) {
+            $badges[] = '<span class="label label-success" title="PKCS12/PFX available"><i class="fa fa-windows"></i> PKCS12</span>';
+        }
+        
+        if (empty($badges)) {
+            return '<span class="text-muted">Standard formats only</span>';
+        }
+        
+        return implode(' ', $badges);
+    }
+    
+    /**
+     * Calculate renewal due date (30 days before expiry)
+     * 
+     * @param string|null $endDate End date
+     * @return string|null Renewal due date or null
+     */
+    public function getRenewalDue(?string $endDate): ?string
+    {
+        if (empty($endDate)) {
+            return null;
+        }
+        
+        $timestamp = strtotime($endDate);
+        if (!$timestamp) {
+            return null;
+        }
+        
+        // 30 days before expiry
+        $renewalTimestamp = $timestamp - (30 * 86400);
+        
+        return date('Y-m-d', $renewalTimestamp);
+    }
+    
+    /**
+     * Get renewal status badge
+     * 
+     * @param string|null $endDate End date
+     * @return string HTML badge
+     */
+    public function renewalStatusBadge(?string $endDate): string
+    {
+        if (empty($endDate)) {
+            return '';
+        }
+        
+        $renewalDue = $this->getRenewalDue($endDate);
+        if (!$renewalDue) {
+            return '';
+        }
+        
+        $renewalTimestamp = strtotime($renewalDue);
+        $now = time();
+        
+        if ($renewalTimestamp <= $now) {
+            return '<span class="label label-warning"><i class="fa fa-exclamation-triangle"></i> Renewal Due</span>';
+        }
+        
+        $daysUntilRenewal = ceil(($renewalTimestamp - $now) / 86400);
+        
+        if ($daysUntilRenewal <= 7) {
+            return '<span class="label label-warning" title="Renewal due in ' . $daysUntilRenewal . ' days"><i class="fa fa-clock-o"></i> Renewal Soon</span>';
+        }
+        
+        return '';
+    }
+    
+    /**
+     * Format vendor ID for display
+     * 
+     * @param string|null $vendorId Vendor ID
+     * @param string|null $vendorCertId Vendor Cert ID
+     * @return string Formatted vendor info
+     */
+    public function formatVendorInfo(?string $vendorId, ?string $vendorCertId): string
+    {
+        $parts = [];
+        
+        if (!empty($vendorId)) {
+            $parts[] = 'Order: <code>' . htmlspecialchars($vendorId) . '</code>';
+        }
+        
+        if (!empty($vendorCertId)) {
+            $parts[] = 'Cert: <code>' . htmlspecialchars($vendorCertId) . '</code>';
+        }
+        
+        if (empty($parts)) {
+            return '<span class="text-muted">N/A</span>';
+        }
+        
+        return implode(' | ', $parts);
+    }    
 
     /**
      * Escape HTML output
