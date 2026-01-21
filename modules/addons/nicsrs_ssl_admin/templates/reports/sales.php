@@ -204,7 +204,7 @@ $rateInfo = CurrencyHelper::getRateInfo();
                         <?php foreach ($reportData['orders'] as $order): ?>
                         <tr>
                             <td>
-                                <a href="<?php echo $modulelink; ?>&action=orders&view=detail&id=<?php echo $order['order_id']; ?>">
+                                <a href="<?php echo $modulelink; ?>&action=orders&id=<?php echo $order['order_id']; ?>">
                                     #<?php echo $order['order_id']; ?>
                                 </a>
                             </td>

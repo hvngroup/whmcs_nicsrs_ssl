@@ -32,6 +32,7 @@ class ProductController extends BaseController
      */
     private $vendors = [
         'Sectigo', 
+        'Positive',
         'DigiCert', 
         'GlobalSign', 
         'GeoTrust', 

@@ -1,38 +1,32 @@
 <?php
 /**
- * Product Performance Report Template - UPDATED
+ * Product Performance Report Template - FIXED
+ * Analyze product performance, best sellers, renewal rates
  * 
  * @var string $modulelink Module link
  * @var \NicsrsAdmin\Helper\ViewHelper $helper View helper
- * @var array $reportData Performance report data
+ * @var array $reportData Report data from controller (contains 'products' and 'summary')
+ * @var array $filters Applied filters
  * @var array $vendors Available vendors
- * @var array $datePresets Date presets
- * @var array $filters Current filters
  */
 
 use NicsrsAdmin\Helper\CurrencyHelper;
 
-$filters = $filters ?? [];
+// Extract products and summary from reportData
 $products = $reportData['products'] ?? [];
 $summary = $reportData['summary'] ?? [];
 ?>
 
-<div class="nicsrs-reports nicsrs-performance-report">
+<div class="nicsrs-report-performance">
     
     <!-- Page Header -->
-    <div class="page-header clearfix">
-        <h3 class="pull-left">
-            <i class="fa fa-trophy"></i> Product Performance Report
-        </h3>
-        <div class="pull-right">
-            <a href="<?php echo $modulelink; ?>&action=reports" class="btn btn-default">
+    <div class="page-header">
+        <h3>
+            <i class="fa fa-trophy text-warning"></i> Product Performance Report
+            <a href="<?php echo $modulelink; ?>&action=reports" class="btn btn-default btn-sm pull-right">
                 <i class="fa fa-arrow-left"></i> Back to Reports
             </a>
-            <a href="<?php echo $modulelink; ?>&action=reports&report=performance&export=csv&<?php echo http_build_query($filters); ?>" 
-               class="btn btn-success">
-                <i class="fa fa-download"></i> Export CSV
-            </a>
-        </div>
+        </h3>
     </div>
 
     <!-- Filters -->
@@ -49,13 +43,13 @@ $summary = $reportData['summary'] ?? [];
                 <div class="form-group" style="margin-right: 15px;">
                     <label>Date From:</label>
                     <input type="date" class="form-control" name="date_from" 
-                           value="<?php echo $helper->e($filters['date_from'] ?? ''); ?>">
+                           value="<?php echo $filters['date_from'] ?? ''; ?>">
                 </div>
                 
                 <div class="form-group" style="margin-right: 15px;">
-                    <label>To:</label>
+                    <label>Date To:</label>
                     <input type="date" class="form-control" name="date_to" 
-                           value="<?php echo $helper->e($filters['date_to'] ?? ''); ?>">
+                           value="<?php echo $filters['date_to'] ?? ''; ?>">
                 </div>
                 
                 <div class="form-group" style="margin-right: 15px;">
@@ -166,29 +160,31 @@ $summary = $reportData['summary'] ?? [];
                     <tbody>
                         <?php foreach ($products as $product): ?>
                         <?php 
-                        $completionClass = $product['completion_rate'] >= 80 ? 'label-success' : ($product['completion_rate'] >= 50 ? 'label-warning' : 'label-danger');
-                        $renewalClass = $product['renewal_rate'] >= 50 ? 'label-success' : ($product['renewal_rate'] >= 25 ? 'label-warning' : 'label-default');
+                        $completionRate = $product['completion_rate'] ?? 0;
+                        $renewalRate = $product['renewal_rate'] ?? 0;
+                        $completionClass = $completionRate >= 80 ? 'label-success' : ($completionRate >= 50 ? 'label-warning' : 'label-danger');
+                        $renewalClass = $renewalRate >= 50 ? 'label-success' : ($renewalRate >= 25 ? 'label-warning' : 'label-default');
                         ?>
                         <tr>
                             <td>
-                                <strong><?php echo $helper->e($product['product_name']); ?></strong>
-                                <br><small class="text-muted"><?php echo $helper->e($product['product_code']); ?></small>
+                                <strong><?php echo $helper->e($product['product_name'] ?? 'Unknown'); ?></strong>
+                                <br><small class="text-muted"><?php echo $helper->e($product['product_code'] ?? ''); ?></small>
                             </td>
-                            <td><span class="label label-default"><?php echo $helper->e($product['vendor']); ?></span></td>
+                            <td><span class="label label-default"><?php echo $helper->e($product['vendor'] ?? 'Unknown'); ?></span></td>
                             <td><?php echo $helper->validationBadge($product['validation_type'] ?? 'dv'); ?></td>
-                            <td class="text-center"><strong><?php echo number_format($product['total_orders']); ?></strong></td>
-                            <td class="text-center text-success"><?php echo number_format($product['active_count']); ?></td>
-                            <td class="text-center text-danger"><?php echo number_format($product['cancelled_count']); ?></td>
-                            <td class="text-right"><strong><?php echo CurrencyHelper::formatUsd($product['total_revenue_usd']); ?></strong></td>
-                            <td class="text-right"><?php echo CurrencyHelper::formatUsd($product['avg_order_value_usd']); ?></td>
+                            <td class="text-center"><strong><?php echo number_format($product['total_orders'] ?? 0); ?></strong></td>
+                            <td class="text-center text-success"><?php echo number_format($product['active_count'] ?? 0); ?></td>
+                            <td class="text-center text-danger"><?php echo number_format($product['cancelled_count'] ?? 0); ?></td>
+                            <td class="text-right"><strong><?php echo CurrencyHelper::formatUsd($product['total_revenue_usd'] ?? 0); ?></strong></td>
+                            <td class="text-right"><?php echo CurrencyHelper::formatUsd($product['avg_order_value_usd'] ?? 0); ?></td>
                             <td class="text-center">
                                 <span class="label <?php echo $completionClass; ?>">
-                                    <?php echo number_format($product['completion_rate'], 1); ?>%
+                                    <?php echo number_format($completionRate, 1); ?>%
                                 </span>
                             </td>
                             <td class="text-center">
                                 <span class="label <?php echo $renewalClass; ?>">
-                                    <?php echo number_format($product['renewal_rate'], 1); ?>%
+                                    <?php echo number_format($renewalRate, 1); ?>%
                                 </span>
                             </td>
                         </tr>
@@ -206,16 +202,26 @@ $summary = $reportData['summary'] ?? [];
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+    // Get products data from PHP - take top 10 for chart
     var products = <?php echo json_encode(array_slice($products, 0, 10)); ?>;
     
-    // Top Products Chart
-    if (products.length > 0) {
-        var labels = products.map(function(p) { return p.product_name.substring(0, 20); });
-        var orders = products.map(function(p) { return p.total_orders; });
-        var revenue = products.map(function(p) { return p.total_revenue_usd; });
+    console.log('Performance Report - Products data:', products); // Debug
+    
+    // Top Products Chart - Vertical bar chart with dual Y axis
+    var topProductsCanvas = document.getElementById('topProductsChart');
+    if (topProductsCanvas && products && products.length > 0) {
+        var labels = products.map(function(p) { 
+            var name = p.product_name || p.product_code || 'Unknown';
+            return name.length > 20 ? name.substring(0, 20) + '...' : name; 
+        });
+        var orders = products.map(function(p) { return parseInt(p.total_orders) || 0; });
+        var revenue = products.map(function(p) { return parseFloat(p.total_revenue_usd) || 0; });
         
-        var ctx = document.getElementById('topProductsChart').getContext('2d');
-        new Chart(ctx, {
+        console.log('Chart labels:', labels);
+        console.log('Chart orders:', orders);
+        console.log('Chart revenue:', revenue);
+        
+        new Chart(topProductsCanvas.getContext('2d'), {
             type: 'bar',
             data: {
                 labels: labels,
@@ -233,54 +239,109 @@ document.addEventListener('DOMContentLoaded', function() {
                     borderColor: 'rgba(75, 192, 192, 1)',
                     backgroundColor: 'rgba(75, 192, 192, 0.2)',
                     fill: false,
-                    yAxisID: 'y1'
+                    yAxisID: 'y1',
+                    tension: 0.1
                 }]
             },
             options: {
                 responsive: true,
-                indexAxis: 'y',
+                interaction: {
+                    mode: 'index',
+                    intersect: false,
+                },
                 scales: {
                     y: {
                         type: 'linear',
-                        position: 'bottom',
-                        title: { display: true, text: 'Orders' }
+                        position: 'left',
+                        title: { 
+                            display: true, 
+                            text: 'Orders' 
+                        },
+                        beginAtZero: true,
+                        ticks: {
+                            stepSize: 1
+                        }
                     },
                     y1: {
                         type: 'linear',
-                        position: 'top',
-                        title: { display: true, text: 'Revenue (USD)' },
-                        grid: { drawOnChartArea: false }
+                        position: 'right',
+                        title: { 
+                            display: true, 
+                            text: 'Revenue (USD)' 
+                        },
+                        grid: { 
+                            drawOnChartArea: false 
+                        },
+                        beginAtZero: true
+                    }
+                },
+                plugins: {
+                    legend: {
+                        position: 'top'
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                var label = context.dataset.label || '';
+                                if (label) {
+                                    label += ': ';
+                                }
+                                if (context.dataset.yAxisID === 'y1') {
+                                    label += '$' + context.parsed.y.toLocaleString(undefined, {
+                                        minimumFractionDigits: 2,
+                                        maximumFractionDigits: 2
+                                    });
+                                } else {
+                                    label += context.parsed.y.toLocaleString();
+                                }
+                                return label;
+                            }
+                        }
                     }
                 }
             }
         });
+    } else if (topProductsCanvas) {
+        // Show no data message
+        topProductsCanvas.parentNode.innerHTML = '<div class="alert alert-info text-center" style="margin: 20px 0;"><i class="fa fa-info-circle"></i> No product data available for chart</div>';
     }
 
-    // Validation Type Chart
-    var typeData = {};
-    products.forEach(function(p) {
-        var type = (p.validation_type || 'dv').toUpperCase();
-        typeData[type] = (typeData[type] || 0) + p.total_orders;
-    });
-    
-    if (Object.keys(typeData).length > 0) {
-        var pieCtx = document.getElementById('validationTypeChart').getContext('2d');
-        new Chart(pieCtx, {
-            type: 'doughnut',
-            data: {
-                labels: Object.keys(typeData),
-                datasets: [{
-                    data: Object.values(typeData),
-                    backgroundColor: ['#3498db', '#2ecc71', '#e74c3c']
-                }]
-            },
-            options: {
-                responsive: true,
-                plugins: {
-                    legend: { position: 'bottom' }
-                }
-            }
+    // Validation Type Pie Chart
+    var validationCanvas = document.getElementById('validationTypeChart');
+    if (validationCanvas && products && products.length > 0) {
+        var typeData = {};
+        products.forEach(function(p) {
+            var type = (p.validation_type || 'dv').toUpperCase();
+            var orders = parseInt(p.total_orders) || 0;
+            typeData[type] = (typeData[type] || 0) + orders;
         });
+        
+        console.log('Validation type data:', typeData);
+        
+        if (Object.keys(typeData).length > 0) {
+            new Chart(validationCanvas.getContext('2d'), {
+                type: 'doughnut',
+                data: {
+                    labels: Object.keys(typeData),
+                    datasets: [{
+                        data: Object.values(typeData),
+                        backgroundColor: ['#3498db', '#2ecc71', '#e74c3c', '#f39c12', '#9b59b6']
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: { 
+                            position: 'bottom' 
+                        }
+                    }
+                }
+            });
+        } else {
+            validationCanvas.parentNode.innerHTML = '<div class="alert alert-info text-center" style="margin: 20px 0;"><i class="fa fa-info-circle"></i> No validation type data available</div>';
+        }
+    } else if (validationCanvas) {
+        validationCanvas.parentNode.innerHTML = '<div class="alert alert-info text-center" style="margin: 20px 0;"><i class="fa fa-info-circle"></i> No validation type data available</div>';
     }
 });
 </script>
