@@ -119,6 +119,7 @@ class ViewHelper
             'cancelled' => ['class' => 'danger', 'label' => 'Cancelled'],
             'revoked' => ['class' => 'danger', 'label' => 'Revoked'],
             'expired' => ['class' => 'danger', 'label' => 'Expired'],
+            'awaiting configuration' => ['class' => 'default', 'label' => 'Awaiting'],
         ];
 
         $badge = isset($badges[$status]) ? $badges[$status] : ['class' => 'default', 'label' => ucfirst($status)];

@@ -89,7 +89,23 @@ class OrderController extends BaseController
 
         // Apply filters
         if ($status) {
-            $query->where('o.status', $status);
+            // Map short status names to actual database values
+            $statusMap = [
+                'awaiting' => 'Awaiting Configuration',
+                'draft' => 'draft',
+                'pending' => 'pending',
+                'complete' => 'complete',
+                'cancelled' => 'cancelled',
+                'revoked' => 'revoked',
+            ];
+            
+            // Check if it's a short name that needs mapping
+            if (isset($statusMap[strtolower($status)])) {
+                $query->where('o.status', $statusMap[strtolower($status)]);
+            } else {
+                // Direct match (for full status names like "Awaiting Configuration")
+                $query->where('o.status', $status);
+            }
         }
 
         if ($search) {
@@ -149,11 +165,23 @@ class OrderController extends BaseController
         }
 
         // Get status counts for filters
-        $statusCounts = Capsule::table('nicsrs_sslorders')
+        // Normalize status names for consistent counting
+        $rawStatusCounts = Capsule::table('nicsrs_sslorders')
             ->selectRaw('status, COUNT(*) as count')
             ->groupBy('status')
             ->pluck('count', 'status')
             ->toArray();
+
+        // Normalize status keys (map "Awaiting Configuration" to "awaiting", etc.)
+        $statusCounts = [];
+        foreach ($rawStatusCounts as $dbStatus => $count) {
+            $normalizedStatus = $this->normalizeStatus($dbStatus);
+            if (isset($statusCounts[$normalizedStatus])) {
+                $statusCounts[$normalizedStatus] += $count;
+            } else {
+                $statusCounts[$normalizedStatus] = $count;
+            }
+        }
 
         // Create pagination
         $paginationParams = [];
@@ -178,6 +206,57 @@ class OrderController extends BaseController
         ];
 
         $this->includeTemplate('orders/list', $data);
+    }
+
+    /**
+     * Normalize status string for consistent display and filtering
+     * Maps database values to short lowercase keys
+     * 
+     * @param string $status Status from database
+     * @return string Normalized status key
+     */
+    private function normalizeStatus(string $status): string
+    {
+        $status = strtolower(trim($status));
+        
+        // Map full names to short names
+        $normalizeMap = [
+            'awaiting configuration' => 'awaiting',
+            'awaiting' => 'awaiting',
+            'pending validation' => 'pending',
+            'pending' => 'pending',
+            'complete' => 'complete',
+            'completed' => 'complete',
+            'issued' => 'complete',
+            'cancelled' => 'cancelled',
+            'canceled' => 'cancelled',
+            'revoked' => 'revoked',
+            'draft' => 'draft',
+            'expired' => 'expired',
+        ];
+        
+        return $normalizeMap[$status] ?? $status;
+    }
+
+    /**
+     * Get database status value from normalized key
+     * 
+     * @param string $normalizedStatus Normalized status key
+     * @return string Database status value
+     */
+    private function getDatabaseStatus(string $normalizedStatus): string
+    {
+        $dbStatusMap = [
+            'awaiting' => 'Awaiting Configuration',
+            'pending' => 'pending',
+            'complete' => 'complete',
+            'cancelled' => 'cancelled',
+            'revoked' => 'revoked',
+            'draft' => 'draft',
+            'expired' => 'expired',
+        ];
+        
+        return $dbStatusMap[strtolower($normalizedStatus)] ?? $normalizedStatus;
     }
 
     /**

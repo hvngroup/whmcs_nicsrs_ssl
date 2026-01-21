@@ -31,14 +31,23 @@
             </a>
         </li>
         <?php 
-        $statusList = ['awaiting', 'draft', 'pending', 'complete', 'cancelled', 'revoked'];
-        foreach ($statusList as $status): 
-            $count = isset($statusCounts[$status]) ? $statusCounts[$status] : 0;
-            if ($count == 0 && $status != $currentStatus) continue;
+        // Status list with display labels
+        $statusList = [
+            'awaiting' => 'Awaiting',
+            'draft' => 'Draft',
+            'pending' => 'Pending', 
+            'complete' => 'Complete',
+            'cancelled' => 'Cancelled',
+            'revoked' => 'Revoked',
+        ];
+        foreach ($statusList as $statusKey => $statusLabel): 
+            $count = isset($statusCounts[$statusKey]) ? $statusCounts[$statusKey] : 0;
+            // Show tab if has count OR is currently selected
+            if ($count == 0 && $currentStatus !== $statusKey) continue;
         ?>
-        <li class="<?php echo $currentStatus === $status ? 'active' : ''; ?>">
-            <a href="<?php echo $modulelink; ?>&action=orders&status=<?php echo $status; ?>">
-                <?php echo ucfirst($status); ?> <span class="badge"><?php echo $count; ?></span>
+        <li class="<?php echo $currentStatus === $statusKey ? 'active' : ''; ?>">
+            <a href="<?php echo $modulelink; ?>&action=orders&status=<?php echo $statusKey; ?>">
+                <?php echo $statusLabel; ?> <span class="badge"><?php echo $count; ?></span>
             </a>
         </li>
         <?php endforeach; ?>
