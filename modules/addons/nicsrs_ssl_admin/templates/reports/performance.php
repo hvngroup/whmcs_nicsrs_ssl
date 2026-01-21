@@ -1,10 +1,9 @@
 <?php
 /**
- * Product Performance Report Template
+ * Product Performance Report Template - UPDATED
  * 
  * @var string $modulelink Module link
  * @var \NicsrsAdmin\Helper\ViewHelper $helper View helper
- * @var string $currencyHelper CurrencyHelper class name
  * @var array $reportData Performance report data
  * @var array $vendors Available vendors
  * @var array $datePresets Date presets
@@ -14,8 +13,8 @@
 use NicsrsAdmin\Helper\CurrencyHelper;
 
 $filters = $filters ?? [];
-$summary = $reportData['summary'] ?? [];
 $products = $reportData['products'] ?? [];
+$summary = $reportData['summary'] ?? [];
 ?>
 
 <div class="nicsrs-reports nicsrs-performance-report">
@@ -36,47 +35,47 @@ $products = $reportData['products'] ?? [];
         </div>
     </div>
 
-    <!-- Filters Panel -->
+    <!-- Filters -->
     <div class="panel panel-default">
         <div class="panel-heading">
             <h4 class="panel-title"><i class="fa fa-filter"></i> Filters</h4>
         </div>
         <div class="panel-body">
-            <form method="GET" class="form-inline">
+            <form method="get" class="form-inline">
                 <input type="hidden" name="module" value="nicsrs_ssl_admin">
                 <input type="hidden" name="action" value="reports">
                 <input type="hidden" name="report" value="performance">
                 
-                <!-- Date Presets -->
                 <div class="form-group" style="margin-right: 15px;">
-                    <label>Quick Select:</label>
-                    <select name="preset" class="form-control" id="datePreset" style="margin-left: 5px;">
-                        <option value="">All Time</option>
-                        <?php foreach ($datePresets as $key => $preset): ?>
-                        <option value="<?php echo $key; ?>"><?php echo $helper->e($preset['label']); ?></option>
-                        <?php endforeach; ?>
-                    </select>
-                </div>
-                
-                <!-- Date Range -->
-                <div class="form-group" style="margin-right: 15px;">
-                    <label>From:</label>
-                    <input type="date" name="date_from" class="form-control" id="dateFrom"
-                           value="<?php echo $helper->e($filters['date_from'] ?? ''); ?>" style="margin-left: 5px;">
+                    <label>Date From:</label>
+                    <input type="date" class="form-control" name="date_from" 
+                           value="<?php echo $helper->e($filters['date_from'] ?? ''); ?>">
                 </div>
                 
                 <div class="form-group" style="margin-right: 15px;">
                     <label>To:</label>
-                    <input type="date" name="date_to" class="form-control" id="dateTo"
-                           value="<?php echo $helper->e($filters['date_to'] ?? ''); ?>" style="margin-left: 5px;">
+                    <input type="date" class="form-control" name="date_to" 
+                           value="<?php echo $helper->e($filters['date_to'] ?? ''); ?>">
+                </div>
+                
+                <div class="form-group" style="margin-right: 15px;">
+                    <label>Vendor:</label>
+                    <select class="form-control" name="vendor">
+                        <option value="">All Vendors</option>
+                        <?php foreach ($vendors ?? [] as $vendor): ?>
+                        <option value="<?php echo $helper->e($vendor); ?>" 
+                                <?php echo ($filters['vendor'] ?? '') === $vendor ? 'selected' : ''; ?>>
+                            <?php echo $helper->e($vendor); ?>
+                        </option>
+                        <?php endforeach; ?>
+                    </select>
                 </div>
                 
                 <button type="submit" class="btn btn-primary">
                     <i class="fa fa-search"></i> Apply
                 </button>
-                
                 <a href="<?php echo $modulelink; ?>&action=reports&report=performance" class="btn btn-default">
-                    <i class="fa fa-times"></i> Clear
+                    <i class="fa fa-refresh"></i> Reset
                 </a>
             </form>
         </div>
@@ -84,71 +83,57 @@ $products = $reportData['products'] ?? [];
 
     <!-- Summary Cards -->
     <div class="row">
-        <div class="col-md-3 col-sm-6">
+        <div class="col-md-4">
             <div class="panel panel-primary">
                 <div class="panel-body text-center">
-                    <h4 class="text-muted">Total Products</h4>
-                    <h2 class="stat-value"><?php echo number_format($summary['total_products'] ?? 0); ?></h2>
+                    <h2 class="text-primary"><?php echo number_format($summary['total_products'] ?? 0); ?></h2>
+                    <p class="text-muted">Products Sold</p>
                 </div>
             </div>
         </div>
-        
-        <div class="col-md-3 col-sm-6">
+        <div class="col-md-4">
             <div class="panel panel-success">
                 <div class="panel-body text-center">
-                    <h4 class="text-muted">Total Orders</h4>
-                    <h2 class="stat-value"><?php echo number_format($summary['total_orders'] ?? 0); ?></h2>
+                    <h2 class="text-success"><?php echo number_format($summary['total_orders'] ?? 0); ?></h2>
+                    <p class="text-muted">Total Orders</p>
                 </div>
             </div>
         </div>
-        
-        <div class="col-md-3 col-sm-6">
+        <div class="col-md-4">
             <div class="panel panel-info">
                 <div class="panel-body text-center">
-                    <h4 class="text-muted">Total Revenue</h4>
-                    <h2 class="stat-value"><?php echo CurrencyHelper::formatUsd($summary['total_revenue'] ?? 0); ?></h2>
-                </div>
-            </div>
-        </div>
-        
-        <div class="col-md-3 col-sm-6">
-            <div class="panel panel-warning">
-                <div class="panel-body text-center">
-                    <h4 class="text-muted">Avg Renewal Rate</h4>
-                    <h2 class="stat-value"><?php echo number_format($summary['avg_renewal_rate'] ?? 0, 1); ?>%</h2>
+                    <h2 class="text-info"><?php echo CurrencyHelper::formatUsd($summary['total_revenue_usd'] ?? 0); ?></h2>
+                    <p class="text-muted">Total Revenue (USD)</p>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Charts Row -->
+    <!-- Top Products Chart -->
     <div class="row">
-        <!-- Top Products Chart -->
-        <div class="col-md-6">
+        <div class="col-md-8">
             <div class="panel panel-default">
                 <div class="panel-heading">
                     <h4 class="panel-title"><i class="fa fa-bar-chart"></i> Top Products by Orders</h4>
                 </div>
                 <div class="panel-body">
-                    <canvas id="topProductsChart" height="200"></canvas>
+                    <canvas id="topProductsChart" height="100"></canvas>
                 </div>
             </div>
         </div>
-        
-        <!-- Revenue Distribution Chart -->
-        <div class="col-md-6">
+        <div class="col-md-4">
             <div class="panel panel-default">
                 <div class="panel-heading">
-                    <h4 class="panel-title"><i class="fa fa-pie-chart"></i> Revenue Distribution</h4>
+                    <h4 class="panel-title"><i class="fa fa-pie-chart"></i> By Validation Type</h4>
                 </div>
                 <div class="panel-body">
-                    <canvas id="revenueDistChart" height="200"></canvas>
+                    <canvas id="validationTypeChart" height="200"></canvas>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Performance Data Table -->
+    <!-- Performance Table -->
     <div class="panel panel-default">
         <div class="panel-heading">
             <h4 class="panel-title">
@@ -159,7 +144,7 @@ $products = $reportData['products'] ?? [];
         <div class="panel-body">
             <?php if (empty($products)): ?>
             <div class="alert alert-info">
-                <i class="fa fa-info-circle"></i> No product data available for the selected filters.
+                <i class="fa fa-info-circle"></i> No product data found for the selected filters.
             </div>
             <?php else: ?>
             <div class="table-responsive">
@@ -172,41 +157,38 @@ $products = $reportData['products'] ?? [];
                             <th class="text-center">Total Orders</th>
                             <th class="text-center">Active</th>
                             <th class="text-center">Cancelled</th>
-                            <th class="text-right">Revenue</th>
+                            <th class="text-right">Revenue (USD)</th>
                             <th class="text-right">Avg Order</th>
+                            <th class="text-center">Completion Rate</th>
                             <th class="text-center">Renewal Rate</th>
-                            <th class="text-center">Completion</th>
                         </tr>
                     </thead>
                     <tbody>
-                        <?php foreach ($products as $index => $product): ?>
+                        <?php foreach ($products as $product): ?>
                         <?php 
-                        $renewalClass = $product['renewal_rate'] >= 30 ? 'label-success' : ($product['renewal_rate'] >= 15 ? 'label-warning' : 'label-default');
                         $completionClass = $product['completion_rate'] >= 80 ? 'label-success' : ($product['completion_rate'] >= 50 ? 'label-warning' : 'label-danger');
+                        $renewalClass = $product['renewal_rate'] >= 50 ? 'label-success' : ($product['renewal_rate'] >= 25 ? 'label-warning' : 'label-default');
                         ?>
                         <tr>
                             <td>
-                                <?php if ($index < 3): ?>
-                                <span class="badge badge-rank rank-<?php echo $index + 1; ?>">#<?php echo $index + 1; ?></span>
-                                <?php endif; ?>
                                 <strong><?php echo $helper->e($product['product_name']); ?></strong>
                                 <br><small class="text-muted"><?php echo $helper->e($product['product_code']); ?></small>
                             </td>
                             <td><span class="label label-default"><?php echo $helper->e($product['vendor']); ?></span></td>
-                            <td><span class="label label-info"><?php echo $helper->e($product['validation_type']); ?></span></td>
+                            <td><?php echo $helper->validationBadge($product['validation_type'] ?? 'dv'); ?></td>
                             <td class="text-center"><strong><?php echo number_format($product['total_orders']); ?></strong></td>
                             <td class="text-center text-success"><?php echo number_format($product['active_count']); ?></td>
                             <td class="text-center text-danger"><?php echo number_format($product['cancelled_count']); ?></td>
-                            <td class="text-right"><strong><?php echo CurrencyHelper::formatUsd($product['total_revenue']); ?></strong></td>
-                            <td class="text-right"><?php echo CurrencyHelper::formatUsd($product['avg_order_value']); ?></td>
-                            <td class="text-center">
-                                <span class="label <?php echo $renewalClass; ?>">
-                                    <?php echo number_format($product['renewal_rate'], 1); ?>%
-                                </span>
-                            </td>
+                            <td class="text-right"><strong><?php echo CurrencyHelper::formatUsd($product['total_revenue_usd']); ?></strong></td>
+                            <td class="text-right"><?php echo CurrencyHelper::formatUsd($product['avg_order_value_usd']); ?></td>
                             <td class="text-center">
                                 <span class="label <?php echo $completionClass; ?>">
                                     <?php echo number_format($product['completion_rate'], 1); ?>%
+                                </span>
+                            </td>
+                            <td class="text-center">
+                                <span class="label <?php echo $renewalClass; ?>">
+                                    <?php echo number_format($product['renewal_rate'], 1); ?>%
                                 </span>
                             </td>
                         </tr>
@@ -218,146 +200,87 @@ $products = $reportData['products'] ?? [];
         </div>
     </div>
 
-    <!-- Performance Metrics Legend -->
-    <div class="panel panel-default">
-        <div class="panel-heading">
-            <h4 class="panel-title"><i class="fa fa-info-circle"></i> Metrics Explanation</h4>
-        </div>
-        <div class="panel-body">
-            <div class="row">
-                <div class="col-md-4">
-                    <h5><i class="fa fa-refresh"></i> Renewal Rate</h5>
-                    <p class="text-muted">Percentage of orders from returning customers who purchased the same product before.</p>
-                    <ul class="list-unstyled">
-                        <li><span class="label label-success">≥30%</span> Excellent</li>
-                        <li><span class="label label-warning">15-29%</span> Good</li>
-                        <li><span class="label label-default">&lt;15%</span> Needs improvement</li>
-                    </ul>
-                </div>
-                <div class="col-md-4">
-                    <h5><i class="fa fa-check-circle"></i> Completion Rate</h5>
-                    <p class="text-muted">Percentage of orders successfully completed (certificate issued).</p>
-                    <ul class="list-unstyled">
-                        <li><span class="label label-success">≥80%</span> Excellent</li>
-                        <li><span class="label label-warning">50-79%</span> Average</li>
-                        <li><span class="label label-danger">&lt;50%</span> Needs attention</li>
-                    </ul>
-                </div>
-                <div class="col-md-4">
-                    <h5><i class="fa fa-dollar"></i> Avg Order Value</h5>
-                    <p class="text-muted">Average revenue per order. Higher values indicate premium product sales or upselling success.</p>
-                </div>
-            </div>
-        </div>
-    </div>
-
 </div>
 
 <!-- Chart.js -->
-<script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
-
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
-$(document).ready(function() {
-    // Date preset handler
-    $('#datePreset').on('change', function() {
-        var presets = <?php echo json_encode($datePresets); ?>;
-        var selected = $(this).val();
-        if (selected && presets[selected]) {
-            $('#dateFrom').val(presets[selected].from);
-            $('#dateTo').val(presets[selected].to);
-        }
-    });
-
+document.addEventListener('DOMContentLoaded', function() {
     var products = <?php echo json_encode(array_slice($products, 0, 10)); ?>;
     
+    // Top Products Chart
     if (products.length > 0) {
-        // Top Products Bar Chart
-        var productLabels = products.map(function(p) { return p.product_name.substring(0, 20); });
-        var productOrders = products.map(function(p) { return p.total_orders; });
+        var labels = products.map(function(p) { return p.product_name.substring(0, 20); });
+        var orders = products.map(function(p) { return p.total_orders; });
+        var revenue = products.map(function(p) { return p.total_revenue_usd; });
         
-        var ctx1 = document.getElementById('topProductsChart').getContext('2d');
-        new Chart(ctx1, {
+        var ctx = document.getElementById('topProductsChart').getContext('2d');
+        new Chart(ctx, {
             type: 'bar',
             data: {
-                labels: productLabels,
+                labels: labels,
                 datasets: [{
                     label: 'Orders',
-                    data: productOrders,
-                    backgroundColor: [
-                        'rgba(255, 99, 132, 0.7)',
-                        'rgba(54, 162, 235, 0.7)',
-                        'rgba(255, 206, 86, 0.7)',
-                        'rgba(75, 192, 192, 0.7)',
-                        'rgba(153, 102, 255, 0.7)',
-                        'rgba(255, 159, 64, 0.7)',
-                        'rgba(199, 199, 199, 0.7)',
-                        'rgba(83, 102, 255, 0.7)',
-                        'rgba(255, 99, 255, 0.7)',
-                        'rgba(99, 255, 132, 0.7)'
-                    ]
+                    data: orders,
+                    backgroundColor: 'rgba(54, 162, 235, 0.5)',
+                    borderColor: 'rgba(54, 162, 235, 1)',
+                    borderWidth: 1,
+                    yAxisID: 'y'
+                }, {
+                    label: 'Revenue (USD)',
+                    data: revenue,
+                    type: 'line',
+                    borderColor: 'rgba(75, 192, 192, 1)',
+                    backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                    fill: false,
+                    yAxisID: 'y1'
                 }]
             },
             options: {
-                indexAxis: 'y',
                 responsive: true,
-                plugins: {
-                    legend: { display: false }
+                indexAxis: 'y',
+                scales: {
+                    y: {
+                        type: 'linear',
+                        position: 'bottom',
+                        title: { display: true, text: 'Orders' }
+                    },
+                    y1: {
+                        type: 'linear',
+                        position: 'top',
+                        title: { display: true, text: 'Revenue (USD)' },
+                        grid: { drawOnChartArea: false }
+                    }
                 }
             }
         });
+    }
 
-        // Revenue Distribution Pie Chart
-        var revenueLabels = products.slice(0, 5).map(function(p) { return p.product_name.substring(0, 15); });
-        var revenueData = products.slice(0, 5).map(function(p) { return p.total_revenue; });
-        
-        var ctx2 = document.getElementById('revenueDistChart').getContext('2d');
-        new Chart(ctx2, {
+    // Validation Type Chart
+    var typeData = {};
+    products.forEach(function(p) {
+        var type = (p.validation_type || 'dv').toUpperCase();
+        typeData[type] = (typeData[type] || 0) + p.total_orders;
+    });
+    
+    if (Object.keys(typeData).length > 0) {
+        var pieCtx = document.getElementById('validationTypeChart').getContext('2d');
+        new Chart(pieCtx, {
             type: 'doughnut',
             data: {
-                labels: revenueLabels,
+                labels: Object.keys(typeData),
                 datasets: [{
-                    data: revenueData,
-                    backgroundColor: [
-                        'rgba(54, 162, 235, 0.8)',
-                        'rgba(255, 99, 132, 0.8)',
-                        'rgba(255, 206, 86, 0.8)',
-                        'rgba(75, 192, 192, 0.8)',
-                        'rgba(153, 102, 255, 0.8)'
-                    ]
+                    data: Object.values(typeData),
+                    backgroundColor: ['#3498db', '#2ecc71', '#e74c3c']
                 }]
             },
             options: {
                 responsive: true,
                 plugins: {
-                    legend: { position: 'right' }
+                    legend: { position: 'bottom' }
                 }
             }
         });
     }
 });
 </script>
-
-<style>
-.nicsrs-performance-report .stat-value {
-    font-size: 28px;
-    font-weight: 600;
-    margin: 10px 0 0;
-}
-.nicsrs-performance-report .badge-rank {
-    display: inline-block;
-    width: 24px;
-    height: 24px;
-    line-height: 24px;
-    text-align: center;
-    border-radius: 50%;
-    margin-right: 5px;
-    font-size: 12px;
-}
-.nicsrs-performance-report .rank-1 { background: #FFD700; color: #000; }
-.nicsrs-performance-report .rank-2 { background: #C0C0C0; color: #000; }
-.nicsrs-performance-report .rank-3 { background: #CD7F32; color: #fff; }
-.nicsrs-performance-report .panel-primary .panel-body { background: #f0f7ff; }
-.nicsrs-performance-report .panel-success .panel-body { background: #f0fff4; }
-.nicsrs-performance-report .panel-info .panel-body { background: #f0ffff; }
-.nicsrs-performance-report .panel-warning .panel-body { background: #fffcf0; }
-</style>

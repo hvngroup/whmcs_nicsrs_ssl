@@ -1,12 +1,11 @@
 <?php
 /**
- * Revenue by Brand Report Template
+ * Revenue by Brand Report Template - FIXED
  * 
  * @var string $modulelink Module link
  * @var \NicsrsAdmin\Helper\ViewHelper $helper View helper
- * @var string $currencyHelper CurrencyHelper class name
- * @var array $reportData Brand revenue data
- * @var array $trendData Brand trend data
+ * @var array $reportData Brand report data
+ * @var array $trendData Trend chart data
  * @var array $datePresets Date presets
  * @var array $filters Current filters
  */
@@ -14,9 +13,9 @@
 use NicsrsAdmin\Helper\CurrencyHelper;
 
 $filters = $filters ?? [];
-$summary = $reportData['summary'] ?? [];
 $brands = $reportData['brands'] ?? [];
-$chartData = $reportData['chart_data'] ?? [];
+$summary = $reportData['summary'] ?? [];
+$trendData = $trendData ?? ['labels' => [], 'datasets' => []];
 ?>
 
 <div class="nicsrs-reports nicsrs-brand-report">
@@ -24,7 +23,7 @@ $chartData = $reportData['chart_data'] ?? [];
     <!-- Page Header -->
     <div class="page-header clearfix">
         <h3 class="pull-left">
-            <i class="fa fa-pie-chart"></i> Revenue by Brand
+            <i class="fa fa-building"></i> Revenue by Brand Report
         </h3>
         <div class="pull-right">
             <a href="<?php echo $modulelink; ?>&action=reports" class="btn btn-default">
@@ -37,45 +36,32 @@ $chartData = $reportData['chart_data'] ?? [];
         </div>
     </div>
 
-    <!-- Filters Panel -->
+    <!-- Filters -->
     <div class="panel panel-default">
         <div class="panel-heading">
             <h4 class="panel-title"><i class="fa fa-filter"></i> Filters</h4>
         </div>
         <div class="panel-body">
-            <form method="GET" class="form-inline">
+            <form method="get" class="form-inline">
                 <input type="hidden" name="module" value="nicsrs_ssl_admin">
                 <input type="hidden" name="action" value="reports">
                 <input type="hidden" name="report" value="brand">
                 
-                <!-- Date Presets -->
                 <div class="form-group" style="margin-right: 15px;">
-                    <label>Quick Select:</label>
-                    <select name="preset" class="form-control" id="datePreset" style="margin-left: 5px;">
-                        <option value="">All Time</option>
-                        <?php foreach ($datePresets as $key => $preset): ?>
-                        <option value="<?php echo $key; ?>"><?php echo $helper->e($preset['label']); ?></option>
-                        <?php endforeach; ?>
-                    </select>
-                </div>
-                
-                <!-- Date Range -->
-                <div class="form-group" style="margin-right: 15px;">
-                    <label>From:</label>
-                    <input type="date" name="date_from" class="form-control" id="dateFrom"
-                           value="<?php echo $helper->e($filters['date_from'] ?? ''); ?>" style="margin-left: 5px;">
+                    <label>Date From:</label>
+                    <input type="date" class="form-control" name="date_from" 
+                           value="<?php echo $helper->e($filters['date_from'] ?? ''); ?>">
                 </div>
                 
                 <div class="form-group" style="margin-right: 15px;">
                     <label>To:</label>
-                    <input type="date" name="date_to" class="form-control" id="dateTo"
-                           value="<?php echo $helper->e($filters['date_to'] ?? ''); ?>" style="margin-left: 5px;">
+                    <input type="date" class="form-control" name="date_to" 
+                           value="<?php echo $helper->e($filters['date_to'] ?? ''); ?>">
                 </div>
-                
-                <!-- Period for Trend -->
+
                 <div class="form-group" style="margin-right: 15px;">
-                    <label>Trend Period:</label>
-                    <select name="period" class="form-control" style="margin-left: 5px;">
+                    <label>Period:</label>
+                    <select class="form-control" name="period">
                         <option value="month" <?php echo ($filters['period'] ?? 'month') === 'month' ? 'selected' : ''; ?>>Monthly</option>
                         <option value="quarter" <?php echo ($filters['period'] ?? '') === 'quarter' ? 'selected' : ''; ?>>Quarterly</option>
                         <option value="year" <?php echo ($filters['period'] ?? '') === 'year' ? 'selected' : ''; ?>>Yearly</option>
@@ -85,9 +71,8 @@ $chartData = $reportData['chart_data'] ?? [];
                 <button type="submit" class="btn btn-primary">
                     <i class="fa fa-search"></i> Apply
                 </button>
-                
                 <a href="<?php echo $modulelink; ?>&action=reports&report=brand" class="btn btn-default">
-                    <i class="fa fa-times"></i> Clear
+                    <i class="fa fa-refresh"></i> Reset
                 </a>
             </form>
         </div>
@@ -98,27 +83,25 @@ $chartData = $reportData['chart_data'] ?? [];
         <div class="col-md-4">
             <div class="panel panel-primary">
                 <div class="panel-body text-center">
-                    <h4 class="text-muted">Total Brands</h4>
-                    <h2 class="stat-value"><?php echo number_format($summary['total_brands'] ?? 0); ?></h2>
+                    <h2 class="text-primary"><?php echo CurrencyHelper::formatVnd($summary['total_revenue_vnd'] ?? 0); ?></h2>
+                    <p class="text-muted">Total Revenue (VND)</p>
+                    <small class="text-info">≈ <?php echo CurrencyHelper::formatUsd($summary['total_revenue_usd'] ?? 0); ?></small>
                 </div>
             </div>
         </div>
-        
         <div class="col-md-4">
             <div class="panel panel-success">
                 <div class="panel-body text-center">
-                    <h4 class="text-muted">Total Orders</h4>
-                    <h2 class="stat-value"><?php echo number_format($summary['total_orders'] ?? 0); ?></h2>
+                    <h2 class="text-success"><?php echo number_format($summary['total_orders'] ?? 0); ?></h2>
+                    <p class="text-muted">Total Orders</p>
                 </div>
             </div>
         </div>
-        
         <div class="col-md-4">
             <div class="panel panel-info">
                 <div class="panel-body text-center">
-                    <h4 class="text-muted">Total Revenue</h4>
-                    <h2 class="stat-value"><?php echo CurrencyHelper::formatUsd($summary['total_revenue'] ?? 0); ?></h2>
-                    <p class="text-muted"><?php echo CurrencyHelper::formatVnd(CurrencyHelper::usdToVnd($summary['total_revenue'] ?? 0)); ?></p>
+                    <h2 class="text-info"><?php echo number_format($summary['brand_count'] ?? 0); ?></h2>
+                    <p class="text-muted">Active Brands</p>
                 </div>
             </div>
         </div>
@@ -126,123 +109,105 @@ $chartData = $reportData['chart_data'] ?? [];
 
     <!-- Charts Row -->
     <div class="row">
-        <!-- Market Share Pie Chart -->
+        <!-- Brand Distribution Pie -->
         <div class="col-md-5">
             <div class="panel panel-default">
                 <div class="panel-heading">
-                    <h4 class="panel-title"><i class="fa fa-pie-chart"></i> Market Share by Revenue</h4>
+                    <h4 class="panel-title"><i class="fa fa-pie-chart"></i> Revenue Distribution</h4>
                 </div>
                 <div class="panel-body">
-                    <canvas id="marketShareChart" height="250"></canvas>
+                    <?php if (empty($brands)): ?>
+                    <div class="alert alert-info">No data available</div>
+                    <?php else: ?>
+                    <canvas id="brandPieChart" height="280"></canvas>
+                    <?php endif; ?>
                 </div>
             </div>
         </div>
         
-        <!-- Brand Comparison Bar Chart -->
+        <!-- Brand Trend Chart -->
         <div class="col-md-7">
             <div class="panel panel-default">
                 <div class="panel-heading">
-                    <h4 class="panel-title"><i class="fa fa-bar-chart"></i> Brand Comparison</h4>
+                    <h4 class="panel-title"><i class="fa fa-area-chart"></i> Revenue Trend by Brand</h4>
                 </div>
                 <div class="panel-body">
-                    <canvas id="brandComparisonChart" height="250"></canvas>
+                    <?php if (empty($trendData['labels'])): ?>
+                    <div class="alert alert-info">No trend data available</div>
+                    <?php else: ?>
+                    <canvas id="brandTrendChart" height="170"></canvas>
+                    <?php endif; ?>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Brand Trend Chart -->
-    <div class="panel panel-default">
-        <div class="panel-heading">
-            <h4 class="panel-title"><i class="fa fa-line-chart"></i> Revenue Trend by Brand</h4>
-        </div>
-        <div class="panel-body">
-            <canvas id="brandTrendChart" height="80"></canvas>
-        </div>
-    </div>
-
-    <!-- Brand Data Table -->
+    <!-- Brand Table -->
     <div class="panel panel-default">
         <div class="panel-heading">
             <h4 class="panel-title">
-                <i class="fa fa-table"></i> Brand Performance Details
+                <i class="fa fa-table"></i> Revenue by Brand
+                <span class="badge"><?php echo count($brands); ?> brands</span>
             </h4>
         </div>
         <div class="panel-body">
             <?php if (empty($brands)): ?>
             <div class="alert alert-info">
-                <i class="fa fa-info-circle"></i> No brand data available for the selected filters.
+                <i class="fa fa-info-circle"></i> No brand data found for the selected filters.
             </div>
             <?php else: ?>
             <div class="table-responsive">
-                <table class="table table-striped table-hover">
+                <table class="table table-striped table-hover" id="brandTable">
                     <thead>
                         <tr>
-                            <th>Brand/Vendor</th>
-                            <th class="text-center">Total Orders</th>
-                            <th class="text-center">Active Certs</th>
-                            <th class="text-right">Total Revenue</th>
-                            <th class="text-right">Avg Order Value</th>
-                            <th class="text-center">Revenue Share</th>
-                            <th class="text-center">Order Share</th>
+                            <th>#</th>
+                            <th>Brand / Vendor</th>
+                            <th class="text-center">Orders</th>
+                            <th class="text-right">Revenue (VND)</th>
+                            <th class="text-right">Revenue (USD)</th>
+                            <th class="text-center">Market Share</th>
+                            <th>Distribution</th>
                         </tr>
                     </thead>
                     <tbody>
-                        <?php foreach ($brands as $index => $brand): ?>
-                        <?php
-                        $brandColors = [
-                            'Sectigo' => '#1a73e8',
-                            'DigiCert' => '#0066cc',
-                            'GoGetSSL' => '#00aa55',
-                            'GlobalSign' => '#ff6600',
-                            'GeoTrust' => '#cc0000',
-                            'Comodo' => '#1a73e8',
-                            'RapidSSL' => '#009688',
-                            'Thawte' => '#673ab7',
-                        ];
-                        $brandColor = $brandColors[$brand['vendor']] ?? '#666666';
+                        <?php $rank = 1; foreach ($brands as $brand): ?>
+                        <?php 
+                        $shareClass = $brand['percentage'] >= 30 ? 'success' : ($brand['percentage'] >= 15 ? 'info' : 'default');
                         ?>
                         <tr>
+                            <td><strong>#<?php echo $rank++; ?></strong></td>
                             <td>
-                                <span class="brand-indicator" style="background-color: <?php echo $brandColor; ?>"></span>
-                                <strong><?php echo $helper->e($brand['vendor']); ?></strong>
+                                <span class="label label-primary" style="font-size: 14px;">
+                                    <?php echo $helper->e($brand['vendor']); ?>
+                                </span>
                             </td>
                             <td class="text-center"><?php echo number_format($brand['order_count']); ?></td>
-                            <td class="text-center text-success"><?php echo number_format($brand['active_count']); ?></td>
-                            <td class="text-right">
-                                <strong><?php echo CurrencyHelper::formatUsd($brand['total_revenue']); ?></strong>
-                            </td>
-                            <td class="text-right"><?php echo CurrencyHelper::formatUsd($brand['avg_order_value']); ?></td>
+                            <td class="text-right"><strong><?php echo CurrencyHelper::formatVnd($brand['total_revenue_vnd']); ?></strong></td>
+                            <td class="text-right"><span class="text-info"><?php echo CurrencyHelper::formatUsd($brand['total_revenue_usd']); ?></span></td>
                             <td class="text-center">
-                                <div class="progress" style="margin: 0; min-width: 100px;">
-                                    <div class="progress-bar progress-bar-info" 
-                                         style="width: <?php echo min($brand['revenue_percentage'], 100); ?>%">
-                                        <?php echo number_format($brand['revenue_percentage'], 1); ?>%
+                                <span class="label label-<?php echo $shareClass; ?>">
+                                    <?php echo number_format($brand['percentage'], 1); ?>%
+                                </span>
+                            </td>
+                            <td style="width: 200px;">
+                                <div class="progress" style="margin-bottom: 0;">
+                                    <div class="progress-bar progress-bar-<?php echo $shareClass; ?>" 
+                                         role="progressbar"
+                                         style="width: <?php echo min($brand['percentage'], 100); ?>%;">
                                     </div>
                                 </div>
-                            </td>
-                            <td class="text-center">
-                                <span class="label label-default">
-                                    <?php echo number_format($brand['order_percentage'], 1); ?>%
-                                </span>
                             </td>
                         </tr>
                         <?php endforeach; ?>
                     </tbody>
                     <tfoot>
                         <tr class="active">
-                            <th>Total</th>
-                            <th class="text-center"><?php echo number_format($summary['total_orders']); ?></th>
-                            <th class="text-center"><?php echo number_format(array_sum(array_column($brands, 'active_count'))); ?></th>
-                            <th class="text-right"><?php echo CurrencyHelper::formatUsd($summary['total_revenue']); ?></th>
-                            <th class="text-right">
-                                <?php 
-                                $overallAvg = $summary['total_orders'] > 0 ? $summary['total_revenue'] / $summary['total_orders'] : 0;
-                                echo CurrencyHelper::formatUsd($overallAvg);
-                                ?>
-                            </th>
-                            <th class="text-center">100%</th>
-                            <th class="text-center">100%</th>
+                            <th colspan="2" class="text-right">Total:</th>
+                            <th class="text-center"><?php echo number_format($summary['total_orders'] ?? 0); ?></th>
+                            <th class="text-right"><?php echo CurrencyHelper::formatVnd($summary['total_revenue_vnd'] ?? 0); ?></th>
+                            <th class="text-right"><?php echo CurrencyHelper::formatUsd($summary['total_revenue_usd'] ?? 0); ?></th>
+                            <th class="text-center"><span class="label label-primary">100%</span></th>
+                            <th></th>
                         </tr>
                     </tfoot>
                 </table>
@@ -251,251 +216,162 @@ $chartData = $reportData['chart_data'] ?? [];
         </div>
     </div>
 
-    <!-- Brand Insights -->
-    <?php if (!empty($brands)): ?>
-    <div class="panel panel-default">
-        <div class="panel-heading">
-            <h4 class="panel-title"><i class="fa fa-lightbulb-o"></i> Insights</h4>
-        </div>
-        <div class="panel-body">
-            <div class="row">
-                <div class="col-md-4">
-                    <div class="insight-card">
-                        <i class="fa fa-trophy text-warning"></i>
-                        <h5>Top Performer</h5>
-                        <?php 
-                        $topBrand = $brands[0] ?? null;
-                        if ($topBrand):
-                        ?>
-                        <p><strong><?php echo $helper->e($topBrand['vendor']); ?></strong> leads with 
-                           <?php echo number_format($topBrand['revenue_percentage'], 1); ?>% revenue share</p>
-                        <?php endif; ?>
-                    </div>
-                </div>
-                <div class="col-md-4">
-                    <div class="insight-card">
-                        <i class="fa fa-dollar text-success"></i>
-                        <h5>Highest Avg Order</h5>
-                        <?php 
-                        $highestAvg = collect($brands)->sortByDesc('avg_order_value')->first();
-                        if ($highestAvg):
-                        ?>
-                        <p><strong><?php echo $helper->e($highestAvg['vendor']); ?></strong> has highest avg order at 
-                           <?php echo CurrencyHelper::formatUsd($highestAvg['avg_order_value']); ?></p>
-                        <?php endif; ?>
-                    </div>
-                </div>
-                <div class="col-md-4">
-                    <div class="insight-card">
-                        <i class="fa fa-users text-info"></i>
-                        <h5>Most Orders</h5>
-                        <?php 
-                        $mostOrders = collect($brands)->sortByDesc('order_count')->first();
-                        if ($mostOrders):
-                        ?>
-                        <p><strong><?php echo $helper->e($mostOrders['vendor']); ?></strong> has most orders with 
-                           <?php echo number_format($mostOrders['order_count']); ?> sales</p>
-                        <?php endif; ?>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-    <?php endif; ?>
-
 </div>
 
 <!-- Chart.js -->
-<script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
-
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
-$(document).ready(function() {
-    // Date preset handler
-    $('#datePreset').on('change', function() {
-        var presets = <?php echo json_encode($datePresets); ?>;
-        var selected = $(this).val();
-        if (selected && presets[selected]) {
-            $('#dateFrom').val(presets[selected].from);
-            $('#dateTo').val(presets[selected].to);
-        }
-    });
-
-    var chartLabels = <?php echo json_encode($chartData['labels'] ?? []); ?>;
-    var chartRevenue = <?php echo json_encode($chartData['revenue'] ?? []); ?>;
-    var chartOrders = <?php echo json_encode($chartData['orders'] ?? []); ?>;
-    var chartPercentages = <?php echo json_encode($chartData['percentages'] ?? []); ?>;
-
+document.addEventListener('DOMContentLoaded', function() {
+    // Brand data from PHP
+    var brandsData = <?php echo json_encode($brands); ?>;
+    var trendData = <?php echo json_encode($trendData); ?>;
+    
+    // Brand colors mapping
     var brandColors = {
-        'Sectigo': '#1a73e8',
-        'DigiCert': '#0066cc',
-        'GoGetSSL': '#00aa55',
-        'GlobalSign': '#ff6600',
-        'GeoTrust': '#cc0000',
-        'Comodo': '#1a73e8',
-        'RapidSSL': '#009688',
-        'Thawte': '#673ab7',
-        'Unknown': '#999999'
+        'Sectigo': '#1a5276',
+        'Comodo': '#2980b9',
+        'DigiCert': '#27ae60',
+        'GeoTrust': '#8e44ad',
+        'Thawte': '#d35400',
+        'RapidSSL': '#c0392b',
+        'GoGetSSL': '#16a085',
+        'GlobalSign': '#2c3e50',
+        'Unknown': '#95a5a6'
     };
+    
+    var defaultColors = ['#3498db', '#2ecc71', '#e74c3c', '#f39c12', '#9b59b6', '#1abc9c', '#34495e', '#e67e22', '#95a5a6', '#7f8c8d'];
+    
+    function getColor(vendor, index) {
+        return brandColors[vendor] || defaultColors[index % defaultColors.length];
+    }
 
-    var colors = chartLabels.map(function(label) {
-        return brandColors[label] || '#' + Math.floor(Math.random()*16777215).toString(16);
-    });
-
-    if (chartLabels.length > 0) {
-        // Market Share Pie Chart
-        var ctx1 = document.getElementById('marketShareChart').getContext('2d');
-        new Chart(ctx1, {
+    // ========== PIE CHART ==========
+    var pieCanvas = document.getElementById('brandPieChart');
+    if (pieCanvas && brandsData && brandsData.length > 0) {
+        var pieCtx = pieCanvas.getContext('2d');
+        var pieLabels = brandsData.map(function(b) { return b.vendor || 'Unknown'; });
+        var pieValues = brandsData.map(function(b) { return parseFloat(b.total_revenue_usd) || 0; });
+        var pieColors = brandsData.map(function(b, i) { return getColor(b.vendor, i); });
+        
+        new Chart(pieCtx, {
             type: 'doughnut',
             data: {
-                labels: chartLabels,
+                labels: pieLabels,
                 datasets: [{
-                    data: chartRevenue,
-                    backgroundColor: colors.map(c => c + 'cc'),
-                    borderColor: colors,
-                    borderWidth: 2
+                    data: pieValues,
+                    backgroundColor: pieColors,
+                    borderWidth: 2,
+                    borderColor: '#fff'
                 }]
             },
             options: {
                 responsive: true,
+                maintainAspectRatio: true,
                 plugins: {
-                    legend: { position: 'bottom' },
+                    legend: { 
+                        position: 'right',
+                        labels: {
+                            padding: 15,
+                            usePointStyle: true
+                        }
+                    },
                     tooltip: {
                         callbacks: {
                             label: function(context) {
-                                var value = context.parsed;
-                                var percentage = chartPercentages[context.dataIndex] || 0;
-                                return context.label + ': $' + value.toLocaleString() + ' (' + percentage.toFixed(1) + '%)';
+                                var value = context.raw;
+                                var total = context.dataset.data.reduce(function(a, b) { return a + b; }, 0);
+                                var pct = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
+                                return context.label + ': $' + value.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' (' + pct + '%)';
                             }
                         }
                     }
                 }
             }
         });
-
-        // Brand Comparison Bar Chart
-        var ctx2 = document.getElementById('brandComparisonChart').getContext('2d');
-        new Chart(ctx2, {
-            type: 'bar',
-            data: {
-                labels: chartLabels,
-                datasets: [
-                    {
-                        label: 'Revenue (USD)',
-                        data: chartRevenue,
-                        backgroundColor: colors.map(c => c + 'aa'),
-                        borderColor: colors,
-                        borderWidth: 1,
-                        yAxisID: 'y'
-                    },
-                    {
-                        label: 'Orders',
-                        data: chartOrders,
-                        type: 'line',
-                        borderColor: '#ff6384',
-                        backgroundColor: 'rgba(255, 99, 132, 0.2)',
-                        tension: 0.4,
-                        yAxisID: 'y1'
-                    }
-                ]
-            },
-            options: {
-                responsive: true,
-                scales: {
-                    y: {
-                        type: 'linear',
-                        position: 'left',
-                        title: { display: true, text: 'Revenue (USD)' }
-                    },
-                    y1: {
-                        type: 'linear',
-                        position: 'right',
-                        title: { display: true, text: 'Orders' },
-                        grid: { drawOnChartArea: false }
-                    }
-                }
-            }
-        });
     }
 
-    // Brand Trend Chart
-    var trendLabels = <?php echo json_encode($trendData['labels'] ?? []); ?>;
-    var trendDatasets = <?php echo json_encode($trendData['datasets'] ?? []); ?>;
-
-    if (trendLabels.length > 0 && Object.keys(trendDatasets).length > 0) {
+    // ========== TREND CHART ==========
+    var trendCanvas = document.getElementById('brandTrendChart');
+    if (trendCanvas && trendData && trendData.labels && trendData.labels.length > 0 && trendData.datasets) {
+        var trendCtx = trendCanvas.getContext('2d');
         var datasets = [];
-        var colorIndex = 0;
-        var defaultColors = ['#1a73e8', '#00aa55', '#ff6600', '#cc0000', '#673ab7', '#009688', '#ff9800'];
-
-        for (var brand in trendDatasets) {
-            var color = brandColors[brand] || defaultColors[colorIndex % defaultColors.length];
-            datasets.push({
-                label: brand,
-                data: trendDatasets[brand],
-                borderColor: color,
-                backgroundColor: color + '33',
-                tension: 0.4,
-                fill: false
-            });
-            colorIndex++;
+        var vendorIndex = 0;
+        
+        // Build datasets from trendData.datasets object
+        for (var vendor in trendData.datasets) {
+            if (trendData.datasets.hasOwnProperty(vendor)) {
+                var color = getColor(vendor, vendorIndex);
+                datasets.push({
+                    label: vendor,
+                    data: trendData.datasets[vendor],
+                    borderColor: color,
+                    backgroundColor: color + '40', // 25% opacity
+                    fill: true,
+                    tension: 0.3,
+                    borderWidth: 2,
+                    pointRadius: 3,
+                    pointHoverRadius: 5
+                });
+                vendorIndex++;
+            }
         }
-
-        var ctx3 = document.getElementById('brandTrendChart').getContext('2d');
-        new Chart(ctx3, {
-            type: 'line',
-            data: {
-                labels: trendLabels,
-                datasets: datasets
-            },
-            options: {
-                responsive: true,
-                interaction: {
-                    mode: 'index',
-                    intersect: false
+        
+        if (datasets.length > 0) {
+            new Chart(trendCtx, {
+                type: 'line',
+                data: {
+                    labels: trendData.labels,
+                    datasets: datasets
                 },
-                scales: {
-                    y: {
-                        beginAtZero: true,
-                        title: { display: true, text: 'Revenue (USD)' }
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false
+                    },
+                    scales: {
+                        x: {
+                            display: true,
+                            title: {
+                                display: true,
+                                text: 'Period'
+                            }
+                        },
+                        y: {
+                            display: true,
+                            stacked: false,
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Revenue (USD)'
+                            },
+                            ticks: {
+                                callback: function(value) {
+                                    return '$' + value.toLocaleString();
+                                }
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: { 
+                            position: 'bottom',
+                            labels: {
+                                padding: 15,
+                                usePointStyle: true
+                            }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return context.dataset.label + ': $' + context.raw.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+                                }
+                            }
+                        }
                     }
                 }
-            }
-        });
+            });
+        }
     }
 });
 </script>
-
-<style>
-.nicsrs-brand-report .stat-value {
-    font-size: 28px;
-    font-weight: 600;
-    margin: 10px 0 0;
-}
-.nicsrs-brand-report .brand-indicator {
-    display: inline-block;
-    width: 12px;
-    height: 12px;
-    border-radius: 2px;
-    margin-right: 8px;
-}
-.nicsrs-brand-report .panel-primary .panel-body { background: #f0f7ff; }
-.nicsrs-brand-report .panel-success .panel-body { background: #f0fff4; }
-.nicsrs-brand-report .panel-info .panel-body { background: #f0ffff; }
-.nicsrs-brand-report .insight-card {
-    text-align: center;
-    padding: 15px;
-    background: #f8f9fa;
-    border-radius: 8px;
-}
-.nicsrs-brand-report .insight-card i {
-    font-size: 24px;
-    margin-bottom: 10px;
-}
-.nicsrs-brand-report .insight-card h5 {
-    margin: 10px 0;
-    font-weight: 600;
-}
-.nicsrs-brand-report .insight-card p {
-    margin: 0;
-    color: #666;
-}
-</style>

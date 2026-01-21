@@ -547,39 +547,60 @@ class ReportController extends BaseController
         $lastMonth = date('Y-m-01', strtotime('-1 month'));
         $lastMonthEnd = date('Y-m-t', strtotime('-1 month'));
 
-        // This month sales
-        $thisMonthSales = Capsule::table('nicsrs_sslorders as o')
+        // This month sales (VND) - use tblhosting.regdate as primary date
+        $thisMonthSalesVnd = Capsule::table('nicsrs_sslorders as o')
             ->join('tblhosting as h', 'o.serviceid', '=', 'h.id')
-            ->where('o.provisiondate', '>=', $thisMonth)
+            ->where('h.regdate', '>=', $thisMonth)
             ->sum('h.firstpaymentamount') ?: 0;
 
-        // Last month sales
-        $lastMonthSales = Capsule::table('nicsrs_sslorders as o')
+        // Last month sales (VND)
+        $lastMonthSalesVnd = Capsule::table('nicsrs_sslorders as o')
             ->join('tblhosting as h', 'o.serviceid', '=', 'h.id')
-            ->where('o.provisiondate', '>=', $lastMonth)
-            ->where('o.provisiondate', '<=', $lastMonthEnd)
+            ->where('h.regdate', '>=', $lastMonth)
+            ->where('h.regdate', '<=', $lastMonthEnd)
             ->sum('h.firstpaymentamount') ?: 0;
 
-        // This month orders
-        $thisMonthOrders = Capsule::table('nicsrs_sslorders')
-            ->where('provisiondate', '>=', $thisMonth)
+        // This month orders - use tblhosting.regdate
+        $thisMonthOrders = Capsule::table('nicsrs_sslorders as o')
+            ->join('tblhosting as h', 'o.serviceid', '=', 'h.id')
+            ->where('h.regdate', '>=', $thisMonth)
             ->count();
 
-        // Active certificates
+        // Last month orders
+        $lastMonthOrders = Capsule::table('nicsrs_sslorders as o')
+            ->join('tblhosting as h', 'o.serviceid', '=', 'h.id')
+            ->where('h.regdate', '>=', $lastMonth)
+            ->where('h.regdate', '<=', $lastMonthEnd)
+            ->count();
+
+        // Active certificates (completed orders)
         $activeCerts = Capsule::table('nicsrs_sslorders')
             ->whereIn('status', ['complete', 'Complete'])
             ->count();
 
-        // Calculate growth
-        $salesGrowth = $lastMonthSales > 0 
-            ? (($thisMonthSales - $lastMonthSales) / $lastMonthSales) * 100 
+        // Convert to USD (after removing VAT)
+        $thisMonthSalesUsd = CurrencyHelper::revenueVndToUsd((float) $thisMonthSalesVnd);
+        $lastMonthSalesUsd = CurrencyHelper::revenueVndToUsd((float) $lastMonthSalesVnd);
+
+        // Calculate growth based on VND
+        $salesGrowth = $lastMonthSalesVnd > 0 
+            ? (($thisMonthSalesVnd - $lastMonthSalesVnd) / $lastMonthSalesVnd) * 100 
             : 0;
 
         return [
-            'this_month_sales' => (float) $thisMonthSales,
-            'last_month_sales' => (float) $lastMonthSales,
+            // VND amounts (original from WHMCS, with VAT)
+            'this_month_sales_vnd' => (float) $thisMonthSalesVnd,
+            'last_month_sales_vnd' => (float) $lastMonthSalesVnd,
+            // USD amounts (converted, without VAT)
+            'this_month_sales_usd' => round($thisMonthSalesUsd, 2),
+            'last_month_sales_usd' => round($lastMonthSalesUsd, 2),
+            // For backward compatibility
+            'this_month_sales' => round($thisMonthSalesUsd, 2),
+            'last_month_sales' => round($lastMonthSalesUsd, 2),
+            // Growth and counts
             'sales_growth' => round($salesGrowth, 1),
             'this_month_orders' => (int) $thisMonthOrders,
+            'last_month_orders' => (int) $lastMonthOrders,
             'active_certificates' => (int) $activeCerts,
         ];
     }

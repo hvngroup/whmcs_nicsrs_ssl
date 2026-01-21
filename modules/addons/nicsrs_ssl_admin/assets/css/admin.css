@@ -452,6 +452,35 @@
 }
 
 /* ==========================================================================
+   Reports
+   ========================================================================== */
+
+.report-card {
+    height: 100%;
+    margin-bottom: 20px;
+}
+.report-card .panel-body {
+    min-height: 200px;
+}
+.report-features {
+    list-style: none;
+    padding-left: 0;
+    margin-bottom: 15px;
+}
+.report-features li {
+    padding: 3px 0;
+}
+.stat-icon {
+    margin-bottom: 10px;
+}
+.stat-value {
+    margin: 10px 0 5px;
+}
+.stat-label {
+    margin-bottom: 5px;
+}
+
+/* ==========================================================================
    Responsive
    ========================================================================== */
 @media (max-width: 768px) {

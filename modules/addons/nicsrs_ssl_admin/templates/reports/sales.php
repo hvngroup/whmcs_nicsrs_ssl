@@ -1,10 +1,13 @@
 <?php
 /**
- * SSL Sales Report Template
+ * SSL Sales Report Template - UPDATED
+ * 
+ * CURRENCY NOTES:
+ * - sale_amount_vnd = Original VND from WHMCS (including 10% VAT)
+ * - sale_amount_usd = Converted to USD (after removing VAT)
  * 
  * @var string $modulelink Module link
  * @var \NicsrsAdmin\Helper\ViewHelper $helper View helper
- * @var string $currencyHelper CurrencyHelper class name
  * @var array $reportData Sales report data
  * @var array $chartData Chart data
  * @var array $productData Sales by product
@@ -17,6 +20,8 @@
 use NicsrsAdmin\Helper\CurrencyHelper;
 
 $filters = $filters ?? [];
+$summary = $reportData['summary'] ?? [];
+$rateInfo = CurrencyHelper::getRateInfo();
 ?>
 
 <div class="nicsrs-reports nicsrs-sales-report">
@@ -37,47 +42,42 @@ $filters = $filters ?? [];
         </div>
     </div>
 
-    <!-- Filters Panel -->
+    <!-- Currency Info Banner -->
+    <div class="alert alert-info">
+        <i class="fa fa-info-circle"></i>
+        <strong>Note:</strong> Revenue shown in USD is converted from VND (after removing 10% VAT).
+        Exchange rate: <strong><?php echo $rateInfo['rate_formatted']; ?></strong>
+        <small class="text-muted">(Updated: <?php echo $rateInfo['last_updated_formatted']; ?>)</small>
+    </div>
+
+    <!-- Filters -->
     <div class="panel panel-default">
         <div class="panel-heading">
             <h4 class="panel-title"><i class="fa fa-filter"></i> Filters</h4>
         </div>
         <div class="panel-body">
-            <form method="GET" class="form-inline" id="filterForm">
+            <form method="get" class="form-inline">
                 <input type="hidden" name="module" value="nicsrs_ssl_admin">
                 <input type="hidden" name="action" value="reports">
                 <input type="hidden" name="report" value="sales">
                 
-                <!-- Date Presets -->
                 <div class="form-group" style="margin-right: 15px;">
-                    <label>Quick Select:</label>
-                    <select name="preset" class="form-control" id="datePreset" style="margin-left: 5px;">
-                        <option value="">Custom Range</option>
-                        <?php foreach ($datePresets as $key => $preset): ?>
-                        <option value="<?php echo $key; ?>"><?php echo $helper->e($preset['label']); ?></option>
-                        <?php endforeach; ?>
-                    </select>
-                </div>
-                
-                <!-- Date Range -->
-                <div class="form-group" style="margin-right: 15px;">
-                    <label>From:</label>
-                    <input type="date" name="date_from" class="form-control" id="dateFrom"
-                           value="<?php echo $helper->e($filters['date_from'] ?? ''); ?>" style="margin-left: 5px;">
+                    <label>Date From:</label>
+                    <input type="date" class="form-control" name="date_from" 
+                           value="<?php echo $helper->e($filters['date_from'] ?? ''); ?>">
                 </div>
                 
                 <div class="form-group" style="margin-right: 15px;">
                     <label>To:</label>
-                    <input type="date" name="date_to" class="form-control" id="dateTo"
-                           value="<?php echo $helper->e($filters['date_to'] ?? ''); ?>" style="margin-left: 5px;">
+                    <input type="date" class="form-control" name="date_to" 
+                           value="<?php echo $helper->e($filters['date_to'] ?? ''); ?>">
                 </div>
                 
-                <!-- Vendor Filter -->
                 <div class="form-group" style="margin-right: 15px;">
                     <label>Vendor:</label>
-                    <select name="vendor" class="form-control" style="margin-left: 5px;">
+                    <select class="form-control" name="vendor">
                         <option value="">All Vendors</option>
-                        <?php foreach ($vendors as $vendor): ?>
+                        <?php foreach ($vendors ?? [] as $vendor): ?>
                         <option value="<?php echo $helper->e($vendor); ?>" 
                                 <?php echo ($filters['vendor'] ?? '') === $vendor ? 'selected' : ''; ?>>
                             <?php echo $helper->e($vendor); ?>
@@ -86,23 +86,21 @@ $filters = $filters ?? [];
                     </select>
                 </div>
                 
-                <!-- Period for Chart -->
                 <div class="form-group" style="margin-right: 15px;">
-                    <label>Group By:</label>
-                    <select name="period" class="form-control" style="margin-left: 5px;">
-                        <option value="day" <?php echo ($filters['period'] ?? '') === 'day' ? 'selected' : ''; ?>>Day</option>
-                        <option value="week" <?php echo ($filters['period'] ?? '') === 'week' ? 'selected' : ''; ?>>Week</option>
-                        <option value="month" <?php echo ($filters['period'] ?? 'month') === 'month' ? 'selected' : ''; ?>>Month</option>
-                        <option value="year" <?php echo ($filters['period'] ?? '') === 'year' ? 'selected' : ''; ?>>Year</option>
+                    <label>Status:</label>
+                    <select class="form-control" name="status">
+                        <option value="">All Status</option>
+                        <option value="complete" <?php echo ($filters['status'] ?? '') === 'complete' ? 'selected' : ''; ?>>Complete</option>
+                        <option value="pending" <?php echo ($filters['status'] ?? '') === 'pending' ? 'selected' : ''; ?>>Pending</option>
+                        <option value="cancelled" <?php echo ($filters['status'] ?? '') === 'cancelled' ? 'selected' : ''; ?>>Cancelled</option>
                     </select>
                 </div>
                 
                 <button type="submit" class="btn btn-primary">
-                    <i class="fa fa-search"></i> Apply Filters
+                    <i class="fa fa-search"></i> Apply
                 </button>
-                
                 <a href="<?php echo $modulelink; ?>&action=reports&report=sales" class="btn btn-default">
-                    <i class="fa fa-times"></i> Clear
+                    <i class="fa fa-refresh"></i> Reset
                 </a>
             </form>
         </div>
@@ -110,39 +108,37 @@ $filters = $filters ?? [];
 
     <!-- Summary Cards -->
     <div class="row">
-        <div class="col-md-3 col-sm-6">
+        <div class="col-md-3">
             <div class="panel panel-primary">
                 <div class="panel-body text-center">
-                    <h2 class="stat-value"><?php echo CurrencyHelper::formatUsd($reportData['summary']['total_sales']); ?></h2>
-                    <p class="stat-label">Total Sales</p>
-                    <small class="text-muted"><?php echo CurrencyHelper::formatVnd(CurrencyHelper::usdToVnd($reportData['summary']['total_sales'])); ?></small>
+                    <h2 class="text-primary"><?php echo CurrencyHelper::formatVnd($summary['total_sales_vnd'] ?? 0); ?></h2>
+                    <p class="text-muted">Total Revenue (VND with VAT)</p>
+                    <small class="text-info">≈ <?php echo CurrencyHelper::formatUsd($summary['total_sales_usd'] ?? 0); ?> (excl. VAT)</small>
                 </div>
             </div>
         </div>
-        
-        <div class="col-md-3 col-sm-6">
+        <div class="col-md-3">
             <div class="panel panel-success">
                 <div class="panel-body text-center">
-                    <h2 class="stat-value"><?php echo number_format($reportData['summary']['order_count']); ?></h2>
-                    <p class="stat-label">Total Orders</p>
+                    <h2 class="text-success"><?php echo number_format($summary['order_count'] ?? 0); ?></h2>
+                    <p class="text-muted">Total Orders</p>
                 </div>
             </div>
         </div>
-        
-        <div class="col-md-3 col-sm-6">
+        <div class="col-md-3">
             <div class="panel panel-info">
                 <div class="panel-body text-center">
-                    <h2 class="stat-value"><?php echo CurrencyHelper::formatUsd($reportData['summary']['avg_order_value']); ?></h2>
-                    <p class="stat-label">Avg Order Value</p>
+                    <h2 class="text-info"><?php echo CurrencyHelper::formatVnd($summary['avg_order_value_vnd'] ?? 0); ?></h2>
+                    <p class="text-muted">Average Order Value</p>
+                    <small class="text-info">≈ <?php echo CurrencyHelper::formatUsd($summary['avg_order_value'] ?? 0); ?></small>
                 </div>
             </div>
         </div>
-        
-        <div class="col-md-3 col-sm-6">
+        <div class="col-md-3">
             <div class="panel panel-warning">
                 <div class="panel-body text-center">
-                    <h2 class="stat-value"><?php echo CurrencyHelper::formatUsd($reportData['summary']['total_recurring']); ?></h2>
-                    <p class="stat-label">Recurring Revenue</p>
+                    <h2 class="text-warning"><?php echo CurrencyHelper::formatVnd($summary['total_recurring_vnd'] ?? 0); ?></h2>
+                    <p class="text-muted">Recurring Revenue</p>
                 </div>
             </div>
         </div>
@@ -180,7 +176,7 @@ $filters = $filters ?? [];
         <div class="panel-heading">
             <h4 class="panel-title">
                 <i class="fa fa-table"></i> Sales Details
-                <span class="badge"><?php echo count($reportData['orders']); ?> orders</span>
+                <span class="badge"><?php echo count($reportData['orders'] ?? []); ?> orders</span>
             </h4>
         </div>
         <div class="panel-body">
@@ -198,7 +194,8 @@ $filters = $filters ?? [];
                             <th>Product</th>
                             <th>Vendor</th>
                             <th>Client</th>
-                            <th class="text-right">Sale Amount</th>
+                            <th class="text-right">Amount (VND)</th>
+                            <th class="text-right">Amount (USD)</th>
                             <th>Billing</th>
                             <th>Status</th>
                         </tr>
@@ -226,17 +223,21 @@ $filters = $filters ?? [];
                                 <?php endif; ?>
                             </td>
                             <td class="text-right">
-                                <strong><?php echo CurrencyHelper::formatUsd($order['sale_amount']); ?></strong>
+                                <strong><?php echo CurrencyHelper::formatVnd($order['sale_amount_vnd'] ?? 0); ?></strong>
+                            </td>
+                            <td class="text-right">
+                                <span class="text-info"><?php echo CurrencyHelper::formatUsd($order['sale_amount_usd'] ?? 0); ?></span>
                             </td>
                             <td><?php echo $helper->e($order['billing_cycle'] ?? 'N/A'); ?></td>
-                            <td><?php echo $helper->formatStatus($order['status']); ?></td>
+                            <td><?php echo $helper->statusBadge($order['status']); ?></td>
                         </tr>
                         <?php endforeach; ?>
                     </tbody>
                     <tfoot>
                         <tr class="active">
                             <th colspan="5" class="text-right">Total:</th>
-                            <th class="text-right"><?php echo CurrencyHelper::formatUsd($reportData['summary']['total_sales']); ?></th>
+                            <th class="text-right"><?php echo CurrencyHelper::formatVnd($summary['total_sales_vnd'] ?? 0); ?></th>
+                            <th class="text-right"><?php echo CurrencyHelper::formatUsd($summary['total_sales_usd'] ?? 0); ?></th>
                             <th colspan="2"></th>
                         </tr>
                     </tfoot>
@@ -262,12 +263,14 @@ $filters = $filters ?? [];
                             <th>Product</th>
                             <th>Vendor</th>
                             <th class="text-center">Orders</th>
-                            <th class="text-right">Total Sales</th>
+                            <th class="text-right">Total (VND)</th>
+                            <th class="text-right">Total (USD)</th>
                             <th class="text-right">Avg Order</th>
                         </tr>
                     </thead>
                     <tbody>
                         <?php foreach ($productData as $product): ?>
+                        <?php $product = (object) $product; ?>
                         <tr>
                             <td>
                                 <strong><?php echo $helper->e($product->product_name ?? $product->product_code); ?></strong>
@@ -275,11 +278,12 @@ $filters = $filters ?? [];
                             </td>
                             <td><span class="label label-default"><?php echo $helper->e($product->vendor ?? 'Unknown'); ?></span></td>
                             <td class="text-center"><?php echo number_format($product->order_count); ?></td>
-                            <td class="text-right"><strong><?php echo CurrencyHelper::formatUsd($product->total_sales); ?></strong></td>
+                            <td class="text-right"><strong><?php echo CurrencyHelper::formatVnd($product->total_sales_vnd ?? 0); ?></strong></td>
+                            <td class="text-right"><span class="text-info"><?php echo CurrencyHelper::formatUsd($product->total_sales ?? 0); ?></span></td>
                             <td class="text-right">
                                 <?php 
-                                $avg = $product->order_count > 0 ? $product->total_sales / $product->order_count : 0;
-                                echo CurrencyHelper::formatUsd($avg); 
+                                $avg = $product->order_count > 0 ? ($product->total_sales ?? 0) / $product->order_count : 0;
+                                echo CurrencyHelper::formatUsd($avg);
                                 ?>
                             </td>
                         </tr>
@@ -294,67 +298,45 @@ $filters = $filters ?? [];
 </div>
 
 <!-- Chart.js -->
-<script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
-
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
-$(document).ready(function() {
-    // Date preset handler
-    $('#datePreset').on('change', function() {
-        var presets = <?php echo json_encode($datePresets); ?>;
-        var selected = $(this).val();
-        if (selected && presets[selected]) {
-            $('#dateFrom').val(presets[selected].from);
-            $('#dateTo').val(presets[selected].to);
-        }
-    });
-
+document.addEventListener('DOMContentLoaded', function() {
     // Sales Trend Chart
-    var chartLabels = <?php echo json_encode($chartData['labels'] ?? []); ?>;
-    var chartSales = <?php echo json_encode($chartData['datasets']['sales'] ?? []); ?>;
-    var chartOrders = <?php echo json_encode($chartData['datasets']['orders'] ?? []); ?>;
-
-    if (chartLabels.length > 0) {
+    var chartData = <?php echo json_encode($chartData ?? ['labels' => [], 'datasets' => ['revenue_usd' => [], 'orders' => []]]); ?>;
+    
+    if (chartData.labels && chartData.labels.length > 0) {
         var ctx = document.getElementById('salesTrendChart').getContext('2d');
         new Chart(ctx, {
             type: 'bar',
             data: {
-                labels: chartLabels,
-                datasets: [
-                    {
-                        label: 'Sales (USD)',
-                        data: chartSales,
-                        backgroundColor: 'rgba(54, 162, 235, 0.7)',
-                        borderColor: 'rgba(54, 162, 235, 1)',
-                        borderWidth: 1,
-                        yAxisID: 'y'
-                    },
-                    {
-                        label: 'Orders',
-                        data: chartOrders,
-                        type: 'line',
-                        borderColor: 'rgba(255, 99, 132, 1)',
-                        backgroundColor: 'rgba(255, 99, 132, 0.2)',
-                        tension: 0.4,
-                        yAxisID: 'y1'
-                    }
-                ]
+                labels: chartData.labels,
+                datasets: [{
+                    label: 'Revenue (USD)',
+                    data: chartData.datasets.revenue_usd || chartData.datasets.revenue || [],
+                    backgroundColor: 'rgba(54, 162, 235, 0.5)',
+                    borderColor: 'rgba(54, 162, 235, 1)',
+                    borderWidth: 1,
+                    yAxisID: 'y'
+                }, {
+                    label: 'Orders',
+                    data: chartData.datasets.orders || [],
+                    type: 'line',
+                    borderColor: 'rgba(255, 99, 132, 1)',
+                    backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                    fill: false,
+                    yAxisID: 'y1'
+                }]
             },
             options: {
                 responsive: true,
-                interaction: {
-                    mode: 'index',
-                    intersect: false
-                },
                 scales: {
                     y: {
                         type: 'linear',
-                        display: true,
                         position: 'left',
-                        title: { display: true, text: 'Sales (USD)' }
+                        title: { display: true, text: 'Revenue (USD)' }
                     },
                     y1: {
                         type: 'linear',
-                        display: true,
                         position: 'right',
                         title: { display: true, text: 'Orders' },
                         grid: { drawOnChartArea: false }
@@ -366,46 +348,30 @@ $(document).ready(function() {
 
     // Product Pie Chart
     var productData = <?php echo json_encode($productData ?? []); ?>;
+    
     if (productData.length > 0) {
-        var pieLabels = productData.slice(0, 5).map(function(p) { return p.product_name || p.product_code; });
-        var pieValues = productData.slice(0, 5).map(function(p) { return parseFloat(p.total_sales); });
-        var pieColors = ['#36A2EB', '#FF6384', '#FFCE56', '#4BC0C0', '#9966FF'];
-
-        var ctxPie = document.getElementById('productPieChart').getContext('2d');
-        new Chart(ctxPie, {
+        var pieCtx = document.getElementById('productPieChart').getContext('2d');
+        var labels = productData.slice(0, 5).map(function(p) { return p.product_name || p.product_code; });
+        var values = productData.slice(0, 5).map(function(p) { return p.total_sales || 0; });
+        
+        new Chart(pieCtx, {
             type: 'doughnut',
             data: {
-                labels: pieLabels,
+                labels: labels,
                 datasets: [{
-                    data: pieValues,
-                    backgroundColor: pieColors
+                    data: values,
+                    backgroundColor: [
+                        '#3498db', '#2ecc71', '#e74c3c', '#f39c12', '#9b59b6'
+                    ]
                 }]
             },
             options: {
                 responsive: true,
                 plugins: {
-                    legend: {
-                        position: 'bottom'
-                    }
+                    legend: { position: 'bottom' }
                 }
             }
         });
     }
 });
 </script>
-
-<style>
-.nicsrs-sales-report .stat-value {
-    font-size: 24px;
-    font-weight: 600;
-    margin: 0;
-}
-.nicsrs-sales-report .stat-label {
-    margin: 5px 0 0;
-    color: #666;
-}
-.nicsrs-sales-report .panel-primary .panel-body { background: #f0f7ff; }
-.nicsrs-sales-report .panel-success .panel-body { background: #f0fff4; }
-.nicsrs-sales-report .panel-info .panel-body { background: #f0ffff; }
-.nicsrs-sales-report .panel-warning .panel-body { background: #fffcf0; }
-</style>

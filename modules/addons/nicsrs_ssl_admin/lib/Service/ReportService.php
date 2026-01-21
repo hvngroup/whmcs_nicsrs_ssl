@@ -3,6 +3,12 @@
  * Report Service
  * Handles report data queries and calculations
  * 
+ * IMPORTANT CURRENCY NOTES:
+ * - WHMCS default currency is VND
+ * - tblhosting.firstpaymentamount = VND (including 10% VAT)
+ * - NicSRS cost from mod_nicsrs_products.price_data = USD (no VAT)
+ * - For profit calculation: Convert VND revenue to USD (after removing VAT)
+ * 
  * @package    nicsrs_ssl_admin
  * @author     HVN GROUP
  * @copyright  Copyright (c) HVN GROUP (https://hvn.vn)
@@ -28,7 +34,7 @@ class ReportService
     ];
 
     /**
-     * Billing cycle to price key mapping
+     * Billing cycle to price key mapping (NicSRS API)
      */
     const BILLING_CYCLE_PRICE_KEY = [
         'Monthly' => 'price001',
@@ -45,6 +51,9 @@ class ReportService
 
     /**
      * Get SSL Sales data with filters
+     * 
+     * NOTE: sale_amount from tblhosting is in VND (including VAT)
+     * We convert to USD for display consistency
      * 
      * @param array $filters ['date_from', 'date_to', 'product_code', 'vendor', 'status']
      * @return array Sales data with orders and summary
@@ -64,17 +73,23 @@ class ReportService
         $orders = $query->orderBy('o.provisiondate', 'desc')->get();
 
         // Calculate totals
-        $totalSales = 0;
-        $totalRecurring = 0;
+        $totalSalesVnd = 0;
+        $totalSalesUsd = 0;
+        $totalRecurringVnd = 0;
         $orderCount = count($orders);
 
         $processedOrders = [];
         foreach ($orders as $order) {
-            $saleAmount = (float) ($order->sale_amount ?? 0);
-            $recurringAmount = (float) ($order->recurring_amount ?? 0);
+            // Original amounts in VND (with VAT)
+            $saleAmountVnd = (float) ($order->sale_amount ?? 0);
+            $recurringAmountVnd = (float) ($order->recurring_amount ?? 0);
             
-            $totalSales += $saleAmount;
-            $totalRecurring += $recurringAmount;
+            // Convert to USD (after removing VAT) for reporting
+            $saleAmountUsd = CurrencyHelper::revenueVndToUsd($saleAmountVnd);
+            
+            $totalSalesVnd += $saleAmountVnd;
+            $totalSalesUsd += $saleAmountUsd;
+            $totalRecurringVnd += $recurringAmountVnd;
 
             $processedOrders[] = [
                 'order_id' => $order->order_id,
@@ -84,11 +99,15 @@ class ReportService
                 'vendor' => $order->vendor ?? 'Unknown',
                 'validation_type' => $order->validation_type ?? 'dv',
                 'status' => $order->status,
-                'provision_date' => $order->provisiondate,
+                'provision_date' => $order->service_date ?: $order->provisiondate, // Prefer tblhosting.regdate
                 'completion_date' => $order->completiondate,
                 'service_date' => $order->service_date,
-                'sale_amount' => $saleAmount,
-                'recurring_amount' => $recurringAmount,
+                // Store both VND and USD amounts
+                'sale_amount_vnd' => $saleAmountVnd,
+                'sale_amount' => $saleAmountUsd, // USD (for backward compat)
+                'sale_amount_usd' => $saleAmountUsd,
+                'recurring_amount_vnd' => $recurringAmountVnd,
+                'recurring_amount' => CurrencyHelper::revenueVndToUsd($recurringAmountVnd),
                 'billing_cycle' => $order->billingcycle,
                 'client_name' => trim(($order->firstname ?? '') . ' ' . ($order->lastname ?? '')),
                 'company_name' => $order->companyname ?? '',
@@ -98,101 +117,123 @@ class ReportService
         return [
             'orders' => $processedOrders,
             'summary' => [
-                'total_sales' => $totalSales,
-                'total_recurring' => $totalRecurring,
+                // VND totals (original from WHMCS, with VAT)
+                'total_sales_vnd' => $totalSalesVnd,
+                'total_recurring_vnd' => $totalRecurringVnd,
+                // USD totals (converted, without VAT)
+                'total_sales' => $totalSalesUsd, // for backward compat
+                'total_sales_usd' => $totalSalesUsd,
+                'total_recurring_usd' => CurrencyHelper::revenueVndToUsd($totalRecurringVnd),
                 'order_count' => $orderCount,
-                'avg_order_value' => $orderCount > 0 ? $totalSales / $orderCount : 0,
+                'avg_order_value' => $orderCount > 0 ? $totalSalesUsd / $orderCount : 0,
+                'avg_order_value_vnd' => $orderCount > 0 ? $totalSalesVnd / $orderCount : 0,
             ],
-            'filters' => $filters,
         ];
     }
 
     /**
-     * Get sales grouped by period (day/week/month/year)
+     * Get sales data grouped by period (for charts)
      * 
-     * @param string $period 'day', 'week', 'month', 'year'
-     * @param array $filters Date filters
-     * @return array Grouped sales data
+     * IMPORTANT: First param is $groupBy (string), second is $filters (array)
+     * This matches the call from ReportController line 99
+     * 
+     * @param string $groupBy 'day', 'week', 'month', 'quarter', 'year'
+     * @param array $filters Filters
+     * @return array Chart data
      */
-    public function getSalesByPeriod(string $period = 'month', array $filters = []): array
+    public function getSalesByPeriod(string $groupBy = 'month', array $filters = []): array
     {
-        $dateFormat = match($period) {
+        $dateFormat = match ($groupBy) {
             'day' => '%Y-%m-%d',
-            'week' => '%x-W%v',  // ISO year-week
+            'week' => '%Y-W%V',
             'month' => '%Y-%m',
+            'quarter' => 'quarter',
             'year' => '%Y',
             default => '%Y-%m'
         };
 
-        $labelFormat = match($period) {
-            'day' => '%d/%m',
-            'week' => 'W%v/%Y',
-            'month' => '%m/%Y',
-            'year' => '%Y',
-            default => '%m/%Y'
-        };
-
         $query = Capsule::table('nicsrs_sslorders as o')
-            ->join('tblhosting as h', 'o.serviceid', '=', 'h.id')
-            ->selectRaw("DATE_FORMAT(o.provisiondate, '{$dateFormat}') as period")
-            ->selectRaw("DATE_FORMAT(o.provisiondate, '{$labelFormat}') as period_label")
+            ->join('tblhosting as h', 'o.serviceid', '=', 'h.id');
+
+        if ($groupBy === 'quarter') {
+            $query->selectRaw("CONCAT(YEAR(h.regdate), '-Q', QUARTER(h.regdate)) as period");
+        } else {
+            $query->selectRaw("DATE_FORMAT(h.regdate, '{$dateFormat}') as period");
+        }
+
+        $query->selectRaw('SUM(COALESCE(h.firstpaymentamount, 0)) as total_revenue_vnd')
             ->selectRaw('COUNT(*) as order_count')
-            ->selectRaw('SUM(COALESCE(h.firstpaymentamount, 0)) as total_sales')
-            ->whereNotNull('o.provisiondate')
-            ->where('o.provisiondate', '!=', '0000-00-00')
-            ->groupBy('period', 'period_label')
+            ->whereNotNull('h.regdate')
+            ->where('h.regdate', '!=', '0000-00-00')
+            ->groupBy('period')
             ->orderBy('period', 'asc');
 
-        $this->applyDateFilters($query, $filters, 'o.provisiondate');
+        $this->applyDateFilters($query, $filters, 'h.regdate');
+        $this->applyProductFilters($query, $filters);
 
-        $results = $query->get()->toArray();
+        $results = $query->get();
 
-        // Convert to chart-friendly format
         $labels = [];
-        $salesData = [];
-        $orderData = [];
+        $revenueVndData = [];
+        $revenueUsdData = [];
+        $orderCountData = [];
 
         foreach ($results as $row) {
-            $labels[] = $row->period_label;
-            $salesData[] = (float) $row->total_sales;
-            $orderData[] = (int) $row->order_count;
+            $labels[] = $row->period;
+            $revenueVnd = (float) $row->total_revenue_vnd;
+            $revenueUsd = CurrencyHelper::revenueVndToUsd($revenueVnd);
+            
+            $revenueVndData[] = $revenueVnd;
+            $revenueUsdData[] = round($revenueUsd, 2);
+            $orderCountData[] = (int) $row->order_count;
         }
 
         return [
             'labels' => $labels,
             'datasets' => [
-                'sales' => $salesData,
-                'orders' => $orderData,
+                'revenue_vnd' => $revenueVndData,
+                'revenue_usd' => $revenueUsdData,
+                'revenue' => $revenueUsdData, // backward compat
+                'orders' => $orderCountData,
             ],
-            'raw' => $results,
         ];
     }
 
     /**
-     * Get sales grouped by product
+     * Get sales data grouped by product
      * 
-     * @param array $filters Date filters
-     * @return array Sales by product
+     * @param array $filters Filters
+     * @return array Product sales data
      */
     public function getSalesByProduct(array $filters = []): array
     {
         $query = Capsule::table('nicsrs_sslorders as o')
             ->join('tblhosting as h', 'o.serviceid', '=', 'h.id')
             ->join('tblproducts as p', 'h.packageid', '=', 'p.id')
-            ->leftJoin('mod_nicsrs_products as np', 'p.configoption1', '=', 'np.product_code')
+            ->leftJoin('mod_nicsrs_products as np', 'o.certtype', '=', 'np.product_code')
             ->select([
                 'o.certtype as product_code',
                 'p.name as product_name',
                 'np.vendor',
             ])
+            ->selectRaw('SUM(COALESCE(h.firstpaymentamount, 0)) as total_sales_vnd')
             ->selectRaw('COUNT(*) as order_count')
-            ->selectRaw('SUM(COALESCE(h.firstpaymentamount, 0)) as total_sales')
+            ->whereNotNull('h.regdate')
+            ->where('h.regdate', '!=', '0000-00-00')
             ->groupBy('o.certtype', 'p.name', 'np.vendor')
-            ->orderBy('total_sales', 'desc');
+            ->orderBy('total_sales_vnd', 'desc');
 
-        $this->applyDateFilters($query, $filters, 'o.provisiondate');
+        $this->applyDateFilters($query, $filters, 'h.regdate');
 
-        return $query->get()->toArray();
+        $results = $query->get();
+
+        // Add USD conversion
+        foreach ($results as $row) {
+            $row->total_sales_vnd = (float) $row->total_sales_vnd;
+            $row->total_sales = CurrencyHelper::revenueVndToUsd($row->total_sales_vnd);
+        }
+
+        return $results->toArray();
     }
 
     // =========================================================================
@@ -201,36 +242,49 @@ class ReportService
 
     /**
      * Get SSL Profit data
-     * Profit = WHMCS Sale Amount - NicSRS Cost
      * 
-     * @param array $filters Date and product filters
-     * @return array Profit data with orders and summary
+     * CALCULATION LOGIC:
+     * - Revenue (VND with VAT) from tblhosting.firstpaymentamount
+     * - Revenue (USD) = Revenue (VND) / 1.1 (remove VAT) / exchange_rate
+     * - Cost (USD) from mod_nicsrs_products.price_data (NicSRS wholesale price)
+     * - Profit (USD) = Revenue (USD) - Cost (USD)
+     * 
+     * @param array $filters Filters
+     * @return array Profit report data
      */
     public function getProfitReport(array $filters = []): array
     {
-        $query = $this->buildBaseQuery();
-        $query->addSelect('np.price_data');
-
+        $query = $this->buildProfitQuery();
+        
         $this->applyDateFilters($query, $filters);
         $this->applyProductFilters($query, $filters);
 
         // Only include completed orders for profit calculation
         if (empty($filters['include_all_status'])) {
-            $query->whereIn('o.status', ['complete', 'Complete']);
+            $query->where('o.status', 'complete');
         }
 
         $orders = $query->orderBy('o.provisiondate', 'desc')->get();
 
         $results = [];
-        $totalRevenue = 0;
-        $totalCost = 0;
-        $totalProfit = 0;
+        $totalRevenueVnd = 0;
+        $totalRevenueUsd = 0;
+        $totalCostUsd = 0;
+        $totalProfitUsd = 0;
 
         foreach ($orders as $order) {
-            $saleAmount = (float) ($order->sale_amount ?? 0);
+            // Revenue from WHMCS (VND with VAT)
+            $revenueVndWithVat = (float) ($order->sale_amount ?? 0);
+            
+            // Convert to USD (remove VAT first, then convert)
+            $revenueUsd = CurrencyHelper::revenueVndToUsd($revenueVndWithVat);
+            
+            // Cost from NicSRS (USD, no VAT)
             $costUsd = $this->calculateNicsrsCost($order->price_data, $order->billingcycle);
-            $profit = $saleAmount - $costUsd;
-            $profitMargin = $saleAmount > 0 ? ($profit / $saleAmount) * 100 : 0;
+            
+            // Profit calculation
+            $profitUsd = $revenueUsd - $costUsd;
+            $profitMargin = $revenueUsd > 0 ? ($profitUsd / $revenueUsd) * 100 : 0;
 
             $results[] = [
                 'order_id' => $order->order_id,
@@ -238,62 +292,74 @@ class ReportService
                 'product_code' => $order->product_code,
                 'product_name' => $order->product_name ?? $order->product_code,
                 'vendor' => $order->vendor ?? 'Unknown',
-                'status' => $order->status,
                 'provision_date' => $order->provisiondate,
+                'status' => $order->status,
                 'billing_cycle' => $order->billingcycle,
-                'client_name' => trim(($order->firstname ?? '') . ' ' . ($order->lastname ?? '')),
-                'sale_amount_usd' => $saleAmount,
-                'cost_usd' => $costUsd,
-                'profit_usd' => $profit,
+                // Revenue breakdown
+                'revenue_vnd_with_vat' => $revenueVndWithVat,
+                'revenue_vnd_without_vat' => CurrencyHelper::removeVat($revenueVndWithVat),
+                'sale_amount_usd' => round($revenueUsd, 2), // Revenue in USD (for display)
+                // Cost and profit
+                'cost_usd' => round($costUsd, 2),
+                'profit_usd' => round($profitUsd, 2),
+                'profit_vnd' => CurrencyHelper::usdToVnd($profitUsd),
                 'profit_margin' => round($profitMargin, 2),
             ];
 
-            $totalRevenue += $saleAmount;
-            $totalCost += $costUsd;
-            $totalProfit += $profit;
+            $totalRevenueVnd += $revenueVndWithVat;
+            $totalRevenueUsd += $revenueUsd;
+            $totalCostUsd += $costUsd;
+            $totalProfitUsd += $profitUsd;
         }
 
-        $overallMargin = $totalRevenue > 0 ? ($totalProfit / $totalRevenue) * 100 : 0;
+        $overallMargin = $totalRevenueUsd > 0 ? ($totalProfitUsd / $totalRevenueUsd) * 100 : 0;
 
         return [
             'orders' => $results,
             'summary' => [
-                'total_revenue_usd' => $totalRevenue,
-                'total_cost_usd' => $totalCost,
-                'total_profit_usd' => $totalProfit,
+                // VND totals
+                'total_revenue_vnd' => $totalRevenueVnd,
+                'total_revenue_vnd_without_vat' => CurrencyHelper::removeVat($totalRevenueVnd),
+                'total_vat_vnd' => CurrencyHelper::calculateVatAmount($totalRevenueVnd),
+                // USD totals
+                'total_revenue_usd' => round($totalRevenueUsd, 2),
+                'total_cost_usd' => round($totalCostUsd, 2),
+                'total_profit_usd' => round($totalProfitUsd, 2),
+                'total_profit_vnd' => CurrencyHelper::usdToVnd($totalProfitUsd),
                 'profit_margin' => round($overallMargin, 2),
                 'order_count' => count($orders),
             ],
-            'filters' => $filters,
+            'currency_info' => CurrencyHelper::getRateInfo(),
         ];
     }
 
     /**
-     * Get profit grouped by period
+     * Get profit data grouped by period (for charts)
      * 
-     * @param string $period 'month', 'quarter', 'year'
-     * @param array $filters Date filters
-     * @return array Profit by period
+     * IMPORTANT: First param is $groupBy (string), second is $filters (array)
+     * This matches the call from ReportController
+     * 
+     * @param string $groupBy 'day', 'week', 'month', 'quarter', 'year'
+     * @param array $filters Filters
+     * @return array Chart data
      */
-    public function getProfitByPeriod(string $period = 'month', array $filters = []): array
+    public function getProfitByPeriod(string $groupBy = 'month', array $filters = []): array
     {
-        $dateFormat = match($period) {
-            'month' => '%Y-%m',
-            'quarter' => "CONCAT(YEAR(o.provisiondate), '-Q', QUARTER(o.provisiondate))",
-            'year' => '%Y',
-            default => '%Y-%m'
-        };
-
-        // We need to calculate profit per order, so get all orders first
+        // Get profit report data first
         $profitData = $this->getProfitReport($filters);
-        
-        // Group by period
-        $grouped = [];
-        foreach ($profitData['orders'] as $order) {
-            $date = $order['provision_date'];
-            if (!$date || $date === '0000-00-00') continue;
+        $orders = $profitData['orders'];
 
-            $periodKey = match($period) {
+        $grouped = [];
+
+        foreach ($orders as $order) {
+            $date = $order['provision_date'];
+            if (empty($date) || $date === '0000-00-00') {
+                continue;
+            }
+
+            $periodKey = match ($groupBy) {
+                'day' => date('Y-m-d', strtotime($date)),
+                'week' => date('Y-\WW', strtotime($date)),
                 'month' => date('Y-m', strtotime($date)),
                 'quarter' => date('Y', strtotime($date)) . '-Q' . ceil(date('n', strtotime($date)) / 3),
                 'year' => date('Y', strtotime($date)),
@@ -303,33 +369,31 @@ class ReportService
             if (!isset($grouped[$periodKey])) {
                 $grouped[$periodKey] = [
                     'period' => $periodKey,
-                    'revenue' => 0,
-                    'cost' => 0,
-                    'profit' => 0,
+                    'revenue_usd' => 0,
+                    'cost_usd' => 0,
+                    'profit_usd' => 0,
                     'order_count' => 0,
                 ];
             }
 
-            $grouped[$periodKey]['revenue'] += $order['sale_amount_usd'];
-            $grouped[$periodKey]['cost'] += $order['cost_usd'];
-            $grouped[$periodKey]['profit'] += $order['profit_usd'];
+            $grouped[$periodKey]['revenue_usd'] += $order['sale_amount_usd'];
+            $grouped[$periodKey]['cost_usd'] += $order['cost_usd'];
+            $grouped[$periodKey]['profit_usd'] += $order['profit_usd'];
             $grouped[$periodKey]['order_count']++;
         }
 
-        // Sort by period
         ksort($grouped);
 
-        // Convert to chart format
         $labels = [];
         $revenueData = [];
         $costData = [];
-        $profitChartData = [];
+        $profitData = [];
 
         foreach ($grouped as $period => $data) {
             $labels[] = $period;
-            $revenueData[] = $data['revenue'];
-            $costData[] = $data['cost'];
-            $profitChartData[] = $data['profit'];
+            $revenueData[] = round($data['revenue_usd'], 2);
+            $costData[] = round($data['cost_usd'], 2);
+            $profitData[] = round($data['profit_usd'], 2);
         }
 
         return [
@@ -337,7 +401,7 @@ class ReportService
             'datasets' => [
                 'revenue' => $revenueData,
                 'cost' => $costData,
-                'profit' => $profitChartData,
+                'profit' => $profitData,
             ],
             'raw' => array_values($grouped),
         ];
@@ -346,7 +410,7 @@ class ReportService
     /**
      * Calculate NicSRS cost from price_data JSON
      * 
-     * @param string|null $priceDataJson JSON price data
+     * @param string|null $priceDataJson JSON price data from mod_nicsrs_products
      * @param string|null $billingCycle Billing cycle
      * @return float Cost in USD
      */
@@ -364,22 +428,9 @@ class ReportService
         // Get price key based on billing cycle
         $periodKey = self::BILLING_CYCLE_PRICE_KEY[$billingCycle] ?? 'price012';
 
-        // Try exact match first
-        if (isset($priceData['basePrice'][$periodKey])) {
-            return (float) $priceData['basePrice'][$periodKey];
-        }
-
-        // Fallback to annual price
-        if (isset($priceData['basePrice']['price012'])) {
-            return (float) $priceData['basePrice']['price012'];
-        }
-
-        // Try first available price
-        if (!empty($priceData['basePrice'])) {
-            return (float) reset($priceData['basePrice']);
-        }
-
-        return 0;
+        return isset($priceData['basePrice'][$periodKey]) 
+            ? (float) $priceData['basePrice'][$periodKey] 
+            : 0;
     }
 
     // =========================================================================
@@ -389,15 +440,15 @@ class ReportService
     /**
      * Get Product Performance data
      * 
-     * @param array $filters Date filters
-     * @return array Performance data by product
+     * @param array $filters Filters
+     * @return array Performance data
      */
     public function getProductPerformance(array $filters = []): array
     {
         $query = Capsule::table('nicsrs_sslorders as o')
             ->join('tblhosting as h', 'o.serviceid', '=', 'h.id')
             ->join('tblproducts as p', 'h.packageid', '=', 'p.id')
-            ->leftJoin('mod_nicsrs_products as np', 'p.configoption1', '=', 'np.product_code')
+            ->leftJoin('mod_nicsrs_products as np', 'o.certtype', '=', 'np.product_code')
             ->select([
                 'o.certtype as product_code',
                 'p.name as product_name',
@@ -405,65 +456,63 @@ class ReportService
                 'np.validation_type',
             ])
             ->selectRaw('COUNT(*) as total_orders')
-            ->selectRaw('SUM(COALESCE(h.firstpaymentamount, 0)) as total_revenue')
-            ->selectRaw("SUM(CASE WHEN o.status IN ('complete', 'Complete') THEN 1 ELSE 0 END) as active_count")
-            ->selectRaw("SUM(CASE WHEN o.status IN ('cancelled', 'Cancelled') THEN 1 ELSE 0 END) as cancelled_count")
-            ->selectRaw("SUM(CASE WHEN o.status IN ('pending', 'Pending', 'Awaiting Configuration') THEN 1 ELSE 0 END) as pending_count")
+            ->selectRaw('SUM(COALESCE(h.firstpaymentamount, 0)) as total_revenue_vnd')
+            ->selectRaw("SUM(CASE WHEN o.status = 'complete' THEN 1 ELSE 0 END) as active_count")
+            ->selectRaw("SUM(CASE WHEN o.status = 'cancelled' THEN 1 ELSE 0 END) as cancelled_count")
+            ->selectRaw("SUM(CASE WHEN o.status = 'pending' THEN 1 ELSE 0 END) as pending_count")
             ->groupBy('o.certtype', 'p.name', 'np.vendor', 'np.validation_type')
             ->orderBy('total_orders', 'desc');
 
         $this->applyDateFilters($query, $filters, 'o.provisiondate');
 
+        if (!empty($filters['vendor'])) {
+            $query->where('np.vendor', $filters['vendor']);
+        }
+
         $products = $query->get();
 
         $results = [];
         foreach ($products as $product) {
+            $totalRevenueVnd = (float) $product->total_revenue_vnd;
+            $totalRevenueUsd = CurrencyHelper::revenueVndToUsd($totalRevenueVnd);
+            $totalOrders = (int) $product->total_orders;
+            $activeCount = (int) $product->active_count;
+
+            // Calculate renewal rate
             $renewalRate = $this->calculateRenewalRate($product->product_code, $filters);
-            $avgOrderValue = $product->total_orders > 0 
-                ? $product->total_revenue / $product->total_orders 
-                : 0;
             
-            $completionRate = $product->total_orders > 0
-                ? ($product->active_count / $product->total_orders) * 100
-                : 0;
+            // Completion rate
+            $completionRate = $totalOrders > 0 ? ($activeCount / $totalOrders) * 100 : 0;
 
             $results[] = [
                 'product_code' => $product->product_code,
                 'product_name' => $product->product_name ?? $product->product_code,
                 'vendor' => $product->vendor ?? 'Unknown',
-                'validation_type' => strtoupper($product->validation_type ?? 'DV'),
-                'total_orders' => (int) $product->total_orders,
-                'total_revenue' => (float) $product->total_revenue,
-                'active_count' => (int) $product->active_count,
+                'validation_type' => $product->validation_type ?? 'dv',
+                'total_orders' => $totalOrders,
+                'active_count' => $activeCount,
                 'cancelled_count' => (int) $product->cancelled_count,
                 'pending_count' => (int) $product->pending_count,
-                'avg_order_value' => round($avgOrderValue, 2),
+                'total_revenue_vnd' => $totalRevenueVnd,
+                'total_revenue_usd' => round($totalRevenueUsd, 2),
+                'avg_order_value_usd' => $totalOrders > 0 ? round($totalRevenueUsd / $totalOrders, 2) : 0,
                 'renewal_rate' => round($renewalRate, 2),
                 'completion_rate' => round($completionRate, 2),
             ];
         }
 
-        // Calculate totals
-        $totalOrders = array_sum(array_column($results, 'total_orders'));
-        $totalRevenue = array_sum(array_column($results, 'total_revenue'));
-
         return [
             'products' => $results,
             'summary' => [
                 'total_products' => count($results),
-                'total_orders' => $totalOrders,
-                'total_revenue' => $totalRevenue,
-                'avg_renewal_rate' => count($results) > 0 
-                    ? round(array_sum(array_column($results, 'renewal_rate')) / count($results), 2)
-                    : 0,
+                'total_orders' => array_sum(array_column($results, 'total_orders')),
+                'total_revenue_usd' => array_sum(array_column($results, 'total_revenue_usd')),
             ],
-            'filters' => $filters,
         ];
     }
 
     /**
      * Calculate renewal rate for a product
-     * Renewal = orders where client had previous order for same product
      * 
      * @param string $productCode Product code
      * @param array $filters Date filters
@@ -471,116 +520,105 @@ class ReportService
      */
     public function calculateRenewalRate(string $productCode, array $filters = []): float
     {
-        // Count total orders for this product
-        $totalQuery = Capsule::table('nicsrs_sslorders')
-            ->where('certtype', $productCode);
-        
-        $this->applyDateFilters($totalQuery, $filters, 'provisiondate');
-        $totalOrders = $totalQuery->count();
+        // Get orders that were eligible for renewal (completed > 30 days ago)
+        $eligibleQuery = Capsule::table('nicsrs_sslorders as o')
+            ->join('tblhosting as h', 'o.serviceid', '=', 'h.id')
+            ->where('o.certtype', $productCode)
+            ->where('o.status', 'complete')
+            ->where('o.completiondate', '<=', date('Y-m-d', strtotime('-30 days')));
 
-        if ($totalOrders <= 1) {
+        $eligibleCount = $eligibleQuery->count();
+
+        if ($eligibleCount === 0) {
             return 0;
         }
 
-        // Count orders that are renewals (same user ordered this product before)
-        $renewalQuery = Capsule::table('nicsrs_sslorders as o1')
-            ->whereExists(function ($subquery) {
-                $subquery->select(Capsule::raw(1))
-                    ->from('nicsrs_sslorders as o2')
-                    ->whereRaw('o1.userid = o2.userid')
-                    ->whereRaw('o1.certtype = o2.certtype')
-                    ->whereRaw('o1.id > o2.id');
+        // Get renewed orders (same user, same product, newer order)
+        $renewedCount = Capsule::table('nicsrs_sslorders as o1')
+            ->join('nicsrs_sslorders as o2', function ($join) {
+                $join->on('o1.userid', '=', 'o2.userid')
+                    ->on('o1.certtype', '=', 'o2.certtype')
+                    ->whereRaw('o2.provisiondate > o1.completiondate');
             })
-            ->where('o1.certtype', $productCode);
-        
-        $this->applyDateFilters($renewalQuery, $filters, 'o1.provisiondate');
-        $renewals = $renewalQuery->count();
+            ->where('o1.certtype', $productCode)
+            ->where('o1.status', 'complete')
+            ->distinct('o1.id')
+            ->count('o1.id');
 
-        return ($renewals / $totalOrders) * 100;
+        return ($renewedCount / $eligibleCount) * 100;
     }
 
     // =========================================================================
-    // REVENUE BY BRAND METHODS
+    // BRAND/VENDOR REPORT METHODS
     // =========================================================================
 
     /**
-     * Get Revenue by Brand (Vendor)
+     * Get Revenue by Brand/Vendor
      * 
-     * @param array $filters Date filters
-     * @return array Revenue data by brand
+     * @param array $filters Filters
+     * @return array Brand revenue data
      */
     public function getRevenueByBrand(array $filters = []): array
     {
         $query = Capsule::table('nicsrs_sslorders as o')
             ->join('tblhosting as h', 'o.serviceid', '=', 'h.id')
             ->join('tblproducts as p', 'h.packageid', '=', 'p.id')
-            ->leftJoin('mod_nicsrs_products as np', 'p.configoption1', '=', 'np.product_code')
+            ->leftJoin('mod_nicsrs_products as np', 'o.certtype', '=', 'np.product_code')
             ->selectRaw('COALESCE(np.vendor, "Unknown") as vendor')
+            ->selectRaw('SUM(COALESCE(h.firstpaymentamount, 0)) as total_revenue_vnd')
             ->selectRaw('COUNT(*) as order_count')
-            ->selectRaw('SUM(COALESCE(h.firstpaymentamount, 0)) as total_revenue')
-            ->selectRaw('AVG(COALESCE(h.firstpaymentamount, 0)) as avg_order_value')
-            ->selectRaw("SUM(CASE WHEN o.status IN ('complete', 'Complete') THEN 1 ELSE 0 END) as active_count")
-            ->groupBy('vendor')
-            ->orderBy('total_revenue', 'desc');
+            ->whereNotNull('h.regdate')
+            ->where('h.regdate', '!=', '0000-00-00')
+            ->groupBy('np.vendor')
+            ->orderBy('total_revenue_vnd', 'desc');
 
-        $this->applyDateFilters($query, $filters, 'o.provisiondate');
+        $this->applyDateFilters($query, $filters, 'h.regdate');
 
         $brands = $query->get();
 
-        // Calculate percentages
-        $totalRevenue = $brands->sum('total_revenue');
-        $totalOrders = $brands->sum('order_count');
+        $totalRevenueVnd = $brands->sum('total_revenue_vnd');
+        $totalRevenueUsd = CurrencyHelper::revenueVndToUsd($totalRevenueVnd);
 
         $results = [];
         foreach ($brands as $brand) {
-            $revenuePercentage = $totalRevenue > 0 
-                ? ($brand->total_revenue / $totalRevenue) * 100 
-                : 0;
+            $revenueVnd = (float) $brand->total_revenue_vnd;
+            $revenueUsd = CurrencyHelper::revenueVndToUsd($revenueVnd);
             
-            $orderPercentage = $totalOrders > 0
-                ? ($brand->order_count / $totalOrders) * 100
-                : 0;
-
             $results[] = [
                 'vendor' => $brand->vendor,
+                'total_revenue_vnd' => $revenueVnd,
+                'total_revenue_usd' => round($revenueUsd, 2),
                 'order_count' => (int) $brand->order_count,
-                'total_revenue' => (float) $brand->total_revenue,
-                'avg_order_value' => round((float) $brand->avg_order_value, 2),
-                'active_count' => (int) $brand->active_count,
-                'revenue_percentage' => round($revenuePercentage, 2),
-                'order_percentage' => round($orderPercentage, 2),
+                'percentage' => $totalRevenueVnd > 0 ? round(($revenueVnd / $totalRevenueVnd) * 100, 2) : 0,
             ];
         }
 
         return [
             'brands' => $results,
             'summary' => [
-                'total_brands' => count($results),
-                'total_revenue' => $totalRevenue,
-                'total_orders' => $totalOrders,
+                'total_revenue_vnd' => $totalRevenueVnd,
+                'total_revenue_usd' => round($totalRevenueUsd, 2),
+                'total_orders' => $brands->sum('order_count'),
+                'brand_count' => count($results),
             ],
-            'chart_data' => [
-                'labels' => array_column($results, 'vendor'),
-                'revenue' => array_column($results, 'total_revenue'),
-                'orders' => array_column($results, 'order_count'),
-                'percentages' => array_column($results, 'revenue_percentage'),
-            ],
-            'filters' => $filters,
         ];
     }
 
     /**
-     * Get revenue by brand over time
+     * Get brand revenue by period (for stacked chart)
+     * Alias for getRevenueByBrandOverTime
      * 
-     * @param string $period 'month', 'quarter', 'year'
-     * @param array $filters Date filters
-     * @return array Revenue trends by brand
+     * @param string $groupBy Period grouping
+     * @param array $filters Filters
+     * @return array Chart data
      */
-    public function getRevenueByBrandOverTime(string $period = 'month', array $filters = []): array
+    public function getRevenueByBrandOverTime(string $groupBy = 'month', array $filters = []): array
     {
-        $dateFormat = match($period) {
+        $dateFormat = match ($groupBy) {
+            'day' => '%Y-%m-%d',
+            'week' => '%Y-W%V',
             'month' => '%Y-%m',
-            'quarter' => "CONCAT(YEAR(o.provisiondate), '-Q', QUARTER(o.provisiondate))",
+            'quarter' => 'quarter',
             'year' => '%Y',
             default => '%Y-%m'
         };
@@ -588,17 +626,23 @@ class ReportService
         $query = Capsule::table('nicsrs_sslorders as o')
             ->join('tblhosting as h', 'o.serviceid', '=', 'h.id')
             ->join('tblproducts as p', 'h.packageid', '=', 'p.id')
-            ->leftJoin('mod_nicsrs_products as np', 'p.configoption1', '=', 'np.product_code')
-            ->selectRaw("DATE_FORMAT(o.provisiondate, '{$dateFormat}') as period")
-            ->selectRaw('COALESCE(np.vendor, "Unknown") as vendor')
-            ->selectRaw('SUM(COALESCE(h.firstpaymentamount, 0)) as total_revenue')
+            ->leftJoin('mod_nicsrs_products as np', 'o.certtype', '=', 'np.product_code');
+
+        if ($groupBy === 'quarter') {
+            $query->selectRaw("CONCAT(YEAR(h.regdate), '-Q', QUARTER(h.regdate)) as period");
+        } else {
+            $query->selectRaw("DATE_FORMAT(h.regdate, '{$dateFormat}') as period");
+        }
+
+        $query->selectRaw('COALESCE(np.vendor, "Unknown") as vendor')
+            ->selectRaw('SUM(COALESCE(h.firstpaymentamount, 0)) as total_revenue_vnd')
             ->selectRaw('COUNT(*) as order_count')
-            ->whereNotNull('o.provisiondate')
-            ->where('o.provisiondate', '!=', '0000-00-00')
+            ->whereNotNull('h.regdate')
+            ->where('h.regdate', '!=', '0000-00-00')
             ->groupBy('period', 'vendor')
             ->orderBy('period', 'asc');
 
-        $this->applyDateFilters($query, $filters, 'o.provisiondate');
+        $this->applyDateFilters($query, $filters, 'h.regdate');
 
         $results = $query->get();
 
@@ -611,11 +655,14 @@ class ReportService
                 $periods[] = $row->period;
             }
             
-            if (!isset($brandData[$row->vendor])) {
-                $brandData[$row->vendor] = [];
+            $vendor = $row->vendor ?? 'Unknown';
+            if (!isset($brandData[$vendor])) {
+                $brandData[$vendor] = [];
             }
             
-            $brandData[$row->vendor][$row->period] = (float) $row->total_revenue;
+            // Convert VND to USD
+            $revenueUsd = CurrencyHelper::revenueVndToUsd((float) $row->total_revenue_vnd);
+            $brandData[$vendor][$row->period] = round($revenueUsd, 2);
         }
 
         // Fill missing periods with 0
@@ -636,93 +683,28 @@ class ReportService
     }
 
     // =========================================================================
-    // HELPER METHODS
+    // UTILITY METHODS (Required by Controller)
     // =========================================================================
 
     /**
-     * Build base query for reports
+     * Get list of available vendors
      * 
-     * @return \Illuminate\Database\Query\Builder
-     */
-    private function buildBaseQuery()
-    {
-        return Capsule::table('nicsrs_sslorders as o')
-            ->join('tblhosting as h', 'o.serviceid', '=', 'h.id')
-            ->join('tblproducts as p', 'h.packageid', '=', 'p.id')
-            ->leftJoin('mod_nicsrs_products as np', 'p.configoption1', '=', 'np.product_code')
-            ->leftJoin('tblclients as c', 'o.userid', '=', 'c.id')
-            ->select([
-                'o.id as order_id',
-                'o.serviceid',
-                'o.certtype as product_code',
-                'o.status',
-                'o.provisiondate',
-                'o.completiondate',
-                'p.name as product_name',
-                'np.vendor',
-                'np.validation_type',
-                'h.firstpaymentamount as sale_amount',
-                'h.amount as recurring_amount',
-                'h.billingcycle',
-                'h.regdate as service_date',
-                'c.firstname',
-                'c.lastname',
-                'c.companyname',
-            ]);
-    }
-
-    /**
-     * Apply date filters to query
-     * 
-     * @param \Illuminate\Database\Query\Builder $query
-     * @param array $filters Filters with date_from and date_to
-     * @param string $column Date column name
-     */
-    private function applyDateFilters($query, array $filters, string $column = 'o.provisiondate'): void
-    {
-        if (!empty($filters['date_from'])) {
-            $query->where($column, '>=', $filters['date_from']);
-        }
-        if (!empty($filters['date_to'])) {
-            $query->where($column, '<=', $filters['date_to']);
-        }
-    }
-
-    /**
-     * Apply product filters to query
-     * 
-     * @param \Illuminate\Database\Query\Builder $query
-     * @param array $filters Filters with product_code and vendor
-     */
-    private function applyProductFilters($query, array $filters): void
-    {
-        if (!empty($filters['product_code'])) {
-            $query->where('o.certtype', $filters['product_code']);
-        }
-        if (!empty($filters['vendor'])) {
-            $query->where('np.vendor', $filters['vendor']);
-        }
-    }
-
-    /**
-     * Get available vendors for filter dropdown
-     * 
-     * @return array List of vendors
+     * @return array
      */
     public function getAvailableVendors(): array
     {
         return Capsule::table('mod_nicsrs_products')
-            ->distinct()
             ->whereNotNull('vendor')
-            ->orderBy('vendor')
+            ->where('vendor', '!=', '')
+            ->distinct()
             ->pluck('vendor')
             ->toArray();
     }
 
     /**
-     * Get available products for filter dropdown
+     * Get list of available products
      * 
-     * @return array List of products
+     * @return array
      */
     public function getAvailableProducts(): array
     {
@@ -754,6 +736,11 @@ class ReportService
                 'from' => $today,
                 'to' => $today,
             ],
+            'this_week' => [
+                'label' => 'This Week',
+                'from' => date('Y-m-d', strtotime('monday this week')),
+                'to' => $today,
+            ],
             'this_month' => [
                 'label' => 'This Month',
                 'from' => $thisMonth,
@@ -763,6 +750,11 @@ class ReportService
                 'label' => 'Last Month',
                 'from' => $lastMonth,
                 'to' => $lastMonthEnd,
+            ],
+            'this_quarter' => [
+                'label' => 'This Quarter',
+                'from' => date('Y-m-01', strtotime('first day of ' . ceil(date('n') / 3) * 3 - 2 . ' month')),
+                'to' => $today,
             ],
             'this_year' => [
                 'label' => 'This Year',
@@ -774,6 +766,11 @@ class ReportService
                 'from' => $lastYear,
                 'to' => $lastYearEnd,
             ],
+            'last_7_days' => [
+                'label' => 'Last 7 Days',
+                'from' => date('Y-m-d', strtotime('-7 days')),
+                'to' => $today,
+            ],
             'last_30_days' => [
                 'label' => 'Last 30 Days',
                 'from' => date('Y-m-d', strtotime('-30 days')),
@@ -784,6 +781,109 @@ class ReportService
                 'from' => date('Y-m-d', strtotime('-90 days')),
                 'to' => $today,
             ],
+            'last_365_days' => [
+                'label' => 'Last 365 Days',
+                'from' => date('Y-m-d', strtotime('-365 days')),
+                'to' => $today,
+            ],
         ];
+    }
+
+    // =========================================================================
+    // HELPER METHODS (Private)
+    // =========================================================================
+
+    /**
+     * Build base query for reports
+     * 
+     * @return \Illuminate\Database\Query\Builder
+     */
+    private function buildBaseQuery()
+    {
+        return Capsule::table('nicsrs_sslorders as o')
+            ->join('tblhosting as h', 'o.serviceid', '=', 'h.id')
+            ->join('tblproducts as p', 'h.packageid', '=', 'p.id')
+            ->leftJoin('mod_nicsrs_products as np', 'o.certtype', '=', 'np.product_code')
+            ->leftJoin('tblclients as c', 'o.userid', '=', 'c.id')
+            ->select([
+                'o.id as order_id',
+                'o.serviceid',
+                'o.certtype as product_code',
+                'o.status',
+                'o.provisiondate',
+                'o.completiondate',
+                'p.name as product_name',
+                'np.vendor',
+                'np.validation_type',
+                'h.firstpaymentamount as sale_amount', // VND with VAT
+                'h.amount as recurring_amount',        // VND with VAT
+                'h.billingcycle',
+                'h.regdate as service_date', // Use this as primary date
+                'c.firstname',
+                'c.lastname',
+                'c.companyname',
+            ]);
+    }
+
+    /**
+     * Build query for profit report (includes price_data)
+     * 
+     * IMPORTANT: Join mod_nicsrs_products using o.certtype (order's product code)
+     * 
+     * @return \Illuminate\Database\Query\Builder
+     */
+    private function buildProfitQuery()
+    {
+        return Capsule::table('nicsrs_sslorders as o')
+            ->join('tblhosting as h', 'o.serviceid', '=', 'h.id')
+            ->join('tblproducts as p', 'h.packageid', '=', 'p.id')
+            ->leftJoin('mod_nicsrs_products as np', 'o.certtype', '=', 'np.product_code')
+            ->select([
+                'o.id as order_id',
+                'o.serviceid',
+                'o.certtype as product_code',
+                'o.status',
+                'o.provisiondate',
+                'p.name as product_name',
+                'np.vendor',
+                'np.price_data', // JSON with NicSRS cost
+                'h.firstpaymentamount as sale_amount', // VND with VAT
+                'h.billingcycle',
+            ]);
+    }
+
+    /**
+     * Apply date filters to query
+     * 
+     * @param \Illuminate\Database\Query\Builder $query
+     * @param array $filters
+     * @param string $dateColumn Column to filter (default: h.regdate)
+     * @return void
+     */
+    private function applyDateFilters($query, array $filters, string $dateColumn = 'h.regdate'): void
+    {
+        if (!empty($filters['date_from'])) {
+            $query->where($dateColumn, '>=', $filters['date_from']);
+        }
+        if (!empty($filters['date_to'])) {
+            $query->where($dateColumn, '<=', $filters['date_to'] . ' 23:59:59');
+        }
+    }
+
+    /**
+     * Apply product/vendor filters to query
+     * 
+     * @param \Illuminate\Database\Query\Builder $query
+     * @param array $filters
+     * @return void
+     */
+    private function applyProductFilters($query, array $filters): void
+    {
+        if (!empty($filters['product_code'])) {
+            $query->where('o.certtype', $filters['product_code']);
+        }
+        if (!empty($filters['vendor'])) {
+            $query->where('np.vendor', $filters['vendor']);
+        }
     }
 }

@@ -3,6 +3,12 @@
  * Currency Helper
  * Handles currency conversion and formatting for reports
  * 
+ * IMPORTANT NOTES:
+ * - WHMCS default currency is VND
+ * - tblhosting.firstpaymentamount contains VND amount (including 10% VAT)
+ * - NicSRS costs are in USD (no VAT)
+ * - VAT rate in Vietnam is 10%
+ * 
  * @package    nicsrs_ssl_admin
  * @author     HVN GROUP
  * @copyright  Copyright (c) HVN GROUP (https://hvn.vn)
@@ -15,10 +21,17 @@ use WHMCS\Database\Capsule;
 class CurrencyHelper
 {
     /** @var float Default USD to VND rate */
-    const DEFAULT_USD_VND_RATE = 26500.00;
+    const DEFAULT_USD_VND_RATE = 26200.00;
+
+    /** @var float VAT rate in Vietnam (10%) */
+    const VAT_RATE = 0.10;
 
     /** @var array Cached settings */
     private static array $cache = [];
+
+    // =========================================================================
+    // EXCHANGE RATE METHODS
+    // =========================================================================
 
     /**
      * Get USD to VND exchange rate from settings
@@ -63,7 +76,6 @@ class CurrencyHelper
                     ]
                 );
 
-            // Update last updated timestamp
             Capsule::table('mod_nicsrs_settings')
                 ->updateOrInsert(
                     ['setting_key' => 'rate_last_updated'],
@@ -74,9 +86,7 @@ class CurrencyHelper
                     ]
                 );
 
-            // Clear cache
             unset(self::$cache['usd_vnd_rate']);
-
             return true;
         } catch (\Exception $e) {
             return false;
@@ -98,6 +108,10 @@ class CurrencyHelper
             return null;
         }
     }
+
+    // =========================================================================
+    // CURRENCY CONVERSION METHODS
+    // =========================================================================
 
     /**
      * Convert USD to VND
@@ -121,6 +135,106 @@ class CurrencyHelper
         $rate = self::getUsdVndRate();
         return $rate > 0 ? $vnd / $rate : 0;
     }
+
+    // =========================================================================
+    // VAT CALCULATION METHODS (NEW)
+    // =========================================================================
+
+    /**
+     * Get VAT rate
+     * 
+     * @return float VAT rate (0.10 = 10%)
+     */
+    public static function getVatRate(): float
+    {
+        return self::VAT_RATE;
+    }
+
+    /**
+     * Remove VAT from amount (extract base price from VAT-inclusive price)
+     * Formula: Base = Amount / (1 + VAT_RATE)
+     * 
+     * @param float $amountWithVat Amount including VAT
+     * @return float Amount excluding VAT
+     */
+    public static function removeVat(float $amountWithVat): float
+    {
+        return $amountWithVat / (1 + self::VAT_RATE);
+    }
+
+    /**
+     * Add VAT to amount
+     * Formula: Total = Amount * (1 + VAT_RATE)
+     * 
+     * @param float $amountWithoutVat Amount excluding VAT
+     * @return float Amount including VAT
+     */
+    public static function addVat(float $amountWithoutVat): float
+    {
+        return $amountWithoutVat * (1 + self::VAT_RATE);
+    }
+
+    /**
+     * Calculate VAT amount from VAT-inclusive price
+     * 
+     * @param float $amountWithVat Amount including VAT
+     * @return float VAT amount
+     */
+    public static function calculateVatAmount(float $amountWithVat): float
+    {
+        return $amountWithVat - self::removeVat($amountWithVat);
+    }
+
+    // =========================================================================
+    // REVENUE CONVERSION (VND with VAT -> USD without VAT)
+    // =========================================================================
+
+    /**
+     * Convert WHMCS revenue (VND with VAT) to USD (without VAT)
+     * This is the key method for profit calculation
+     * 
+     * Formula:
+     * 1. Remove 10% VAT: VND_base = VND_with_vat / 1.1
+     * 2. Convert to USD: USD = VND_base / exchange_rate
+     * 
+     * @param float $revenueVndWithVat Revenue in VND (including VAT from tblhosting)
+     * @return float Revenue in USD (excluding VAT, comparable to NicSRS cost)
+     */
+    public static function revenueVndToUsd(float $revenueVndWithVat): float
+    {
+        // Step 1: Remove VAT
+        $revenueVndWithoutVat = self::removeVat($revenueVndWithVat);
+        
+        // Step 2: Convert to USD
+        return self::vndToUsd($revenueVndWithoutVat);
+    }
+
+    /**
+     * Get detailed revenue breakdown
+     * 
+     * @param float $revenueVndWithVat Revenue in VND (including VAT)
+     * @return array Detailed breakdown
+     */
+    public static function getRevenueBreakdown(float $revenueVndWithVat): array
+    {
+        $rate = self::getUsdVndRate();
+        $vatAmount = self::calculateVatAmount($revenueVndWithVat);
+        $revenueVndWithoutVat = self::removeVat($revenueVndWithVat);
+        $revenueUsd = self::vndToUsd($revenueVndWithoutVat);
+
+        return [
+            'revenue_vnd_with_vat' => $revenueVndWithVat,
+            'vat_amount_vnd' => $vatAmount,
+            'revenue_vnd_without_vat' => $revenueVndWithoutVat,
+            'revenue_usd' => $revenueUsd,
+            'exchange_rate' => $rate,
+            'vat_rate' => self::VAT_RATE * 100 . '%',
+        ];
+    }
+
+    // =========================================================================
+    // DISPLAY MODE SETTINGS
+    // =========================================================================
 
     /**
      * Get currency display mode from settings
@@ -175,6 +289,10 @@ class CurrencyHelper
             return false;
         }
     }
+
+    // =========================================================================
+    // FORMATTING METHODS
+    // =========================================================================
 
     /**
      * Format amount for display based on currency type
@@ -280,6 +398,10 @@ class CurrencyHelper
         return number_format($amount, 0) . ' ₫';
     }
 
+    // =========================================================================
+    // INFO & UTILITIES
+    // =========================================================================
+
     /**
      * Get exchange rate info for display
      * 
@@ -297,6 +419,8 @@ class CurrencyHelper
             'last_updated_formatted' => $lastUpdated 
                 ? date('d/m/Y H:i', strtotime($lastUpdated)) 
                 : 'Never',
+            'vat_rate' => self::VAT_RATE,
+            'vat_rate_formatted' => (self::VAT_RATE * 100) . '%',
         ];
     }
 
