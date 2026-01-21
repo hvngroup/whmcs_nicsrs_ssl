@@ -14,6 +14,8 @@ use WHMCS\Database\Capsule;
 use NicsrsAdmin\Service\NicsrsApiService;
 use NicsrsAdmin\Service\OrderService;
 use NicsrsAdmin\Helper\Pagination;
+use NicsrsAdmin\Helper\DateHelper;
+use NicsrsAdmin\Helper\DcvHelper;
 
 class OrderController extends BaseController
 {
@@ -216,7 +218,6 @@ class OrderController extends BaseController
             ->where('o.id', $orderId)
             ->first();
 
-
         if (!$order) {
             echo '<div class="alert alert-danger">Order not found</div>';
             echo '<a href="' . $this->modulelink . '&action=orders" class="btn btn-default">Back to Orders</a>';
@@ -225,6 +226,7 @@ class OrderController extends BaseController
 
         // Parse config data
         $configData = json_decode($order->configdata, true) ?: [];
+        $applyReturn = $configData['applyReturn'] ?? [];
         
         // Get activity logs for this order
         $activityLogs = Capsule::table('mod_nicsrs_activity_log as l')
@@ -237,62 +239,92 @@ class OrderController extends BaseController
             ->get()
             ->toArray();
 
-        // Extract domain info
+        // Extract domain info with DCV helper
         $domains = [];
         if (isset($configData['domainInfo']) && is_array($configData['domainInfo'])) {
             foreach ($configData['domainInfo'] as $domainInfo) {
+                $dcvMethod = $domainInfo['dcvMethod'] ?? 'EMAIL';
                 $domains[] = [
                     'domain' => $domainInfo['domainName'] ?? 'N/A',
-                    'dcv_method' => $domainInfo['dcvMethod'] ?? 'N/A',
+                    'dcv_method' => $dcvMethod,
+                    'dcv_method_display' => DcvHelper::getDisplayName($dcvMethod),
+                    'dcv_method_icon' => DcvHelper::getIcon($dcvMethod),
+                    'dcv_method_color' => DcvHelper::getColor($dcvMethod),
+                    'dcv_method_type' => DcvHelper::getType($dcvMethod),
                     'dcv_email' => $domainInfo['dcvEmail'] ?? '',
-                    'is_verified' => isset($domainInfo['isVerified']) ? $domainInfo['isVerified'] : false,
+                    'is_verified' => !empty($domainInfo['isVerified']) || ($domainInfo['is_verify'] ?? '') === 'verified',
                 ];
             }
         }
 
-        // Extract certificate info
-        $certInfo = [];
-        if (isset($configData['applyReturn'])) {
-            $certInfo = [
-                'cert_id' => $configData['applyReturn']['certId'] ?? '',
-                'vendor_id' => $configData['applyReturn']['vendorId'] ?? '',
-                'begin_date' => $configData['applyReturn']['beginDate'] ?? '',
-                'end_date' => $configData['applyReturn']['endDate'] ?? '',
-                'has_certificate' => !empty($configData['applyReturn']['certificate']),
-            ];
+        // Extract certificate info from applyReturn
+        $certInfo = [
+            'cert_id' => $applyReturn['certId'] ?? $order->remoteid ?? '',
+            'vendor_id' => $applyReturn['vendorId'] ?? '',
+            'vendor_cert_id' => $applyReturn['vendorCertId'] ?? '',
+            'begin_date' => $applyReturn['beginDate'] ?? '',
+            'end_date' => $applyReturn['endDate'] ?? '',
+            'due_date' => $applyReturn['dueDate'] ?? '',
+            'apply_time' => $applyReturn['applyTime'] ?? '',
+            'has_certificate' => !empty($applyReturn['certificate']),
+            'has_jks' => !empty($applyReturn['jks']),
+            'has_pkcs12' => !empty($applyReturn['pkcs12']),
+            'jks_password' => $applyReturn['jksPass'] ?? '',
+            'pkcs12_password' => $applyReturn['pkcsPass'] ?? '',
+            // Process status
+            'application_status' => $applyReturn['application']['status'] ?? null,
+            'dcv_status' => $applyReturn['dcv']['status'] ?? null,
+            'issued_status' => $applyReturn['issued']['status'] ?? null,
+        ];
+
+        // DCV Instructions (for pending orders)
+        $dcvInstructions = [];
+        if (strtolower($order->status) === 'pending' && !empty($applyReturn)) {
+            // DNS validation
+            if (!empty($applyReturn['DCVdnsHost']) && !empty($applyReturn['DCVdnsValue'])) {
+                $dcvInstructions['dns'] = [
+                    'type' => $applyReturn['DCVdnsType'] ?? 'CNAME',
+                    'host' => $applyReturn['DCVdnsHost'],
+                    'value' => $applyReturn['DCVdnsValue'],
+                ];
+            }
+            
+            // HTTP validation
+            if (!empty($applyReturn['DCVfileName']) && !empty($applyReturn['DCVfileContent'])) {
+                $dcvInstructions['http'] = [
+                    'filename' => $applyReturn['DCVfileName'],
+                    'content' => $applyReturn['DCVfileContent'],
+                    'path' => $applyReturn['DCVfilePath'] ?? '',
+                ];
+            }
         }
+
+        // Cert status (from configdata or result status)
+        $certStatus = $configData['certStatus'] ?? strtolower($order->status);
+
+        // Last refresh time
+        $lastRefresh = $configData['lastRefresh'] ?? null;
+
+        // CSR availability
+        $hasCsr = !empty($configData['csr']);
 
         $data = [
             'order' => $order,
             'config' => $configData,
+            'applyReturn' => $applyReturn,
             'domains' => $domains,
             'certInfo' => $certInfo,
+            'certStatus' => $certStatus,
+            'lastRefresh' => $lastRefresh,
+            'dcvInstructions' => $dcvInstructions,
+            'hasCsr' => $hasCsr,
             'activityLogs' => $activityLogs,
             'clientName' => trim($order->firstname . ' ' . $order->lastname),
-            'provisiondate' => $this->formatDbDate($order->provisiondate),
-            'completiondate' => $this->formatDbDate($order->completiondate),
+            'provisiondate' => DateHelper::isValidDate($order->provisiondate) ? $order->provisiondate : null,
+            'completiondate' => DateHelper::isValidDate($order->completiondate) ? $order->completiondate : null,
         ];
 
         $this->includeTemplate('orders/detail', $data);
-    }
-
-    /**
-     * Helper to format database date (handle 0000-00-00)
-     */
-    private function formatDbDate($date): ?string
-    {
-        if (empty($date) || $date === '0000-00-00' || $date === '0000-00-00 00:00:00') {
-            return null;
-        }
-        return $date;
-    }
-
-    /**
-     * Check if date is valid (not empty or 0000-00-00)
-     */
-    private function isValidDate($date): bool
-    {
-        return !empty($date) && $date !== '0000-00-00' && $date !== '0000-00-00 00:00:00';
     }
 
     /**
@@ -312,26 +344,22 @@ class OrderController extends BaseController
             $changes = [];
 
             // Fix provisiondate
-            if (!$this->isValidDate($order->provisiondate)) {
-                // Try to get from configdata or use current date
-                $provDate = date('Y-m-d');
+            if (!DateHelper::isValidDate($order->provisiondate)) {
+                $provDate = DateHelper::today();
                 if (isset($configData['importedAt'])) {
-                    $provDate = date('Y-m-d', strtotime($configData['importedAt']));
+                    $provDate = DateHelper::parseDate($configData['importedAt']) ?? $provDate;
                 } elseif (isset($configData['linkedAt'])) {
-                    $provDate = date('Y-m-d', strtotime($configData['linkedAt']));
+                    $provDate = DateHelper::parseDate($configData['linkedAt']) ?? $provDate;
                 }
                 $updateData['provisiondate'] = $provDate;
                 $changes[] = "provisiondate set to {$provDate}";
             }
 
             // Fix completiondate for complete orders
-            if ($order->status === 'complete' && !$this->isValidDate($order->completiondate)) {
-                $compDate = date('Y-m-d H:i:s');
+            if ($order->status === 'complete' && !DateHelper::isValidDate($order->completiondate)) {
+                $compDate = DateHelper::now();
                 if (isset($configData['applyReturn']['beginDate'])) {
-                    $compDate = $configData['applyReturn']['beginDate'];
-                    if (strlen($compDate) === 10) {
-                        $compDate .= ' 00:00:00';
-                    }
+                    $compDate = DateHelper::parseDateTime($configData['applyReturn']['beginDate']) ?? $compDate;
                 }
                 $updateData['completiondate'] = $compDate;
                 $changes[] = "completiondate set to {$compDate}";
@@ -391,6 +419,9 @@ class OrderController extends BaseController
             
             case 'download_cert':
                 return $this->downloadCertificate($orderId);
+            
+            case 'fix_dates':
+                return $this->fixOrderDates($orderId);
 
             default:
                 return $this->jsonError('Unknown action');
@@ -418,89 +449,144 @@ class OrderController extends BaseController
 
             $result = $this->apiService->collect($order->remoteid);
             
-            if ($result['code'] == 1 || $result['code'] == 2) {
-                $configData = json_decode($order->configdata, true) ?: [];
-                
-                // Properly merge API response data
-                if (isset($result['data'])) {
-                    if (!isset($configData['applyReturn'])) {
-                        $configData['applyReturn'] = [];
-                    }
-                    
-                    // Update certificate data
-                    $configData['applyReturn'] = array_merge(
-                        $configData['applyReturn'],
-                        [
-                            'certId' => $order->remoteid,
-                            'beginDate' => $result['data']['beginDate'] ?? $configData['applyReturn']['beginDate'] ?? null,
-                            'endDate' => $result['data']['endDate'] ?? $configData['applyReturn']['endDate'] ?? null,
-                            'certificate' => $result['data']['certificate'] ?? $configData['applyReturn']['certificate'] ?? null,
-                            'caCertificate' => $result['data']['caCertificate'] ?? $configData['applyReturn']['caCertificate'] ?? null,
-                        ]
-                    );
-                    
-                    // Update DCV list if available
-                    if (!empty($result['data']['dcvList'])) {
-                        $configData['domainInfo'] = [];
-                        foreach ($result['data']['dcvList'] as $dcv) {
-                            $configData['domainInfo'][] = [
-                                'domainName' => $dcv['domainName'] ?? '',
-                                'dcvMethod' => $dcv['dcvMethod'] ?? 'EMAIL',
-                                'dcvEmail' => $dcv['dcvEmail'] ?? '',
-                                'isVerified' => ($dcv['is_verify'] ?? '') === 'verified',
-                                'is_verify' => $dcv['is_verify'] ?? '',
-                            ];
-                        }
-                    }
-                }
-
-                // Add last refresh timestamp
-                $configData['lastRefresh'] = date('Y-m-d H:i:s');
-
-                $newStatus = isset($result['status']) ? strtolower($result['status']) : $order->status;
-                
-                // Build update data with proper date handling
-                $updateData = [
-                    'status' => $newStatus,
-                    'configdata' => json_encode($configData),
-                ];
-                
-                // Set provisiondate if empty
-                if (!$this->isValidDate($order->provisiondate)) {
-                    $updateData['provisiondate'] = date('Y-m-d');
-                }
-                
-                // Set completiondate when status is complete
-                if ($newStatus === 'complete') {
-                    if (!$this->isValidDate($order->completiondate)) {
-                        // Use certificate begin date or current date
-                        $completionDate = $result['data']['beginDate'] ?? date('Y-m-d H:i:s');
-                        // Ensure it's datetime format
-                        if (strlen($completionDate) === 10) {
-                            $completionDate .= ' 00:00:00';
-                        }
-                        $updateData['completiondate'] = $completionDate;
-                    }
-                }
-
-                Capsule::table('nicsrs_sslorders')
-                    ->where('id', $orderId)
-                    ->update($updateData);
-
-                $this->logger->log('refresh_status', 'order', $orderId, $order->status, $newStatus);
-
-                return $this->jsonSuccess('Status refreshed successfully', [
-                    'status' => $newStatus,
-                    'old_status' => $order->status,
-                    'completiondate' => $updateData['completiondate'] ?? null,
-                    'data' => $result['data'] ?? null,
-                ]);
+            if ($result['code'] != 1 && $result['code'] != 2) {
+                throw new \Exception($result['msg'] ?? 'API Error');
             }
 
-            throw new \Exception($result['msg'] ?? 'API error (code: ' . $result['code'] . ')');
+            $configData = json_decode($order->configdata, true) ?: [];
+            $data = $result['data'] ?? [];
             
+            // Initialize applyReturn if not exists
+            if (!isset($configData['applyReturn'])) {
+                $configData['applyReturn'] = [];
+            }
+            
+            // Update applyReturn with all API response fields
+            $configData['applyReturn'] = array_merge($configData['applyReturn'], [
+                'certId' => $order->remoteid,
+                
+                // Dates (API returns full datetime: Y-m-d H:i:s)
+                'beginDate' => $data['beginDate'] ?? $configData['applyReturn']['beginDate'] ?? null,
+                'endDate' => $data['endDate'] ?? $configData['applyReturn']['endDate'] ?? null,
+                'dueDate' => $data['dueDate'] ?? $configData['applyReturn']['dueDate'] ?? null,
+                'applyTime' => $data['applyTime'] ?? $configData['applyReturn']['applyTime'] ?? null,
+                
+                // Vendor tracking
+                'vendorId' => $data['vendorId'] ?? $configData['applyReturn']['vendorId'] ?? null,
+                'vendorCertId' => $data['vendorCertId'] ?? $configData['applyReturn']['vendorCertId'] ?? null,
+                
+                // Certificate data
+                'certificate' => $data['certificate'] ?? $configData['applyReturn']['certificate'] ?? null,
+                'caCertificate' => $data['caCertificate'] ?? $configData['applyReturn']['caCertificate'] ?? null,
+                'certPath' => $data['certPath'] ?? $configData['applyReturn']['certPath'] ?? null,
+                
+                // Pre-formatted certificates (Base64 encoded)
+                'jks' => $data['jks'] ?? $configData['applyReturn']['jks'] ?? null,
+                'pkcs12' => $data['pkcs12'] ?? $configData['applyReturn']['pkcs12'] ?? null,
+                'jksPass' => $data['jksPass'] ?? $configData['applyReturn']['jksPass'] ?? null,
+                'pkcsPass' => $data['pkcsPass'] ?? $configData['applyReturn']['pkcsPass'] ?? null,
+                
+                // DCV validation fields
+                'DCVfileName' => $data['DCVfileName'] ?? $configData['applyReturn']['DCVfileName'] ?? null,
+                'DCVfileContent' => $data['DCVfileContent'] ?? $configData['applyReturn']['DCVfileContent'] ?? null,
+                'DCVfilePath' => $data['DCVfilePath'] ?? $configData['applyReturn']['DCVfilePath'] ?? null,
+                'DCVdnsHost' => $data['DCVdnsHost'] ?? $configData['applyReturn']['DCVdnsHost'] ?? null,
+                'DCVdnsValue' => $data['DCVdnsValue'] ?? $configData['applyReturn']['DCVdnsValue'] ?? null,
+                'DCVdnsType' => $data['DCVdnsType'] ?? $configData['applyReturn']['DCVdnsType'] ?? null,
+                
+                // Process status tracking
+                'application' => $data['application'] ?? $configData['applyReturn']['application'] ?? null,
+                'dcv' => $data['dcv'] ?? $configData['applyReturn']['dcv'] ?? null,
+                'issued' => $data['issued'] ?? $configData['applyReturn']['issued'] ?? null,
+                
+                // Store dcvList in applyReturn as well for reference
+                'dcvList' => $data['dcvList'] ?? $configData['applyReturn']['dcvList'] ?? [],
+            ]);
+            
+            // Update domainInfo from dcvList
+            if (!empty($data['dcvList'])) {
+                $configData['domainInfo'] = [];
+                foreach ($data['dcvList'] as $dcv) {
+                    $configData['domainInfo'][] = [
+                        'domainName' => $dcv['domainName'] ?? '',
+                        'dcvMethod' => $dcv['dcvMethod'] ?? 'EMAIL',
+                        'dcvEmail' => $dcv['dcvEmail'] ?? '',
+                        'isVerified' => ($dcv['is_verify'] ?? '') === 'verified',
+                        'is_verify' => $dcv['is_verify'] ?? '',
+                    ];
+                }
+            }
+            
+            // Store applyParams if provided
+            if (!empty($data['applyParams'])) {
+                $configData['applyParams'] = $data['applyParams'];
+            }
+            
+            // Update privateKey if provided (from applyParams or direct)
+            if (!empty($data['rsaPrivateKey'])) {
+                $configData['privateKey'] = $data['rsaPrivateKey'];
+            }
+
+            // Update last refresh timestamp
+            $configData['lastRefresh'] = DateHelper::now();
+            
+            // Store certStatus separately for easy access
+            $certStatus = strtolower($result['certStatus'] ?? $result['status'] ?? 'pending');
+            $configData['certStatus'] = $certStatus;
+
+            // Determine new order status
+            $newStatus = strtolower($result['status'] ?? $order->status);
+            
+            // Build update data
+            $updateData = [
+                'status' => $newStatus,
+                'configdata' => json_encode($configData),
+            ];
+            
+            // Set provisiondate if empty/invalid
+            if (!DateHelper::isValidDate($order->provisiondate)) {
+                $updateData['provisiondate'] = DateHelper::today();
+            }
+            
+            // Set completiondate when status is complete
+            if ($newStatus === 'complete' && !DateHelper::isValidDate($order->completiondate)) {
+                $completionDate = $data['beginDate'] ?? DateHelper::now();
+                // Ensure datetime format
+                if (strlen($completionDate) === 10) {
+                    $completionDate .= ' 00:00:00';
+                }
+                $updateData['completiondate'] = $completionDate;
+            }
+            
+            // Update database
+            Capsule::table('nicsrs_sslorders')
+                ->where('id', $orderId)
+                ->update($updateData);
+
+            // Log activity
+            $this->logger->log('refresh_status', 'order', $orderId, $order->status, $newStatus);
+
+            // Prepare response data
+            $hasJks = !empty($configData['applyReturn']['jks']);
+            $hasPkcs12 = !empty($configData['applyReturn']['pkcs12']);
+            $hasCertificate = !empty($configData['applyReturn']['certificate']);
+            
+            return $this->jsonSuccess('Status refreshed successfully', [
+                'status' => $newStatus,
+                'cert_status' => $certStatus,
+                'begin_date' => DateHelper::formatDisplay($configData['applyReturn']['beginDate'] ?? null),
+                'end_date' => DateHelper::formatDisplay($configData['applyReturn']['endDate'] ?? null),
+                'due_date' => DateHelper::formatDateOnly($configData['applyReturn']['dueDate'] ?? null),
+                'vendor_id' => $configData['applyReturn']['vendorId'] ?? null,
+                'vendor_cert_id' => $configData['applyReturn']['vendorCertId'] ?? null,
+                'has_certificate' => $hasCertificate,
+                'has_jks' => $hasJks,
+                'has_pkcs12' => $hasPkcs12,
+                'last_refresh' => $configData['lastRefresh'],
+            ]);
+
         } catch (\Exception $e) {
-            return $this->jsonError($e->getMessage());
+            return $this->jsonError('Refresh failed: ' . $e->getMessage());
         }
     }
 
@@ -741,11 +827,10 @@ class OrderController extends BaseController
     }
 
     /**
-     * Download certificate as ZIP file
-     * Creates ZIP with Apache, Nginx, IIS, Tomcat formats
+     * Download certificate in specified format
      * 
      * @param int $orderId Order ID
-     * @return string JSON response with base64 encoded ZIP
+     * @return string JSON response with download data
      */
     private function downloadCertificate(int $orderId): string
     {
@@ -755,161 +840,240 @@ class OrderController extends BaseController
             if (!$order) {
                 throw new \Exception('Order not found');
             }
-
-            $configData = json_decode($order->configdata, true) ?: [];
             
-            // Check if certificate exists
-            if (empty($configData['applyReturn']['certificate'])) {
-                throw new \Exception('Certificate not yet issued');
-            }
-
-            $certificate = $configData['applyReturn']['certificate'];
-            $caCertificate = $configData['applyReturn']['caCertificate'] ?? '';
-            $privateKey = $configData['applyReturn']['privateKey'] ?? '';
+            $configData = json_decode($order->configdata, true) ?: [];
+            $applyReturn = $configData['applyReturn'] ?? [];
+            
+            $format = isset($_POST['format']) ? strtolower($_POST['format']) : 'zip';
             
             // Get primary domain for filename
             $primaryDomain = 'certificate';
             if (!empty($configData['domainInfo'][0]['domainName'])) {
-                $primaryDomain = $configData['domainInfo'][0]['domainName'];
+                $primaryDomain = preg_replace('/[^a-zA-Z0-9.-]/', '_', $configData['domainInfo'][0]['domainName']);
             }
             
-            // Create ZIP file
-            $result = $this->createCertificateZip($primaryDomain, $certificate, $caCertificate, $privateKey);
-            
-            if ($result['status'] === 1) {
-                $this->logger->log('download_cert', 'order', $orderId, null, 'Certificate downloaded');
+            switch ($format) {
+                case 'jks':
+                    return $this->downloadJks($applyReturn, $primaryDomain);
                 
-                return $this->jsonSuccess('Certificate ready', [
-                    'content' => $result['data']['content'],
-                    'name' => $result['data']['name'],
-                ]);
+                case 'pkcs12':
+                case 'pfx':
+                case 'p12':
+                    return $this->downloadPkcs12($applyReturn, $primaryDomain);
+                
+                case 'pem':
+                    return $this->downloadPem($applyReturn, $configData, $primaryDomain);
+                
+                case 'zip':
+                default:
+                    return $this->downloadZip($applyReturn, $configData, $primaryDomain);
             }
             
-            throw new \Exception($result['msg'] ?? 'Failed to create certificate package');
-
         } catch (\Exception $e) {
-            return $this->jsonError($e->getMessage());
+            return $this->jsonError('Download failed: ' . $e->getMessage());
         }
     }
 
     /**
-     * Create ZIP file with certificate in multiple formats
-     * Similar to nicsrsFunc::zipCert() in server module
-     * 
-     * @param string $primaryDomain Primary domain name
-     * @param string $certificate Certificate content
-     * @param string $caCertificate CA Certificate content
-     * @param string $privateKey Private key (if available)
-     * @return array Result with status and data
+     * Download JKS format
      */
-    private function createCertificateZip(string $primaryDomain, string $certificate, string $caCertificate, string $privateKey = ''): array
+    private function downloadJks(array $applyReturn, string $domain): string
     {
-        // Sanitize filename
-        $certFilename = str_replace('*', 'WILDCARD', str_replace('.', '_', $primaryDomain));
-        $tempDir = sys_get_temp_dir() . '/nicsrs_cert_' . sha1(time() . $primaryDomain);
-        $zipFilename = $certFilename . '.zip';
-        $zipPath = $tempDir . '.zip';
-
-        try {
-            // Create temp directories
-            if (!mkdir($tempDir, 0777, true)) {
-                throw new \Exception('Cannot create temp directory');
-            }
-            mkdir($tempDir . '/Apache', 0777, true);
-            mkdir($tempDir . '/Nginx', 0777, true);
-
-            // === Apache Format ===
-            // .crt file (certificate only)
-            file_put_contents($tempDir . '/Apache/' . $certFilename . '.crt', trim($certificate));
-            
-            // .ca-bundle file (CA certificate)
-            if (!empty($caCertificate)) {
-                file_put_contents($tempDir . '/Apache/' . $certFilename . '.ca-bundle', trim($caCertificate));
-            }
-            
-            // .key file (private key if available)
-            if (!empty($privateKey)) {
-                file_put_contents($tempDir . '/Apache/' . $certFilename . '.key', trim($privateKey));
-            }
-
-            // === Nginx Format ===
-            // .pem file (certificate + CA certificate combined)
-            $pemContent = trim($certificate) . PHP_EOL;
-            if (!empty($caCertificate)) {
-                $pemContent .= trim($caCertificate);
-            }
-            file_put_contents($tempDir . '/Nginx/' . $certFilename . '.pem', $pemContent);
-            
-            // .key file for Nginx
-            if (!empty($privateKey)) {
-                file_put_contents($tempDir . '/Nginx/' . $certFilename . '.key', trim($privateKey));
-            }
-
-            // === Create ZIP ===
-            $zip = new \ZipArchive();
-            if ($zip->open($zipPath, \ZipArchive::CREATE | \ZipArchive::OVERWRITE) !== true) {
-                throw new \Exception('Cannot create ZIP file');
-            }
-
-            // Add Apache files
-            $zip->addEmptyDir('Apache');
-            $zip->addFile($tempDir . '/Apache/' . $certFilename . '.crt', 'Apache/' . $certFilename . '.crt');
-            if (!empty($caCertificate)) {
-                $zip->addFile($tempDir . '/Apache/' . $certFilename . '.ca-bundle', 'Apache/' . $certFilename . '.ca-bundle');
-            }
-            if (!empty($privateKey)) {
-                $zip->addFile($tempDir . '/Apache/' . $certFilename . '.key', 'Apache/' . $certFilename . '.key');
-            }
-
-            // Add Nginx files
-            $zip->addEmptyDir('Nginx');
-            $zip->addFile($tempDir . '/Nginx/' . $certFilename . '.pem', 'Nginx/' . $certFilename . '.pem');
-            if (!empty($privateKey)) {
-                $zip->addFile($tempDir . '/Nginx/' . $certFilename . '.key', 'Nginx/' . $certFilename . '.key');
-            }
-
-            // Add README
-            $readme = "SSL Certificate Package for: {$primaryDomain}\n";
-            $readme .= "Generated: " . date('Y-m-d H:i:s') . "\n\n";
-            $readme .= "=== Apache Installation ===\n";
-            $readme .= "SSLCertificateFile /path/to/{$certFilename}.crt\n";
-            $readme .= "SSLCertificateKeyFile /path/to/{$certFilename}.key\n";
-            $readme .= "SSLCertificateChainFile /path/to/{$certFilename}.ca-bundle\n\n";
-            $readme .= "=== Nginx Installation ===\n";
-            $readme .= "ssl_certificate /path/to/{$certFilename}.pem;\n";
-            $readme .= "ssl_certificate_key /path/to/{$certFilename}.key;\n\n";
-            $readme .= "Generated by NicSRS SSL Admin - HVN GROUP (https://hvn.vn)\n";
-            
-            $zip->addFromString('README.txt', $readme);
-            
-            $zip->close();
-
-            // Read ZIP content
-            $zipContent = file_get_contents($zipPath);
-            $base64Content = base64_encode($zipContent);
-
-            // Cleanup
-            $this->deleteDirectory($tempDir);
-            @unlink($zipPath);
-
-            return [
-                'status' => 1,
-                'data' => [
-                    'content' => $base64Content,
-                    'name' => $zipFilename,
-                ]
-            ];
-
-        } catch (\Exception $e) {
-            // Cleanup on error
-            $this->deleteDirectory($tempDir);
-            @unlink($zipPath);
-            
-            return [
-                'status' => 0,
-                'msg' => $e->getMessage(),
-            ];
+        if (empty($applyReturn['jks'])) {
+            throw new \Exception('JKS format not available for this certificate');
         }
+        
+        return $this->jsonSuccess('Download ready', [
+            'content' => $applyReturn['jks'], // Already Base64
+            'filename' => $domain . '.jks',
+            'mime' => 'application/octet-stream',
+            'password' => $applyReturn['jksPass'] ?? null,
+            'format' => 'jks',
+        ]);
+    }
+
+    /**
+     * Download PKCS12 format
+     */
+    private function downloadPkcs12(array $applyReturn, string $domain): string
+    {
+        if (empty($applyReturn['pkcs12'])) {
+            throw new \Exception('PKCS12 format not available for this certificate');
+        }
+        
+        return $this->jsonSuccess('Download ready', [
+            'content' => $applyReturn['pkcs12'], // Already Base64
+            'filename' => $domain . '.pfx',
+            'mime' => 'application/x-pkcs12',
+            'password' => $applyReturn['pkcsPass'] ?? null,
+            'format' => 'pkcs12',
+        ]);
+    }
+
+    /**
+     * Download PEM format (combined certificate + CA bundle)
+     */
+    private function downloadPem(array $applyReturn, array $configData, string $domain): string
+    {
+        if (empty($applyReturn['certificate'])) {
+            throw new \Exception('Certificate not available');
+        }
+        
+        $content = $applyReturn['certificate'];
+        
+        if (!empty($applyReturn['caCertificate'])) {
+            $content .= "\n" . $applyReturn['caCertificate'];
+        }
+        
+        return $this->jsonSuccess('Download ready', [
+            'content' => base64_encode($content),
+            'filename' => $domain . '.pem',
+            'mime' => 'application/x-pem-file',
+            'format' => 'pem',
+        ]);
+    }
+
+    /**
+     * Download all formats as ZIP
+     */
+    private function downloadZip(array $applyReturn, array $configData, string $domain): string
+    {
+        if (empty($applyReturn['certificate'])) {
+            throw new \Exception('Certificate not available');
+        }
+        
+        $zip = new \ZipArchive();
+        $tmpFile = tempnam(sys_get_temp_dir(), 'cert_');
+        
+        if ($zip->open($tmpFile, \ZipArchive::CREATE) !== true) {
+            throw new \Exception('Failed to create ZIP file');
+        }
+        
+        // PEM format files
+        if (!empty($applyReturn['certificate'])) {
+            $zip->addFromString("{$domain}.crt", $applyReturn['certificate']);
+        }
+        if (!empty($applyReturn['caCertificate'])) {
+            $zip->addFromString("{$domain}.ca-bundle", $applyReturn['caCertificate']);
+        }
+        if (!empty($configData['privateKey'])) {
+            $zip->addFromString("{$domain}.key", $configData['privateKey']);
+        } elseif (!empty($applyReturn['privateKey'])) {
+            $zip->addFromString("{$domain}.key", $applyReturn['privateKey']);
+        }
+        
+        // Combined PEM (for Nginx)
+        $combinedPem = $applyReturn['certificate'];
+        if (!empty($applyReturn['caCertificate'])) {
+            $combinedPem .= "\n" . $applyReturn['caCertificate'];
+        }
+        $zip->addFromString("{$domain}_fullchain.pem", $combinedPem);
+        
+        // JKS format (if available)
+        if (!empty($applyReturn['jks'])) {
+            $zip->addFromString("{$domain}.jks", base64_decode($applyReturn['jks']));
+        }
+        
+        // PKCS12 format (if available)
+        if (!empty($applyReturn['pkcs12'])) {
+            $zip->addFromString("{$domain}.pfx", base64_decode($applyReturn['pkcs12']));
+        }
+        
+        // Passwords file
+        $passwords = [];
+        $passwords[] = "Certificate Download - {$domain}";
+        $passwords[] = "Generated: " . date('Y-m-d H:i:s');
+        $passwords[] = "";
+        
+        if (!empty($applyReturn['jksPass'])) {
+            $passwords[] = "JKS Password: " . $applyReturn['jksPass'];
+        }
+        if (!empty($applyReturn['pkcsPass'])) {
+            $passwords[] = "PKCS12/PFX Password: " . $applyReturn['pkcsPass'];
+        }
+        
+        if (count($passwords) > 3) {
+            $zip->addFromString("passwords.txt", implode("\n", $passwords));
+        }
+        
+        // Readme file
+        $readme = $this->generateReadme($domain, $applyReturn);
+        $zip->addFromString("README.txt", $readme);
+        
+        $zip->close();
+        
+        $content = file_get_contents($tmpFile);
+        unlink($tmpFile);
+        
+        $this->logger->log('download_cert', 'order', 0, null, "Downloaded {$domain} certificates (ZIP)");
+        
+        return $this->jsonSuccess('Download ready', [
+            'content' => base64_encode($content),
+            'filename' => "{$domain}_certificates.zip",
+            'mime' => 'application/zip',
+            'format' => 'zip',
+            'jks_password' => $applyReturn['jksPass'] ?? null,
+            'pkcs12_password' => $applyReturn['pkcsPass'] ?? null,
+        ]);
+    }
+
+    /**
+     * Generate README for certificate download
+     */
+    private function generateReadme(string $domain, array $applyReturn): string
+    {
+        $readme = [];
+        $readme[] = "SSL Certificate Package - {$domain}";
+        $readme[] = str_repeat("=", 50);
+        $readme[] = "";
+        $readme[] = "Generated: " . date('Y-m-d H:i:s');
+        $readme[] = "";
+        $readme[] = "Files included:";
+        $readme[] = "  - {$domain}.crt        : Server certificate";
+        $readme[] = "  - {$domain}.ca-bundle  : CA bundle (intermediate certificates)";
+        $readme[] = "  - {$domain}.key        : Private key";
+        $readme[] = "  - {$domain}_fullchain.pem : Combined certificate (for Nginx)";
+        
+        if (!empty($applyReturn['jks'])) {
+            $readme[] = "  - {$domain}.jks        : Java KeyStore format";
+        }
+        if (!empty($applyReturn['pkcs12'])) {
+            $readme[] = "  - {$domain}.pfx        : PKCS#12 format (for IIS/Windows)";
+        }
+        
+        $readme[] = "";
+        $readme[] = "Installation Instructions:";
+        $readme[] = "--------------------------";
+        $readme[] = "";
+        $readme[] = "Apache:";
+        $readme[] = "  SSLCertificateFile /path/to/{$domain}.crt";
+        $readme[] = "  SSLCertificateKeyFile /path/to/{$domain}.key";
+        $readme[] = "  SSLCertificateChainFile /path/to/{$domain}.ca-bundle";
+        $readme[] = "";
+        $readme[] = "Nginx:";
+        $readme[] = "  ssl_certificate /path/to/{$domain}_fullchain.pem;";
+        $readme[] = "  ssl_certificate_key /path/to/{$domain}.key;";
+        $readme[] = "";
+        
+        if (!empty($applyReturn['jksPass'])) {
+            $readme[] = "Tomcat (JKS):";
+            $readme[] = "  keystoreFile=\"/path/to/{$domain}.jks\"";
+            $readme[] = "  keystorePass=\"{$applyReturn['jksPass']}\"";
+            $readme[] = "";
+        }
+        
+        if (!empty($applyReturn['pkcsPass'])) {
+            $readme[] = "IIS (PFX):";
+            $readme[] = "  Import {$domain}.pfx file";
+            $readme[] = "  Password: {$applyReturn['pkcsPass']}";
+            $readme[] = "";
+        }
+        
+        $readme[] = "---";
+        $readme[] = "Generated by NicSRS SSL Admin Module";
+        $readme[] = "https://hvn.vn";
+        
+        return implode("\n", $readme);
     }
 
     /**
