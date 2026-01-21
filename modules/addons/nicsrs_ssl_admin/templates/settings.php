@@ -10,6 +10,8 @@
  * @var string $modulelink Module link
  * @var \NicsrsAdmin\Helper\ViewHelper $helper View helper
  */
+
+use NicsrsAdmin\Helper\CurrencyHelper;
 ?>
 
 <div class="nicsrs-settings">
@@ -149,6 +151,71 @@
                                 19 Jan 2025
                             </option>
                         </select>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Currency Settings (for Reports) -->
+            <div class="panel panel-default">
+                <div class="panel-heading">
+                    <h3 class="panel-title"><i class="fa fa-money"></i> Currency Settings (Reports)</h3>
+                </div>
+                <div class="panel-body">
+                    <p class="text-muted" style="margin-bottom: 15px;">
+                        Configure exchange rate for profit reports. NicSRS costs are in USD, 
+                        this rate is used to convert to VND for local currency reporting.
+                    </p>
+                    
+                    <div class="form-group">
+                        <label>USD to VND Exchange Rate:</label>
+                        <div class="input-group" style="max-width: 300px;">
+                            <span class="input-group-addon">1 USD =</span>
+                            <input type="number" class="form-control" 
+                                id="usd_vnd_rate" 
+                                name="usd_vnd_rate" 
+                                form="settingsForm"
+                                value="<?php echo isset($settings['usd_vnd_rate']) ? $helper->e($settings['usd_vnd_rate']) : '25000'; ?>"
+                                min="1000" max="50000" step="100">
+                            <span class="input-group-addon">VND</span>
+                        </div>
+                        <?php 
+                        // Get currency info if available
+                        $rateInfo = isset($currencyInfo) ? $currencyInfo : \NicsrsAdmin\Helper\CurrencyHelper::getRateInfo();
+                        ?>
+                        <p class="help-block">
+                            Current: <?php echo $rateInfo['rate_formatted']; ?>
+                            &nbsp;|&nbsp;
+                            Last updated: <?php echo $rateInfo['last_updated_formatted']; ?>
+                        </p>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Display Currency in Reports:</label>
+                        <select class="form-control" 
+                                id="currency_display" 
+                                name="currency_display" 
+                                form="settingsForm"
+                                style="max-width: 200px;">
+                            <option value="usd" <?php echo (($settings['currency_display'] ?? 'both') === 'usd') ? 'selected' : ''; ?>>
+                                USD Only
+                            </option>
+                            <option value="vnd" <?php echo (($settings['currency_display'] ?? 'both') === 'vnd') ? 'selected' : ''; ?>>
+                                VND Only
+                            </option>
+                            <option value="both" <?php echo (($settings['currency_display'] ?? 'both') === 'both') ? 'selected' : ''; ?>>
+                                Both (USD & VND)
+                            </option>
+                        </select>
+                        <p class="help-block">Choose how currency values are displayed in reports</p>
+                    </div>
+                    
+                    <div class="form-group">
+                        <button type="button" class="btn btn-info" id="btnUpdateExchangeRate">
+                            <i class="fa fa-refresh"></i> Update Rate from Internet
+                        </button>
+                        <span class="text-muted" style="margin-left: 10px;">
+                            Fetches current rate from exchangerate-api.com
+                        </span>
                     </div>
                 </div>
             </div>
@@ -401,6 +468,40 @@ document.addEventListener('DOMContentLoaded', function() {
             },
             complete: function() {
                 btn.disabled = false;
+            }
+        });
+    });
+
+    // Update Exchange Rate from API
+    document.getElementById('btnUpdateExchangeRate').addEventListener('click', function() {
+        var btn = this;
+        var originalText = btn.innerHTML;
+        
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Updating...';
+        
+        $.ajax({
+            url: modulelink + '&action=settings',
+            method: 'POST',
+            data: { ajax_action: 'update_exchange_rate' },
+            dataType: 'json',
+            success: function(response) {
+                if (response.success) {
+                    // Update the input field with new rate
+                    if (response.rate) {
+                        document.getElementById('usd_vnd_rate').value = response.rate;
+                    }
+                    alert('Success: ' + response.message + (response.rate_formatted ? '\n' + response.rate_formatted : ''));
+                } else {
+                    alert('Error: ' + (response.message || 'Failed to update exchange rate'));
+                }
+            },
+            error: function(xhr, status, error) {
+                alert('Request failed: ' + error);
+            },
+            complete: function() {
+                btn.disabled = false;
+                btn.innerHTML = originalText;
             }
         });
     });

@@ -54,12 +54,15 @@ class SettingsController extends BaseController
         // Check API status
         $apiConnected = !empty($this->getApiToken()) && $this->apiService->testConnection();
 
+        $currencyInfo = \NicsrsAdmin\Helper\CurrencyHelper::getRateInfo();
+
         $data = [
             'settings' => $settings,
             'activityLogs' => $activityLogs,
             'apiConnected' => $apiConnected,
             'apiToken' => $this->maskApiToken($this->getApiToken()),
             'csrfToken' => $this->generateCsrfToken(),
+            'currencyInfo' => $currencyInfo,
         ];
 
         $this->includeTemplate('settings', $data);
@@ -149,41 +152,62 @@ class SettingsController extends BaseController
     private function saveSettings(array $post): string
     {
         try {
-            // Define settings to save
+            // Define settings to save - UPDATED with currency settings
             $settingsConfig = [
+                // Notification settings
                 'email_on_issuance' => 'boolean',
                 'email_on_expiry' => 'boolean',
                 'expiry_days' => 'integer',
+                // Sync settings
                 'auto_sync_status' => 'boolean',
                 'sync_interval_hours' => 'integer',
                 'product_sync_hours' => 'integer',
+                // Display settings
                 'date_format' => 'string',
                 'admin_email' => 'string',
+                // Currency settings (for Reports)
+                'usd_vnd_rate' => 'number',
+                'currency_display' => 'string',
             ];
 
             $savedSettings = [];
 
             foreach ($settingsConfig as $key => $type) {
-                if (isset($post[$key])) {
+                // For boolean, checkbox not sent = false
+                if ($type === 'boolean') {
+                    $value = isset($post[$key]) && ($post[$key] === '1' || $post[$key] === 'true' || $post[$key] === true);
+                    $this->saveSetting($key, $value, $type);
+                    $savedSettings[$key] = $value;
+                } elseif (isset($post[$key])) {
                     $value = $post[$key];
                     
                     // Validate based on type
                     switch ($type) {
-                        case 'boolean':
-                            $value = $value === '1' || $value === 'true' || $value === true;
-                            break;
                         case 'integer':
                             $value = (int) $value;
                             if ($value < 0) $value = 0;
                             break;
+                        case 'number':
+                            $value = (float) $value;
+                            if ($value < 0) $value = 0;
+                            break;
                         case 'string':
                             $value = $this->sanitize($value);
+                            // Validate currency_display
+                            if ($key === 'currency_display' && !in_array($value, ['usd', 'vnd', 'both'])) {
+                                $value = 'both';
+                            }
                             break;
                     }
                     
                     $this->saveSetting($key, $value, $type);
                     $savedSettings[$key] = $value;
                 }
+            }
+
+            // If usd_vnd_rate was updated, also update the timestamp
+            if (isset($savedSettings['usd_vnd_rate'])) {
+                $this->saveSetting('rate_last_updated', date('Y-m-d H:i:s'), 'datetime');
             }
 
             // Log activity

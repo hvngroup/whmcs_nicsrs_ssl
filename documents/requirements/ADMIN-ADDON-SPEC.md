@@ -123,7 +123,6 @@ nicsrs_ssl/
 | Pending Orders | Orders awaiting validation | ⏳ |
 | Issued Certificates | Successfully issued certs | ✅ |
 | Expiring Soon | Certificates expiring in 30 days | ⚠️ |
-| Account Balance | NicSRS credit balance | 💰 |
 
 ---
 

@@ -136,6 +136,9 @@ function nicsrs_ssl_admin_activate()
                 ['setting_key' => 'product_sync_hours', 'setting_value' => '24', 'setting_type' => 'integer'],
                 ['setting_key' => 'date_format', 'setting_value' => 'Y-m-d', 'setting_type' => 'string'],
                 ['setting_key' => 'admin_email', 'setting_value' => '', 'setting_type' => 'string'],
+                ['setting_key' => 'usd_vnd_rate', 'setting_value' => '25000', 'setting_type' => 'number'],
+                ['setting_key' => 'currency_display', 'setting_value' => 'both', 'setting_type' => 'string'],
+                ['setting_key' => 'rate_last_updated', 'setting_value' => '', 'setting_type' => 'datetime'],
             ];
 
             foreach ($defaultSettings as $setting) {
@@ -193,10 +196,30 @@ function nicsrs_ssl_admin_upgrade($vars)
 {
     $currentVersion = $vars['version'];
     
-    // Version-specific upgrades
-    // if (version_compare($currentVersion, '1.2.0', '<')) {
-    //     // Upgrade logic for v1.2.0
-    // }
+    // Upgrade to v1.3.0 - Add currency settings for Reports
+    if (version_compare($currentVersion, '1.3.0', '<')) {
+        try {
+            // Add new currency settings if not exist
+            $newSettings = [
+                ['setting_key' => 'usd_vnd_rate', 'setting_value' => '25000', 'setting_type' => 'number'],
+                ['setting_key' => 'currency_display', 'setting_value' => 'both', 'setting_type' => 'string'],
+                ['setting_key' => 'rate_last_updated', 'setting_value' => '', 'setting_type' => 'datetime'],
+            ];
+
+            foreach ($newSettings as $setting) {
+                $exists = Capsule::table('mod_nicsrs_settings')
+                    ->where('setting_key', $setting['setting_key'])
+                    ->exists();
+                
+                if (!$exists) {
+                    Capsule::table('mod_nicsrs_settings')->insert($setting);
+                }
+            }
+        } catch (\Exception $e) {
+            // Log error but don't fail upgrade
+            logModuleCall('nicsrs_ssl_admin', 'upgrade_error', $currentVersion, $e->getMessage());
+        }
+    }
     
     return [
         'status' => 'success',
@@ -252,6 +275,7 @@ function nicsrs_ssl_admin_output($vars)
         'settings'  => 'SettingsController',
         'activity'  => 'ActivityController',
         'import'    => 'ImportController',
+        'reports'    => 'ReportController',
     ];
     
     $controllerName = isset($controllerMap[$action]) ? $controllerMap[$action] : 'DashboardController';
@@ -310,7 +334,8 @@ function handleAjaxRequest($vars, $action)
         'orders'    => 'OrderController',
         'order'     => 'OrderController',
         'settings'  => 'SettingsController',
-        'import'    => 'ImportController',        
+        'import'    => 'ImportController',  
+        'reports'   => 'ReportController',              
     ];
     
     $controllerName = isset($controllerMap[$action]) ? $controllerMap[$action] : 'DashboardController';
@@ -355,6 +380,7 @@ function renderNavigation($modulelink, $currentAction)
         'products'  => ['icon' => 'fa-cube', 'label' => 'Products'],
         'orders'    => ['icon' => 'fa-shopping-cart', 'label' => 'Orders'],
         'import'    => ['icon' => 'fa-download', 'label' => 'Import'],
+        'reports'    => ['icon' => 'fa-bar-chart', 'label' => 'Reports'],
         'settings'  => ['icon' => 'fa-cog', 'label' => 'Settings'],
     ];
     ?>
