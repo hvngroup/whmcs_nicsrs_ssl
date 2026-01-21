@@ -112,6 +112,9 @@ class SyncService
 
     /**
      * Initialize required services
+     * 
+     * Note: When running from cron, there's no admin session.
+     * We use adminId = 0 for system/cron operations.
      */
     private function initializeServices(): void
     {
@@ -125,22 +128,57 @@ class SyncService
         // Load Activity Logger
         if (!class_exists(ActivityLogger::class) && file_exists($basePath . 'ActivityLogger.php')) {
             require_once $basePath . 'ActivityLogger.php';
-            $this->logger = new ActivityLogger();
         }
         
-        // Initialize API service with token
-        $apiToken = $this->getApiToken();
+        // Load API Config
+        $configPath = dirname($basePath) . '/Config/ApiConfig.php';
+        if (file_exists($configPath)) {
+            require_once $configPath;
+        }
         
-        if (!empty($apiToken)) {
-            try {
-                $this->apiService = new NicsrsApiService($apiToken);
-                $this->apiService->setTimeout(60);
-            } catch (\Exception $e) {
-                $this->logError('Failed to initialize API service: ' . $e->getMessage());
-                $this->apiService = null;
+        // Initialize API Service
+        try {
+            $apiToken = '';
+            
+            // Try to get API token from ApiConfig class
+            if (class_exists(\NicsrsAdmin\Config\ApiConfig::class)) {
+                $apiToken = \NicsrsAdmin\Config\ApiConfig::getApiToken();
             }
-        } else {
-            $this->logError('API token is empty or not configured');
+            
+            // Fallback: get from settings
+            if (empty($apiToken)) {
+                $apiToken = $this->settings['api_token'] ?? '';
+            }
+            
+            if (!empty($apiToken)) {
+                $this->apiService = new NicsrsApiService($apiToken);
+            } else {
+                $this->logError('API token not configured');
+            }
+            
+        } catch (\Exception $e) {
+            $this->logError('Failed to initialize API service: ' . $e->getMessage());
+        }
+        
+        // Initialize Activity Logger
+        // IMPORTANT: When running from cron, there's no admin session
+        // Use adminId = 0 for system/cron operations
+        try {
+            // Try to get admin ID from session (if available)
+            $adminId = 0;
+            
+            if (isset($_SESSION['adminid'])) {
+                $adminId = (int) $_SESSION['adminid'];
+            }
+            
+            // Create logger with admin ID (0 = system/cron)
+            $this->logger = new ActivityLogger($adminId);
+            
+        } catch (\Exception $e) {
+            // If ActivityLogger fails, set to null and continue
+            // Logging is not critical for sync operations
+            $this->logger = null;
+            $this->logError('Failed to initialize ActivityLogger: ' . $e->getMessage());
         }
     }
 
@@ -576,31 +614,107 @@ class SyncService
         }
         
         try {
-            $subject = '[NicSRS SSL] Certificates Expired - ' . date('Y-m-d');
+            $subject = '[NicSRS SSL] ⚠️ Certificates Expired - ' . date('Y-m-d');
+            $totalExpired = count($expiredCerts);
             
-            $body = "NicSRS SSL - Expired Certificates\n";
-            $body .= "==================================\n\n";
-            $body .= "The following certificates have expired:\n\n";
+            // Get system URL for links
+            $systemUrl = \WHMCS\Database\Capsule::table('tblconfiguration')
+                ->where('setting', 'SystemURL')
+                ->value('value');
+            $systemUrl = rtrim($systemUrl ?? '', '/');
             
+            // Build HTML rows for expired certificates
+            $tableRows = '';
             foreach ($expiredCerts as $cert) {
                 $configData = json_decode($cert->configdata, true) ?: [];
                 $domain = $configData['domainInfo'][0]['domainName'] ?? 'Unknown';
                 $endDate = $configData['applyReturn']['endDate'] ?? 'Unknown';
+                $certId = is_object($cert) ? $cert->id : $cert['id'];
+                $remoteId = is_object($cert) ? $cert->remoteid : $cert['remoteid'];
                 
-                $body .= sprintf(
-                    "- Order #%d: %s\n  Remote ID: %s\n  Expired: %s\n\n",
-                    $cert->id,
-                    $domain,
-                    $cert->remoteid,
-                    $endDate
+                $orderUrl = "{$systemUrl}/admin/addonmodules.php?module=nicsrs_ssl_admin&action=order_detail&id={$certId}";
+                
+                $tableRows .= sprintf('
+                    <tr>
+                        <td style="padding: 12px; border-bottom: 1px solid #eee;">
+                            <a href="%s" style="color: #1890ff; text-decoration: none;">#%d</a>
+                        </td>
+                        <td style="padding: 12px; border-bottom: 1px solid #eee; font-weight: 500;">%s</td>
+                        <td style="padding: 12px; border-bottom: 1px solid #eee; color: #666;">%s</td>
+                        <td style="padding: 12px; border-bottom: 1px solid #eee; color: #ff4d4f; font-weight: 500;">%s</td>
+                    </tr>',
+                    htmlspecialchars($orderUrl),
+                    $certId,
+                    htmlspecialchars($domain),
+                    htmlspecialchars($remoteId),
+                    htmlspecialchars($endDate)
                 );
             }
             
-            $body .= "---\n";
-            $body .= "Total expired: " . count($expiredCerts) . "\n";
-            $body .= "NicSRS SSL Admin Module - Auto Sync";
+            // Build complete HTML email body
+            $body = "
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset='UTF-8'>
+        <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }
+            .container { max-width: 700px; margin: 0 auto; }
+            .header { background: linear-gradient(135deg, #ff4d4f, #cf1322); color: white; padding: 25px; text-align: center; }
+            .header h2 { margin: 0; font-size: 24px; }
+            .content { padding: 25px; background: #f9f9f9; }
+            .alert-box { background: #fff2f0; border: 1px solid #ffccc7; border-radius: 8px; padding: 15px; margin: 20px 0; }
+            .alert-box p { margin: 0; color: #cf1322; }
+            .table-container { background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin: 20px 0; }
+            table { width: 100%; border-collapse: collapse; }
+            th { background: #fafafa; padding: 12px; text-align: left; font-weight: 600; border-bottom: 2px solid #eee; }
+            .footer { padding: 20px; text-align: center; font-size: 12px; color: #666; background: #f0f0f0; }
+            .btn { display: inline-block; padding: 10px 25px; background: #1890ff; color: white; text-decoration: none; border-radius: 4px; margin-top: 15px; }
+        </style>
+    </head>
+    <body>
+        <div class='container'>
+            <div class='header'>
+                <h2>⚠️ Expired Certificates Alert</h2>
+                <p style='margin: 10px 0 0 0; opacity: 0.9;'>NicSRS SSL Admin Auto-Sync</p>
+            </div>
+            <div class='content'>
+                <div class='alert-box'>
+                    <p><strong>⚠️ {$totalExpired} certificate(s) have expired!</strong></p>
+                    <p style='margin-top: 8px;'>Please review and take necessary actions.</p>
+                </div>
+                
+                <div class='table-container'>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th style='width: 80px;'>Order ID</th>
+                                <th>Domain</th>
+                                <th>Remote ID</th>
+                                <th style='width: 120px;'>Expired Date</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {$tableRows}
+                        </tbody>
+                    </table>
+                </div>
+                
+                <p style='text-align: center;'>
+                    <a href='{$systemUrl}/admin/addonmodules.php?module=nicsrs_ssl_admin&action=orders&status=expired' class='btn'>
+                        View All Expired Certificates
+                    </a>
+                </p>
+            </div>
+            <div class='footer'>
+                <p>This is an automated message from <strong>NicSRS SSL Admin Module</strong></p>
+                <p>Powered by <a href='https://hvn.vn' style='color: #1890ff;'>HVN GROUP</a></p>
+            </div>
+        </div>
+    </body>
+    </html>";
             
-            // Use WHMCS Local API
+            // Use WHMCS Local API SendAdminEmail
             $results = localAPI('SendAdminEmail', [
                 'customsubject' => $subject,
                 'custommessage' => $body,
@@ -1164,43 +1278,114 @@ class SyncService
         }
         
         try {
-            // Build email subject
             $subject = '[NicSRS SSL] Product Price Changes - ' . date('Y-m-d');
+            $syncTime = date('Y-m-d H:i:s');
+            $totalChanges = count($priceChanges);
             
-            // Build plain text email body
-            $body = "NicSRS SSL Product Price Changes Detected\n";
-            $body .= "=========================================\n\n";
-            $body .= "Sync Time: " . date('Y-m-d H:i:s') . "\n";
-            $body .= "Total Changes: " . count($priceChanges) . "\n\n";
-            
+            // Build HTML rows for price changes
+            $tableRows = '';
             foreach ($priceChanges as $change) {
-                $direction = $change['change'] > 0 ? 'UP' : 'DOWN';
-                $body .= sprintf(
-                    "- %s (%s)\n  Price: $%.2f -> $%.2f (%s %.2f%%)\n\n",
-                    $change['product_name'],
-                    $change['vendor'],
+                $isUp = $change['change'] > 0;
+                $arrow = $isUp ? '↑' : '↓';
+                $color = $isUp ? '#ff4d4f' : '#52c41a';
+                $direction = $isUp ? 'UP' : 'DOWN';
+                
+                $tableRows .= sprintf('
+                    <tr>
+                        <td style="padding: 12px; border-bottom: 1px solid #eee;">%s</td>
+                        <td style="padding: 12px; border-bottom: 1px solid #eee;">%s</td>
+                        <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: right;">$%.2f</td>
+                        <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: right;">$%.2f</td>
+                        <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: center;">
+                            <span style="color: %s; font-weight: bold;">%s %.2f%% %s</span>
+                        </td>
+                    </tr>',
+                    htmlspecialchars($change['product_name']),
+                    htmlspecialchars($change['vendor']),
                     $change['old_price'],
                     $change['new_price'],
-                    $direction,
-                    abs($change['change_percent'])
+                    $color,
+                    $arrow,
+                    abs($change['change_percent']),
+                    $direction
                 );
             }
             
-            $body .= "---\n";
-            $body .= "NicSRS SSL Admin Module - Auto Sync";
+            // Build complete HTML email body
+            $body = "
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset='UTF-8'>
+        <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }
+            .container { max-width: 700px; margin: 0 auto; }
+            .header { background: linear-gradient(135deg, #1890ff, #096dd9); color: white; padding: 25px; text-align: center; }
+            .header h2 { margin: 0; font-size: 24px; }
+            .content { padding: 25px; background: #f9f9f9; }
+            .stats-box { display: flex; justify-content: space-around; margin: 20px 0; }
+            .stat { text-align: center; padding: 15px; background: white; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); min-width: 120px; }
+            .stat-value { font-size: 28px; font-weight: bold; color: #1890ff; }
+            .stat-label { font-size: 12px; color: #666; margin-top: 5px; }
+            .table-container { background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin: 20px 0; }
+            table { width: 100%; border-collapse: collapse; }
+            th { background: #fafafa; padding: 12px; text-align: left; font-weight: 600; border-bottom: 2px solid #eee; }
+            .footer { padding: 20px; text-align: center; font-size: 12px; color: #666; background: #f0f0f0; }
+            .footer a { color: #1890ff; text-decoration: none; }
+        </style>
+    </head>
+    <body>
+        <div class='container'>
+            <div class='header'>
+                <h2>📊 Product Price Changes Detected</h2>
+                <p style='margin: 10px 0 0 0; opacity: 0.9;'>NicSRS SSL Admin Auto-Sync</p>
+            </div>
+            <div class='content'>
+                <table style='width: 100%; margin-bottom: 20px;'>
+                    <tr>
+                        <td><strong>Sync Time:</strong> {$syncTime}</td>
+                        <td style='text-align: right;'><strong>Total Changes:</strong> <span style='color: #1890ff; font-size: 18px;'>{$totalChanges}</span></td>
+                    </tr>
+                </table>
+                
+                <div class='table-container'>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Product Name</th>
+                                <th>Vendor</th>
+                                <th style='text-align: right;'>Old Price</th>
+                                <th style='text-align: right;'>New Price</th>
+                                <th style='text-align: center;'>Change</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {$tableRows}
+                        </tbody>
+                    </table>
+                </div>
+                
+                <p style='color: #666; font-size: 13px;'>
+                    <em>Note: These price changes are from the NicSRS API. 
+                    WHMCS product prices are not automatically updated.</em>
+                </p>
+            </div>
+            <div class='footer'>
+                <p>This is an automated message from <strong>NicSRS SSL Admin Module</strong></p>
+                <p>Powered by <a href='https://hvn.vn'>HVN GROUP</a></p>
+            </div>
+        </div>
+    </body>
+    </html>";
             
             // Use WHMCS Local API SendAdminEmail
-            $command = 'SendAdminEmail';
-            $postData = [
+            $results = localAPI('SendAdminEmail', [
                 'customsubject' => $subject,
                 'custommessage' => $body,
                 'type' => 'system',
-            ];
-            
-            $results = localAPI($command, $postData);
+            ]);
             
             if ($results['result'] === 'success') {
-                // Log notification sent
                 if ($this->logger) {
                     $this->logger->log('price_change_notification', 'product', null, null, json_encode([
                         'changes_count' => count($priceChanges),
