@@ -59,10 +59,16 @@ class SyncService
      * @var array Vendor list for product sync
      */
     private const VENDORS = [
-        'sectigo',
-        'digicert', 
-        'globalsign',
-        'entrust',
+        'Sectigo', 
+        'Positive',
+        'DigiCert', 
+        'GlobalSign', 
+        'GeoTrust', 
+        'Thawte',
+        'RapidSSL',
+        'sslTrus', 
+        'Entrust',
+        'BaiduTrust',
     ];
 
     /**

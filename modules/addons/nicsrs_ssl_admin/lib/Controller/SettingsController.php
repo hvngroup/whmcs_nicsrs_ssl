@@ -11,7 +11,10 @@
 namespace NicsrsAdmin\Controller;
 
 use WHMCS\Database\Capsule;
+use NicsrsAdmin\Service\SyncService;
+use NicsrsAdmin\Service\ActivityLogger;
 use NicsrsAdmin\Service\NicsrsApiService;
+use NicsrsAdmin\Helper\CurrencyHelper;
 
 class SettingsController extends BaseController
 {
@@ -348,15 +351,6 @@ class SettingsController extends BaseController
     }
 
     /**
-     * Handle manual sync AJAX request
-     * 
-     * Add this case to your existing handleAjax() method:
-     * 
-     * case 'manual_sync':
-     *     return $this->handleManualSync($post);
-     */
-    
-    /**
      * Handle manual sync request
      * 
      * @param array $post POST data
@@ -368,17 +362,19 @@ class SettingsController extends BaseController
         
         // Validate sync type
         if (!in_array($syncType, ['status', 'products', 'all'])) {
-            return $this->jsonError('Invalid sync type');
+            return $this->jsonError('Invalid sync type: ' . $syncType);
         }
         
         try {
-            // Load SyncService
-            require_once __DIR__ . '/SyncService.php';
+            // Check if SyncService class exists
+            if (!class_exists(SyncService::class)) {
+                return $this->jsonError('SyncService class not found. Check autoloader configuration.');
+            }
             
-            $syncService = new \NicsrsAdmin\Service\SyncService();
+            $syncService = new SyncService();
             $results = $syncService->forceSyncNow($syncType);
             
-            // Check for errors
+            // Check for errors in results
             if (isset($results['error'])) {
                 return $this->jsonError($results['error']);
             }
@@ -386,14 +382,26 @@ class SettingsController extends BaseController
             // Build response message
             $messages = [];
             
-            if (isset($results['status_sync'])) {
+            if (isset($results['status_sync']) && $results['status_sync'] !== null) {
                 $ss = $results['status_sync'];
-                $messages[] = "Status Sync: {$ss['updated']} updated, {$ss['completed']} completed, {$ss['failed']} failed";
+                $total = $ss['total'] ?? 0;
+                $updated = $ss['updated'] ?? 0;
+                $completed = $ss['completed'] ?? 0;
+                $failed = $ss['failed'] ?? 0;
+                $messages[] = "Status Sync: {$total} checked, {$updated} updated, {$completed} completed, {$failed} failed";
             }
             
-            if (isset($results['product_sync'])) {
+            if (isset($results['product_sync']) && $results['product_sync'] !== null) {
                 $ps = $results['product_sync'];
-                $messages[] = "Product Sync: {$ps['total_products']} products synced";
+                $totalProducts = $ps['total_products'] ?? 0;
+                $updated = $ps['updated'] ?? 0;
+                $inserted = $ps['inserted'] ?? 0;
+                $messages[] = "Product Sync: {$totalProducts} products ({$inserted} new, {$updated} updated)";
+            }
+            
+            // If no messages, provide default
+            if (empty($messages)) {
+                $messages[] = 'Sync completed';
             }
             
             // Log activity
@@ -410,19 +418,26 @@ class SettingsController extends BaseController
             ]);
             
         } catch (\Exception $e) {
+            // Log the full error for debugging
+            if ($this->logger) {
+                $this->logger->log('manual_sync_error', 'settings', null, null, 
+                    $e->getMessage() . ' | File: ' . $e->getFile() . ':' . $e->getLine()
+                );
+            }
+            
+            // Also log to WHMCS module log
+            logModuleCall(
+                'nicsrs_ssl_admin',
+                'manual_sync_error',
+                ['sync_type' => $syncType],
+                $e->getMessage(),
+                $e->getTraceAsString()
+            );
+            
             return $this->jsonError('Sync failed: ' . $e->getMessage());
         }
     }
 
-    /**
-     * Get sync status AJAX handler
-     * 
-     * Add this case to your existing handleAjax() method:
-     * 
-     * case 'get_sync_status':
-     *     return $this->getSyncStatus();
-     */
-    
     /**
      * Get current sync status
      * 
@@ -431,27 +446,29 @@ class SettingsController extends BaseController
     private function getSyncStatus(): string
     {
         try {
-            require_once __DIR__ . '/SyncService.php';
+            // Check if class exists via autoloader
+            if (!class_exists(SyncService::class)) {
+                return $this->jsonError('SyncService class not found');
+            }
             
-            $syncService = new \NicsrsAdmin\Service\SyncService();
+            $syncService = new SyncService();
             $status = $syncService->getSyncStatus();
             
-            return $this->jsonSuccess('Sync status retrieved', $status);
+            return $this->jsonSuccess('Status retrieved', $status);
             
         } catch (\Exception $e) {
+            logModuleCall(
+                'nicsrs_ssl_admin',
+                'get_sync_status_error',
+                [],
+                $e->getMessage(),
+                $e->getTraceAsString()
+            );
+            
             return $this->jsonError('Failed to get sync status: ' . $e->getMessage());
         }
     }
 
-    /**
-     * Check expiring certificates and send warnings
-     * 
-     * Add this case to your existing handleAjax() method:
-     * 
-     * case 'check_expiring':
-     *     return $this->checkExpiringCertificates();
-     */
-    
     /**
      * Check expiring certificates
      * 
@@ -460,18 +477,64 @@ class SettingsController extends BaseController
     private function checkExpiringCertificates(): string
     {
         try {
-            require_once __DIR__ . '/NotificationService.php';
+            $settings = $this->getAllSettings();
+            $expiryDays = (int) ($settings['expiry_days'] ?? 30);
             
-            $notifier = new \NicsrsAdmin\Service\NotificationService();
-            $results = $notifier->checkAndSendExpiryWarnings();
+            $expiringCerts = Capsule::table('nicsrs_sslorders')
+                ->where('status', 'complete')
+                ->whereNotNull('completiondate')
+                ->whereRaw("DATE_ADD(completiondate, INTERVAL 1 YEAR) <= DATE_ADD(NOW(), INTERVAL ? DAY)", [$expiryDays])
+                ->count();
             
-            return $this->jsonSuccess(
-                "Checked {$results['checked']} certificates, sent {$results['warnings_sent']} warnings",
-                $results
-            );
+            $message = "{$expiringCerts} certificate(s) expiring within {$expiryDays} days";
+            
+            return $this->jsonSuccess($message, [
+                'expiring_count' => $expiringCerts,
+                'days_threshold' => $expiryDays,
+            ]);
             
         } catch (\Exception $e) {
             return $this->jsonError('Check failed: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Update exchange rate from external API
+     * 
+     * @param array $post POST data
+     * @return string JSON response
+     */
+    private function updateExchangeRate(array $post): string
+    {
+        try {
+            // Use CurrencyHelper to update rate from API
+            $result = CurrencyHelper::updateRateFromApi();
+            
+            if ($result['success']) {
+                // Log activity
+                $this->logger->log('update_exchange_rate', 'settings', null, null, json_encode([
+                    'rate' => $result['rate'] ?? null,
+                    'source' => 'exchangerate-api.com',
+                ]));
+                
+                return $this->jsonSuccess($result['message'], [
+                    'rate' => $result['rate'] ?? null,
+                    'rate_formatted' => $result['rate_formatted'] ?? null,
+                ]);
+            }
+            
+            return $this->jsonError($result['message']);
+            
+        } catch (\Exception $e) {
+            logModuleCall(
+                'nicsrs_ssl_admin',
+                'update_exchange_rate_error',
+                [],
+                $e->getMessage(),
+                $e->getTraceAsString()
+            );
+            
+            return $this->jsonError('Failed to update exchange rate: ' . $e->getMessage());
         }
     }
 

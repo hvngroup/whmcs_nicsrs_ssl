@@ -207,13 +207,13 @@ use NicsrsAdmin\Helper\CurrencyHelper;
                     <div class="form-group">
                         <label>Manual Sync:</label>
                         <div class="btn-group">
-                            <button type="button" class="btn btn-primary" id="btn-sync-status" onclick="runManualSync('status')">
+                            <button type="button" class="btn btn-primary" id="btn-sync-status">
                                 <i class="fa fa-refresh"></i> Sync Certificate Status
                             </button>
-                            <button type="button" class="btn btn-default" id="btn-sync-products" onclick="runManualSync('products')">
+                            <button type="button" class="btn btn-default" id="btn-sync-products">
                                 <i class="fa fa-cubes"></i> Sync Products
                             </button>
-                            <button type="button" class="btn btn-info" id="btn-check-expiring" onclick="checkExpiringCerts()">
+                            <button type="button" class="btn btn-info" id="btn-check-expiring">
                                 <i class="fa fa-clock-o"></i> Check Expiring
                             </button>
                         </div>
@@ -444,114 +444,167 @@ use NicsrsAdmin\Helper\CurrencyHelper;
 </div>
 
 <script>
-document.addEventListener('DOMContentLoaded', function() {
+/**
+ * NicSRS SSL Admin - Settings Page JavaScript
+ * 
+ * IMPORTANT: All AJAX requests use the 'modulelink' variable for proper URL routing
+ * This ensures compatibility with WHMCS admin module URL structure
+ */
+(function($) {
+    'use strict';
+
+    // Module link - passed from PHP
     var modulelink = '<?php echo $modulelink; ?>';
 
-    // Test API Connection
-    document.getElementById('btnTestApi').addEventListener('click', function() {
-        var btn = this;
-        btn.disabled = true;
-        btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Testing...';
+    /**
+     * Show toast notification
+     * Falls back to alert if NicsrsAdmin.toast is not available
+     */
+    function showToast(message, type) {
+        type = type || 'info';
+        if (typeof NicsrsAdmin !== 'undefined' && typeof NicsrsAdmin.toast === 'function') {
+            NicsrsAdmin.toast(message, type);
+        } else {
+            alert(message);
+        }
+    }
+
+    /**
+     * Make AJAX request to settings controller
+     * @param {string} ajaxAction - The ajax_action parameter
+     * @param {object} data - Additional data to send
+     * @param {function} successCallback - Success callback
+     * @param {function} errorCallback - Error callback (optional)
+     */
+    function ajaxRequest(ajaxAction, data, successCallback, errorCallback) {
+        data = data || {};
+        data.ajax_action = ajaxAction;
 
         $.ajax({
             url: modulelink + '&action=settings',
-            method: 'POST',
-            data: { ajax_action: 'test_api' },
+            type: 'POST',
+            data: data,
             dataType: 'json',
             success: function(response) {
-                alert(response.message);
-                if (response.success) {
-                    location.reload();
+                if (typeof successCallback === 'function') {
+                    successCallback(response);
                 }
             },
-            error: function() {
-                alert('Request failed. Please try again.');
-            },
-            complete: function() {
-                btn.disabled = false;
-                btn.innerHTML = '<i class="fa fa-plug"></i> Test API Connection';
-            }
-        });
-    });
-
-    // Save Settings
-    document.getElementById('btnSaveSettings').addEventListener('click', function() {
-        var btn = this;
-        btn.disabled = true;
-        btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Saving...';
-
-        var formData = $('#settingsForm').serialize();
-        formData += '&ajax_action=save_settings';
-
-        $.ajax({
-            url: modulelink + '&action=settings',
-            method: 'POST',
-            data: formData,
-            dataType: 'json',
-            success: function(response) {
-                if (response.success) {
-                    alert('Settings saved successfully!');
+            error: function(xhr, status, error) {
+                console.error('AJAX Error:', status, error);
+                if (typeof errorCallback === 'function') {
+                    errorCallback(xhr, status, error);
                 } else {
-                    alert('Error: ' + response.message);
+                    showToast('Request failed: ' + error, 'error');
                 }
-            },
-            error: function() {
-                alert('Request failed. Please try again.');
-            },
-            complete: function() {
-                btn.disabled = false;
-                btn.innerHTML = '<i class="fa fa-save"></i> Save Settings';
             }
         });
-    });
+    }
 
-    // Clear Logs Modal
-    document.getElementById('btnClearLogs').addEventListener('click', function() {
-        $('#clearLogsModal').modal('show');
-    });
+    // =========================================================================
+    // Document Ready - Initialize all event handlers
+    // =========================================================================
+    $(document).ready(function() {
 
-    // Confirm Clear Logs
-    document.getElementById('confirmClearLogs').addEventListener('click', function() {
-        var btn = this;
-        var days = document.getElementById('clearLogsDays').value;
-        
-        btn.disabled = true;
-        btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Deleting...';
+        // Load sync status on page load
+        loadSyncStatus();
 
-        $.ajax({
-            url: modulelink + '&action=settings',
-            method: 'POST',
-            data: { ajax_action: 'clear_logs', days: days },
-            dataType: 'json',
-            success: function(response) {
+        // -----------------------------------------------------------------
+        // Test API Connection
+        // -----------------------------------------------------------------
+        $('#btnTestApi').on('click', function() {
+            var btn = $(this);
+            var originalHtml = btn.html();
+            
+            btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Testing...');
+
+            ajaxRequest('test_api', {}, function(response) {
+                alert(response.message);
+                if (response.success) {
+                    location.reload();
+                }
+            }, function() {
+                alert('Request failed. Please try again.');
+            });
+
+            // Always restore button (with delay for UX)
+            setTimeout(function() {
+                btn.prop('disabled', false).html(originalHtml);
+            }, 1000);
+        });
+
+        // -----------------------------------------------------------------
+        // Save Settings
+        // -----------------------------------------------------------------
+        $('#btnSaveSettings').on('click', function() {
+            var btn = $(this);
+            var originalHtml = btn.html();
+            
+            btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Saving...');
+
+            var formData = $('#settingsForm').serialize();
+            formData += '&ajax_action=save_settings';
+
+            $.ajax({
+                url: modulelink + '&action=settings',
+                type: 'POST',
+                data: formData,
+                dataType: 'json',
+                success: function(response) {
+                    if (response.success) {
+                        showToast('Settings saved successfully!', 'success');
+                    } else {
+                        showToast('Error: ' + response.message, 'error');
+                    }
+                },
+                error: function() {
+                    showToast('Request failed. Please try again.', 'error');
+                },
+                complete: function() {
+                    btn.prop('disabled', false).html(originalHtml);
+                }
+            });
+        });
+
+        // -----------------------------------------------------------------
+        // Clear Logs Modal
+        // -----------------------------------------------------------------
+        $('#btnClearLogs').on('click', function() {
+            $('#clearLogsModal').modal('show');
+        });
+
+        // Confirm Clear Logs
+        $('#confirmClearLogs').on('click', function() {
+            var btn = $(this);
+            var days = $('#clearLogsDays').val();
+            
+            btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Deleting...');
+
+            ajaxRequest('clear_logs', { days: days }, function(response) {
                 $('#clearLogsModal').modal('hide');
                 alert(response.message);
                 if (response.success) {
                     location.reload();
                 }
-            },
-            error: function() {
+            }, function() {
                 $('#clearLogsModal').modal('hide');
                 alert('Request failed. Please try again.');
-            },
-            complete: function() {
-                btn.disabled = false;
-                btn.innerHTML = 'Delete Logs';
-            }
+            });
+
+            // Restore button after delay
+            setTimeout(function() {
+                btn.prop('disabled', false).html('Delete Logs');
+            }, 2000);
         });
-    });
 
-    // Export Logs
-    document.getElementById('btnExportLogs').addEventListener('click', function() {
-        var btn = this;
-        btn.disabled = true;
+        // -----------------------------------------------------------------
+        // Export Logs
+        // -----------------------------------------------------------------
+        $('#btnExportLogs').on('click', function() {
+            var btn = $(this);
+            btn.prop('disabled', true);
 
-        $.ajax({
-            url: modulelink + '&action=settings',
-            method: 'POST',
-            data: { ajax_action: 'export_logs' },
-            dataType: 'json',
-            success: function(response) {
+            ajaxRequest('export_logs', {}, function(response) {
                 if (response.success && response.csv) {
                     // Create download link
                     var blob = new Blob([atob(response.csv)], { type: 'text/csv' });
@@ -566,81 +619,77 @@ document.addEventListener('DOMContentLoaded', function() {
                 } else {
                     alert('Error: ' + (response.message || 'Export failed'));
                 }
-            },
-            error: function() {
+            }, function() {
                 alert('Request failed. Please try again.');
-            },
-            complete: function() {
-                btn.disabled = false;
-            }
-        });
-    });
+            });
 
-    // Update Exchange Rate from API
-    document.getElementById('btnUpdateExchangeRate').addEventListener('click', function() {
-        var btn = this;
-        var originalText = btn.innerHTML;
-        
-        btn.disabled = true;
-        btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Updating...';
-        
-        $.ajax({
-            url: modulelink + '&action=settings',
-            method: 'POST',
-            data: { ajax_action: 'update_exchange_rate' },
-            dataType: 'json',
-            success: function(response) {
+            setTimeout(function() {
+                btn.prop('disabled', false);
+            }, 1000);
+        });
+
+        // -----------------------------------------------------------------
+        // Update Exchange Rate from API
+        // -----------------------------------------------------------------
+        $('#btnUpdateExchangeRate').on('click', function() {
+            var btn = $(this);
+            var originalHtml = btn.html();
+            
+            btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Updating...');
+            
+            ajaxRequest('update_exchange_rate', {}, function(response) {
                 if (response.success) {
                     // Update the input field with new rate
                     if (response.rate) {
-                        document.getElementById('usd_vnd_rate').value = response.rate;
+                        $('#usd_vnd_rate').val(response.rate);
                     }
-                    alert('Success: ' + response.message + (response.rate_formatted ? '\n' + response.rate_formatted : ''));
+                    showToast('Success: ' + response.message + (response.rate_formatted ? '\n' + response.rate_formatted : ''), 'success');
                 } else {
-                    alert('Error: ' + (response.message || 'Failed to update exchange rate'));
+                    showToast('Error: ' + (response.message || 'Failed to update exchange rate'), 'error');
                 }
-            },
-            error: function(xhr, status, error) {
-                alert('Request failed: ' + error);
-            },
-            complete: function() {
-                btn.disabled = false;
-                btn.innerHTML = originalText;
-            }
+            }, function(xhr, status, error) {
+                showToast('Request failed: ' + error, 'error');
+            });
+
+            setTimeout(function() {
+                btn.prop('disabled', false).html(originalHtml);
+            }, 2000);
         });
-    });
-});
-</script>
 
-<script>
-(function($) {
-    'use strict';
+        // -----------------------------------------------------------------
+        // Manual Sync Buttons
+        // -----------------------------------------------------------------
+        $('#btn-sync-status').on('click', function() {
+            runManualSync('status', $(this));
+        });
 
-    // Load sync status on page load
-    $(document).ready(function() {
-        loadSyncStatus();
-    });
+        $('#btn-sync-products').on('click', function() {
+            runManualSync('products', $(this));
+        });
+
+        $('#btn-check-expiring').on('click', function() {
+            checkExpiringCerts($(this));
+        });
+
+    }); // End document ready
+
+    // =========================================================================
+    // Sync Functions
+    // =========================================================================
 
     /**
      * Load and display sync status
      */
     function loadSyncStatus() {
-        $.ajax({
-            url: 'addonmodules.php?module=nicsrs_ssl_admin&action=settings',
-            type: 'POST',
-            data: {
-                ajax: 1,
-                ajax_action: 'get_sync_status'
-            },
-            dataType: 'json',
-            success: function(response) {
-                if (response.success && response.data) {
-                    updateSyncStatusDisplay(response.data);
-                }
-            },
-            error: function() {
-                $('#sync-status-badge').html('<i class="fa fa-exclamation-circle"></i> Error');
+        ajaxRequest('get_sync_status', {}, function(response) {
+            if (response.success && response.data) {
+                updateSyncStatusDisplay(response.data);
             }
+        }, function() {
+            $('#sync-status-badge')
+                .removeClass('label-default label-success label-warning')
+                .addClass('label-danger')
+                .html('<i class="fa fa-exclamation-circle"></i> Error');
         });
     }
 
@@ -651,12 +700,12 @@ document.addEventListener('DOMContentLoaded', function() {
         // Update badge
         if (data.enabled) {
             $('#sync-status-badge')
-                .removeClass('label-default label-danger')
+                .removeClass('label-default label-danger label-warning')
                 .addClass('label-success')
                 .html('<i class="fa fa-check"></i> Active');
         } else {
             $('#sync-status-badge')
-                .removeClass('label-default label-success')
+                .removeClass('label-default label-success label-danger')
                 .addClass('label-warning')
                 .html('<i class="fa fa-pause"></i> Disabled');
         }
@@ -684,78 +733,64 @@ document.addEventListener('DOMContentLoaded', function() {
 
     /**
      * Run manual sync
+     * @param {string} type - 'status' or 'products'
+     * @param {jQuery} btn - Button element
      */
-    window.runManualSync = function(type) {
-        var btn = type === 'status' ? '#btn-sync-status' : '#btn-sync-products';
-        var originalHtml = $(btn).html();
+    function runManualSync(type, btn) {
+        var originalHtml = btn.html();
 
-        $(btn).html('<i class="fa fa-spinner fa-spin"></i> Syncing...').prop('disabled', true);
+        btn.html('<i class="fa fa-spinner fa-spin"></i> Syncing...').prop('disabled', true);
 
-        $.ajax({
-            url: 'addonmodules.php?module=nicsrs_ssl_admin&action=settings',
-            type: 'POST',
-            data: {
-                ajax: 1,
-                ajax_action: 'manual_sync',
-                sync_type: type
-            },
-            dataType: 'json',
-            success: function(response) {
-                if (response.success) {
-                    NicsrsAdmin.toast(response.message, 'success');
-                    loadSyncStatus(); // Refresh status display
-                    addSyncLogEntry(type, response.message, 'success');
-                } else {
-                    NicsrsAdmin.toast(response.message || 'Sync failed', 'error');
-                    addSyncLogEntry(type, response.message, 'error');
-                }
-            },
-            error: function(xhr) {
-                NicsrsAdmin.toast('Sync request failed', 'error');
-                addSyncLogEntry(type, 'Request failed', 'error');
-            },
-            complete: function() {
-                $(btn).html(originalHtml).prop('disabled', false);
+        ajaxRequest('manual_sync', { sync_type: type }, function(response) {
+            if (response.success) {
+                showToast(response.message, 'success');
+                loadSyncStatus(); // Refresh status display
+                addSyncLogEntry(type, response.message, 'success');
+            } else {
+                showToast(response.message || 'Sync failed', 'error');
+                addSyncLogEntry(type, response.message || 'Sync failed', 'error');
             }
+        }, function(xhr, status, error) {
+            showToast('Sync request failed: ' + error, 'error');
+            addSyncLogEntry(type, 'Request failed: ' + error, 'error');
         });
-    };
+
+        // Restore button after delay
+        setTimeout(function() {
+            btn.html(originalHtml).prop('disabled', false);
+        }, 3000);
+    }
 
     /**
      * Check expiring certificates
+     * @param {jQuery} btn - Button element
      */
-    window.checkExpiringCerts = function() {
-        var btn = '#btn-check-expiring';
-        var originalHtml = $(btn).html();
+    function checkExpiringCerts(btn) {
+        var originalHtml = btn.html();
 
-        $(btn).html('<i class="fa fa-spinner fa-spin"></i> Checking...').prop('disabled', true);
+        btn.html('<i class="fa fa-spinner fa-spin"></i> Checking...').prop('disabled', true);
 
-        $.ajax({
-            url: 'addonmodules.php?module=nicsrs_ssl_admin&action=settings',
-            type: 'POST',
-            data: {
-                ajax: 1,
-                ajax_action: 'check_expiring'
-            },
-            dataType: 'json',
-            success: function(response) {
-                if (response.success) {
-                    NicsrsAdmin.toast(response.message, 'success');
-                    addSyncLogEntry('expiry_check', response.message, 'success');
-                } else {
-                    NicsrsAdmin.toast(response.message || 'Check failed', 'error');
-                }
-            },
-            error: function() {
-                NicsrsAdmin.toast('Request failed', 'error');
-            },
-            complete: function() {
-                $(btn).html(originalHtml).prop('disabled', false);
+        ajaxRequest('check_expiring', {}, function(response) {
+            if (response.success) {
+                showToast(response.message, 'success');
+                addSyncLogEntry('expiry_check', response.message, 'success');
+            } else {
+                showToast(response.message || 'Check failed', 'error');
             }
+        }, function() {
+            showToast('Request failed', 'error');
         });
-    };
+
+        setTimeout(function() {
+            btn.html(originalHtml).prop('disabled', false);
+        }, 2000);
+    }
 
     /**
      * Add entry to sync log display
+     * @param {string} type - Sync type
+     * @param {string} message - Log message
+     * @param {string} status - 'success' or 'error'
      */
     function addSyncLogEntry(type, message, status) {
         var logSection = $('#sync-log-section');
