@@ -1,136 +1,172 @@
-# NicSRS SSL Module - Architecture Documentation
+# NicSRS SSL Module - Technical Architecture
 
 ## Overview
 
-This document describes the architecture of the NicSRS SSL Module for WHMCS, including both the Server Module (client-facing) and Admin Addon Module (admin-facing).
+The NicSRS SSL Module follows a Model-View-Controller (MVC) architecture pattern adapted for WHMCS provisioning module requirements. This document reflects the **actual implementation** based on real API responses and configdata structure.
 
-> **Last Updated**: January 2026  
-> **Version**: 1.2.0  
-> **Author**: HVN GROUP
-
----
-
-## System Architecture
+## System Architecture Diagram
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                         WHMCS Platform                              │
-├──────────────────────────────┬──────────────────────────────────────┤
-│      Client Area             │          Admin Area                  │
-│  ┌────────────────────────┐  │  ┌────────────────────────────────┐  │
-│  │   Server Module        │  │  │     Admin Addon Module         │  │
-│  │   (nicsrs_ssl)         │  │  │     (nicsrs_ssl_admin)         │  │
-│  │                        │  │  │                                │  │
-│  │  - Certificate Apply   │  │  │  - Dashboard                   │  │
-│  │  - DCV Management      │  │  │  - Order Management            │  │
-│  │  - Status View         │  │  │  - Product Sync                │  │
-│  │  - Download Cert       │  │  │  - Import/Link Certs           │  │
-│  └───────────┬────────────┘  │  │  - Settings                    │  │
-│              │               │  │  - Activity Logs               │  │
-│              │               │  └───────────┬────────────────────┘  │
-├──────────────┼───────────────┴──────────────┼────────────────────────┤
-│              │       Shared API Token       │                        │
-│              │  ┌───────────────────────────┼─────┐                  │
-│              └──┤  Priority 1: mod_nicsrs_settings.api_token         │
-│                 │  Priority 2: tbladdonmodules.api_token (fallback)  │
-│                 │  Priority 3: configoption2 (legacy)                │
-│                 └────────────────────┬──────────────────────────────┘│
-└──────────────────────────────────────┼───────────────────────────────┘
-                                       │
-                                       ▼
-                    ┌──────────────────────────────────┐
-                    │         NicSRS API               │
-                    │   https://portal.nicsrs.com/ssl  │
-                    └──────────────────────────────────┘
+│                           WHMCS Core                                 │
+│  ┌───────────────┐  ┌───────────────┐  ┌───────────────────────────┐│
+│  │ Admin Area    │  │ Client Area   │  │ Cron/Automation           ││
+│  └───────┬───────┘  └───────┬───────┘  └───────────┬───────────────┘│
+└──────────┼──────────────────┼──────────────────────┼────────────────┘
+           │                  │                      │
+           ▼                  ▼                      ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                    Module Entry Points                               │
+│  ┌─────────────────────────────────────────────────────────────────┐│
+│  │ modules/servers/nicsrs_ssl/nicsrs_ssl.php (Server Module)       ││
+│  │ modules/addons/nicsrs_ssl_admin/nicsrs_ssl_admin.php (Addon)    ││
+│  └─────────────────────────────────────────────────────────────────┘│
+└─────────────────────────────┬───────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                        Dispatcher Layer                              │
+│  ┌─────────────────────────┐    ┌─────────────────────────────────┐ │
+│  │ PageDispatcher          │    │ ActionDispatcher                │ │
+│  │ - Route page views      │    │ - Route AJAX/form actions       │ │
+│  │ - Template selection    │    │ - JSON responses                │ │
+│  └──────────┬──────────────┘    └──────────────┬──────────────────┘ │
+└─────────────┼───────────────────────────────────┼───────────────────┘
+              │                                   │
+              ▼                                   ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                       Controller Layer                               │
+│  ┌─────────────────────────┐    ┌─────────────────────────────────┐ │
+│  │ PageController          │    │ ActionController                │ │
+│  │ - index()               │    │ - submitApply()                 │ │
+│  │ - complete()            │    │ - downCert()                    │ │
+│  │ - Renders templates     │    │ - batchUpdateDCV()              │ │
+│  │                         │    │ - refreshStatus()               │ │
+│  │                         │    │ - cancelOrder()                 │ │
+│  └──────────┬──────────────┘    └──────────────┬──────────────────┘ │
+└─────────────┼───────────────────────────────────┼───────────────────┘
+              │                                   │
+              ▼                                   ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                        Service Layer                                 │
+│  ┌──────────────┐ ┌──────────────┐ ┌────────────────────────────┐   │
+│  │ nicsrsAPI    │ │ nicsrsSSLSql │ │ nicsrsFunc                 │   │
+│  │ - API calls  │ │ - DB queries │ │ - CSR decode               │   │
+│  │ - collect()  │ │ - CRUD ops   │ │ - Certificate zip          │   │
+│  │ - place()    │ │              │ │ - Helper functions         │   │
+│  └──────┬───────┘ └──────┬───────┘ └────────────────────────────┘   │
+│  ┌──────┴───────┐ ┌──────┴───────┐ ┌────────────────────────────┐   │
+│  │ nicsrsResp   │ │ nicsrsTempl  │ │ Constants & Config         │   │
+│  │ - Responses  │ │ - Templates  │ │ - DCV methods              │   │
+│  │              │ │              │ │ - Status codes             │   │
+│  └──────────────┘ └──────────────┘ └────────────────────────────┘   │
+└─────────────────────────────┬───────────────────────────────────────┘
+                              │
+              ┌───────────────┴───────────────┐
+              ▼                               ▼
+┌─────────────────────────────┐   ┌───────────────────────────────────┐
+│     NicSRS API              │   │      WHMCS Database               │
+│  portal.nicsrs.com/ssl      │   │  - tblhosting                     │
+│  - /validate                │   │  - tblproducts                    │
+│  - /place                   │   │  - tblclients                     │
+│  - /collect                 │   │  - nicsrs_sslorders               │
+│  - /updateDCV               │   │  - mod_nicsrs_settings            │
+│  - /cancel                  │   │  - mod_nicsrs_products            │
+│  - /revoke                  │   │  - mod_nicsrs_activity_log        │
+│  - /reissue                 │   │                                   │
+│  - /renew                   │   │                                   │
+└─────────────────────────────┘   └───────────────────────────────────┘
 ```
 
 ---
 
-## Module Structure
+## Module Directory Structure
 
-### Server Module (nicsrs_ssl)
-
+### Server Module (Client-Facing)
 ```
 modules/servers/nicsrs_ssl/
-├── nicsrs_ssl.php              # Main entry point & WHMCS callbacks
-├── hooks.php                   # WHMCS hooks
+├── nicsrs_ssl.php                    # Main entry point
+├── hooks.php                         # WHMCS hooks
 │
 ├── lang/
 │   ├── english.php
 │   ├── vietnamese.php
-│   └── chinese.php
+│   ├── chinese.php                   # Traditional Chinese
+│   └── chinese-cn.php                # Simplified Chinese
 │
 ├── src/
-│   ├── Config/
-│   │   ├── ApiConfig.php       # Shared API key management
-│   │   ├── Constants.php       # Status, DCV method constants
-│   │   └── CertificateTypes.php
+│   ├── config/
+│   │   ├── const.php                 # Constants (DCV methods, status)
+│   │   └── country.json              # Country list for forms
 │   │
-│   ├── model/
-│   │   ├── Controller/
-│   │   │   ├── PageController.php     # Page rendering
-│   │   │   └── ActionController.php   # Form actions
-│   │   │
-│   │   └── Service/
-│   │       ├── nicsrsAPI.php          # API client
-│   │       ├── nicsrsFunc.php         # Helper functions
-│   │       ├── nicsrsSSLSql.php       # Database operations
-│   │       ├── nicsrsResponse.php     # Response formatting
-│   │       └── nicsrsTemplate.php     # Template helpers
-│   │
-│   └── Helper/
-│       ├── CsrHelper.php       # CSR parsing
-│       ├── DateHelper.php      # Date format handling
-│       └── DcvHelper.php       # DCV method mapping
+│   └── model/
+│       ├── Controller/
+│       │   ├── PageController.php    # Page rendering logic
+│       │   └── ActionController.php  # Certificate actions
+│       │
+│       ├── Dispatcher/
+│       │   ├── PageDispatcher.php    # Page routing
+│       │   └── ActionDispatcher.php  # Action routing
+│       │
+│       └── Service/
+│           ├── nicsrsAPI.php         # API client
+│           ├── nicsrsFunc.php        # Utility functions
+│           ├── nicsrsResponse.php    # Response formatting
+│           ├── nicsrsSSLSql.php      # Database operations
+│           └── nicsrsTemplate.php    # Template helpers
 │
 └── view/
-    ├── applycert.tpl           # Certificate application form
-    ├── message.tpl             # Pending status display
-    └── complete.tpl            # Completed certificate display
+    ├── applycert.tpl                 # Certificate application form
+    ├── complete.tpl                  # Completed certificate view
+    ├── message.tpl                   # Status messages
+    ├── replace.tpl                   # Certificate replacement
+    ├── replace1.tpl                  # Replacement step 1
+    ├── error.tpl                     # Error display
+    └── home/                         # Static assets (CSS, JS)
 ```
 
-### Admin Addon Module (nicsrs_ssl_admin)
-
+### Admin Addon Module
 ```
 modules/addons/nicsrs_ssl_admin/
-├── nicsrs_ssl_admin.php        # Entry point (config, activate, output)
-├── hooks.php                   # WHMCS hooks
+├── nicsrs_ssl_admin.php              # Entry point, WHMCS hooks
+├── hooks.php                         # Admin area hooks
 │
 ├── lib/
 │   ├── Config/
-│   │   └── ApiConfig.php       # Shared API configuration
+│   │   └── ApiConfig.php             # Shared API configuration
 │   │
 │   ├── Controller/
-│   │   ├── BaseController.php       # Base controller
-│   │   ├── DashboardController.php  # Dashboard
-│   │   ├── ProductController.php    # Products
-│   │   ├── OrderController.php      # Orders
-│   │   ├── ImportController.php     # Import/Link
-│   │   └── SettingsController.php   # Settings
+│   │   ├── BaseController.php        # Base controller class
+│   │   ├── DashboardController.php   # Dashboard stats & charts
+│   │   ├── ProductController.php     # Product management
+│   │   ├── OrderController.php       # Order management
+│   │   └── SettingsController.php    # Module settings
 │   │
 │   ├── Service/
-│   │   ├── NicsrsApiService.php     # API client
-│   │   └── ActivityLogger.php       # Activity logging
+│   │   ├── NicsrsApiService.php      # API communication
+│   │   ├── ProductService.php        # Product business logic
+│   │   ├── OrderService.php          # Order business logic
+│   │   └── ActivityLogger.php        # Audit logging
 │   │
-│   ├── Helper/
-│   │   ├── ViewHelper.php           # View utilities
-│   │   ├── DateHelper.php           # Date handling
-│   │   └── DcvHelper.php            # DCV method mapping
-│   │
-│   └── DTO/
-│       └── CertificateData.php      # API response DTO
+│   └── Helper/
+│       ├── ViewHelper.php            # Template helpers
+│       └── Pagination.php            # Pagination utility
 │
 ├── templates/
-│   ├── dashboard.php
-│   ├── orders.php
-│   ├── order_detail.php
-│   ├── products.php
-│   ├── import.php
-│   └── settings.php
+│   ├── layout.tpl                    # Main layout wrapper
+│   ├── dashboard.tpl                 # Dashboard view
+│   ├── products/
+│   │   └── list.tpl                  # Products list
+│   ├── orders/
+│   │   ├── list.tpl                  # Orders list
+│   │   └── detail.tpl                # Order detail view
+│   └── settings.tpl                  # Settings page
 │
 ├── assets/
-│   ├── css/admin.css
-│   └── js/admin.js
+│   ├── css/
+│   │   └── admin.css                 # Ant Design-inspired styles
+│   └── js/
+│       └── admin.js                  # Main JavaScript
 │
 └── lang/
     ├── english.php
@@ -141,171 +177,201 @@ modules/addons/nicsrs_ssl_admin/
 
 ## Database Schema
 
-### nicsrs_sslorders Table (Updated for v1.2.0)
+### Main Orders Table: `nicsrs_sslorders`
 
 ```sql
 CREATE TABLE `nicsrs_sslorders` (
-    -- Primary Keys
     `id` INT(10) AUTO_INCREMENT PRIMARY KEY,
-    `userid` INT(10) NOT NULL,
-    `serviceid` INT(10) NOT NULL,
-    `addon_id` TEXT,
-    
-    -- NicSRS Reference
-    `remoteid` TEXT,                          -- NicSRS certId
-    `vendor_id` VARCHAR(50),                  -- Sectigo vendor ID
-    `vendor_cert_id` VARCHAR(50),             -- Vendor certificate ID
-    
-    -- Product Info
-    `module` TEXT,                            -- 'nicsrs_ssl'
-    `certtype` TEXT,                          -- Product code
-    
-    -- Configuration
-    `configdata` TEXT,                        -- JSON (domainInfo, applyReturn, etc.)
-    
-    -- Dates
-    `provisiondate` DATE,                     -- Order date
-    `completiondate` DATETIME,                -- Certificate issue datetime
-    `begin_date` DATETIME,                    -- Certificate validity start
-    `end_date` DATETIME,                      -- Certificate validity end
-    `due_date` DATE,                          -- Renewal due date
-    `last_sync` DATETIME,                     -- Last API sync time
-    
-    -- Status
-    `status` TEXT,                            -- Order status (lowercase)
-    `cert_status` VARCHAR(20),                -- Certificate status
-    
-    -- Certificate Data
-    `certificate` MEDIUMTEXT,                 -- PEM certificate
-    `ca_certificate` MEDIUMTEXT,              -- CA bundle
-    `private_key` MEDIUMTEXT,                 -- Private key (if stored)
-    
-    -- Pre-formatted Certificates
-    `jks_data` MEDIUMTEXT,                    -- Base64 JKS file
-    `pkcs12_data` MEDIUMTEXT,                 -- Base64 PKCS12 file
-    `jks_password` VARCHAR(100),              -- JKS password
-    `pkcs12_password` VARCHAR(100),           -- PKCS12 password
-    
-    -- DCV Information
-    `dcv_file_name` VARCHAR(255),             -- HTTP validation filename
-    `dcv_file_content` TEXT,                  -- HTTP file content
-    `dcv_file_path` VARCHAR(500),             -- Full validation URL
-    `dcv_dns_host` VARCHAR(255),              -- DNS record host
-    `dcv_dns_value` VARCHAR(500),             -- DNS record value
-    `dcv_dns_type` VARCHAR(20),               -- DNS type (CNAME/TXT)
-    
-    -- Indexes
+    `userid` INT(10) NOT NULL,              -- WHMCS user ID
+    `serviceid` INT(10) NOT NULL,           -- WHMCS service ID
+    `addon_id` TEXT,                        -- Addon service ID
+    `remoteid` TEXT,                        -- NicSRS certId
+    `module` TEXT,                          -- Module name (nicsrs_ssl)
+    `certtype` TEXT,                        -- Certificate product code
+    `configdata` TEXT,                      -- JSON configuration (see below)
+    `provisiondate` DATE,                   -- Order creation date
+    `completiondate` DATETIME,              -- Certificate issue date
+    `status` TEXT,                          -- Order status
     INDEX `idx_userid` (`userid`),
     INDEX `idx_serviceid` (`serviceid`),
-    INDEX `idx_status` (`status`(20)),
-    INDEX `idx_end_date` (`end_date`)
+    INDEX `idx_status` (`status`(20))
 );
 ```
 
-### mod_nicsrs_settings Table
+### Addon Module Tables
 
 ```sql
-CREATE TABLE `mod_nicsrs_settings` (
-    `id` INT(10) AUTO_INCREMENT PRIMARY KEY,
-    `setting_key` VARCHAR(100) NOT NULL UNIQUE,
-    `setting_value` TEXT,
-    `setting_type` VARCHAR(50) DEFAULT 'text',
-    `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
-    `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+-- Products cache table
+CREATE TABLE `mod_nicsrs_products` (
+    `id` INT AUTO_INCREMENT PRIMARY KEY,
+    `product_code` VARCHAR(100) UNIQUE NOT NULL,
+    `product_name` VARCHAR(255) NOT NULL,
+    `vendor` VARCHAR(50),
+    `validation_type` ENUM('dv','ov','ev') DEFAULT 'dv',
+    `price_1year` DECIMAL(10,2),
+    `price_2year` DECIMAL(10,2),
+    `max_domains` INT DEFAULT 1,
+    `wildcard` TINYINT(1) DEFAULT 0,
+    `is_active` TINYINT(1) DEFAULT 1,
+    `synced_at` DATETIME,
+    `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
--- Default settings
-INSERT INTO `mod_nicsrs_settings` (`setting_key`, `setting_value`, `setting_type`) VALUES
-('api_token', '', 'password'),
-('items_per_page', '25', 'number'),
-('auto_sync_enabled', '1', 'boolean'),
-('sync_interval_hours', '6', 'number'),
-('expiry_warning_days', '30', 'number');
-```
-
-### mod_nicsrs_activity_log Table
-
-```sql
+-- Activity log table
 CREATE TABLE `mod_nicsrs_activity_log` (
-    `id` INT(10) AUTO_INCREMENT PRIMARY KEY,
-    `action` VARCHAR(100) NOT NULL,
-    `entity_type` VARCHAR(50),
-    `entity_id` INT(10),
-    `old_value` TEXT,
-    `new_value` TEXT,
-    `admin_id` INT(10),
-    `admin_username` VARCHAR(100),
+    `id` INT AUTO_INCREMENT PRIMARY KEY,
+    `admin_id` INT NOT NULL,
+    `entity_type` VARCHAR(50) NOT NULL,     -- 'order', 'product', 'settings'
+    `entity_id` INT,
+    `action` VARCHAR(50) NOT NULL,          -- 'refresh', 'cancel', 'revoke'
+    `details` TEXT,                         -- JSON details
     `ip_address` VARCHAR(45),
     `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
-    
     INDEX `idx_entity` (`entity_type`, `entity_id`),
-    INDEX `idx_action` (`action`),
     INDEX `idx_created` (`created_at`)
+);
+
+-- Settings table
+CREATE TABLE `mod_nicsrs_settings` (
+    `id` INT AUTO_INCREMENT PRIMARY KEY,
+    `setting_key` VARCHAR(100) UNIQUE NOT NULL,
+    `setting_value` TEXT,
+    `setting_type` VARCHAR(50) DEFAULT 'text',
+    `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 ```
 
 ---
 
-## configdata JSON Structure (Updated)
+## configdata JSON Structure
 
-The `configdata` field stores detailed order information as JSON:
+The `configdata` field stores complete certificate data as JSON. Based on **actual production data**:
 
 ```json
 {
-    "csr": "-----BEGIN CERTIFICATE REQUEST-----...",
+    "server": "other",
+    "csr": "-----BEGIN CERTIFICATE REQUEST-----\n...\n-----END CERTIFICATE REQUEST-----\n",
+    "privateKey": "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n",
+    
     "domainInfo": [
         {
-            "domainName": "example.com",
+            "domainName": "mspace.com.vn",
             "dcvMethod": "CNAME_CSR_HASH",
             "dcvEmail": "",
             "isVerified": true,
             "is_verify": "verified"
-        },
-        {
-            "domainName": "www.example.com",
-            "dcvMethod": "EMAIL",
-            "dcvEmail": "admin@example.com",
-            "isVerified": true,
-            "is_verify": "verified"
         }
     ],
+    
     "Administrator": {
+        "organation": "COMPANY NAME",
+        "job": "admin",
         "firstName": "John",
         "lastName": "Doe",
         "email": "admin@example.com",
-        "phone": "+84123456789"
-    },
-    "organizationInfo": {
-        "organizationName": "Example Inc",
+        "mobile": "0123456789",
         "country": "VN",
-        "province": "Ho Chi Minh",
-        "city": "Ho Chi Minh",
-        "address": "123 Example Street",
-        "postalCode": "70000",
-        "phone": "+84123456789"
+        "address": "123 Main St",
+        "city": "Hanoi",
+        "state": "Hanoi",
+        "postCode": "10000"
     },
+    
+    "organizationInfo": {
+        "organizationName": "",
+        "organizationAddress": "",
+        "organizationCity": "",
+        "organizationCountry": "",
+        "organizationPostCode": "",
+        "organizationMobile": ""
+    },
+    
+    "originalfromOthers": "0",
+    
     "applyReturn": {
-        "certId": "12345678",
-        "vendorId": "2771240592",
-        "vendorCertId": "39831817562",
-        "beginDate": "2026-01-19 08:00:00",
-        "endDate": "2027-02-20 07:59:59",
-        "dueDate": "2028-01-19 00:00:00",
-        "certificate": "-----BEGIN CERTIFICATE-----...",
-        "caCertificate": "-----BEGIN CERTIFICATE-----...",
-        "DCVfileName": "148ECC23D64F50CDCCA4F0DAF72A9A4B.txt",
-        "DCVfileContent": "hash_content...",
-        "DCVdnsHost": "_148ecc23d64f50cdcca4f0daf72a9a4b",
-        "DCVdnsValue": "cname_value.sectigo.com",
-        "DCVdnsType": "CNAME",
-        "applyTime": "2026-01-15 10:30:00"
+        "certId": "260113vghhracpaw",
+        "vendorId": "1433958846",
+        "vendorCertId": "1438517035",
+        
+        "DCVfileName": "fileauth.txt",
+        "DCVfileContent": "_3525cdeanma96j6bosy7zdq8jld7tly",
+        "DCVdnsHost": "_dnsauth",
+        "DCVdnsValue": "_3525cdeanma96j6bosy7zdq8jld7tly",
+        "DCVdnsType": "TXT",
+        "DCVfilePath": "http://example.com/.well-known/pki-validation/fileauth.txt",
+        
+        "applyTime": "2026-01-13 09:45:48",
+        "beginDate": "2026-01-13 08:00:00",
+        "endDate": "2027-01-13 07:59:59",
+        "dueDate": "2027-01-13 00:00:00",
+        
+        "certificate": "-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----",
+        "caCertificate": "-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----",
+        "certPath": "",
+        "privateKey": "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n",
+        
+        "jks": "base64_encoded_jks_data...",
+        "pkcs12": "base64_encoded_pkcs12_data...",
+        "jksPass": "3DUy2fQB9zy5SSIW",
+        "pkcsPass": "bFPZbEqmIC5CrAG1",
+        
+        "application": { "status": "done" },
+        "dcv": { "status": "done" },
+        "issued": { "status": "done" },
+        
+        "dcvList": [
+            {
+                "dcvEmail": "",
+                "dcvMethod": "CNAME_CSR_HASH",
+                "is_verify": "verified",
+                "domainName": "mspace.com.vn"
+            }
+        ]
     },
-    "replaceTimes": 0,
-    "originalDomains": ["example.com", "www.example.com"],
-    "lastRefresh": "2026-01-20 14:30:00",
-    "importedAt": null,
-    "importedBy": null
+    
+    "applyParams": {
+        "csr": "-----BEGIN CERTIFICATE REQUEST-----\n...",
+        "Administrator": {...},
+        "tech": {...},
+        "finance": {...},
+        "organizationInfo": {...},
+        "server": "other"
+    },
+    
+    "lastRefresh": "2026-01-19 13:28:14"
 }
+```
+
+---
+
+## DCV Method Constants
+
+**Important:** API returns methods with `_CSR_HASH` suffix.
+
+```php
+// src/config/const.php
+const DCV_METHODS = [
+    'CNAME_CSR_HASH' => [
+        'name' => 'DNS CNAME',
+        'type' => 'dns',
+        'description' => 'Add a CNAME record to your DNS'
+    ],
+    'HTTP_CSR_HASH' => [
+        'name' => 'HTTP File',
+        'type' => 'http',
+        'description' => 'Upload a file to your web server'
+    ],
+    'DNS_CSR_HASH' => [
+        'name' => 'DNS TXT',
+        'type' => 'dns',
+        'description' => 'Add a TXT record to your DNS'
+    ],
+    'EMAIL' => [
+        'name' => 'Email',
+        'type' => 'email',
+        'description' => 'Verify via email'
+    ]
+];
 ```
 
 ---
@@ -316,39 +382,39 @@ The `configdata` field stores detailed order information as JSON:
                     ┌─────────────────────┐
                     │ Awaiting Config     │ ← Order created in WHMCS
                     └──────────┬──────────┘
-                               │
+                               │ User submits form
                     ┌──────────▼──────────┐
-                    │ Draft               │ ← User saves form (optional)
+                    │ Draft               │ ← User saves incomplete form
                     └──────────┬──────────┘
-                               │
+                               │ User clicks Submit
                     ┌──────────▼──────────┐
-                    │ Pending             │ ← Submitted to CA (NicSRS)
+                    │ Pending             │ ← Submitted to NicSRS API
                     └──────────┬──────────┘
                                │
               ┌────────────────┼────────────────┐
-              ▼                ▼                ▼
-    ┌─────────────────┐ ┌─────────────┐ ┌─────────────┐
-    │ Complete        │ │ Cancelled   │ │ Expired     │
-    │ (issued)        │ │ (cancelled) │ │ (expired)   │
-    └────────┬────────┘ └─────────────┘ └─────────────┘
-             │
-    ┌────────┴────────┐
-    ▼                 ▼
-┌──────────┐  ┌──────────────┐
-│ Reissued │  │ Renewed      │
-└────┬─────┘  └──────┬───────┘
-     │               │
-     ▼               ▼
-┌─────────────────────────┐
-│ Pending                 │ ← Back to pending state
-└─────────────────────────┘
+              │ DCV Completed  │                │ User cancels
+              ▼                │                ▼
+    ┌─────────────────┐       │      ┌─────────────────┐
+    │ Complete        │       │      │ Cancelled       │
+    │ (Issued)        │       │      └─────────────────┘
+    └────────┬────────┘       │
+             │                │
+    ┌────────┴────────┐       │
+    │                 │       │
+    ▼                 ▼       ▼
+┌──────────┐   ┌──────────┐  ┌──────────┐
+│ Revoked  │   │ Expired  │  │ Reissued │
+└──────────┘   └──────────┘  └────┬─────┘
+                                  │
+                                  ▼
+                           ┌──────────┐
+                           │ Pending  │ ← Reissue submitted
+                           └──────────┘
 ```
 
 ---
 
-## Request Flow Examples
-
-### Certificate Application Flow
+## Request Flow: Certificate Application
 
 ```
 1. User clicks "Configure SSL" in Client Area
@@ -362,359 +428,198 @@ The `configdata` field stores detailed order information as JSON:
    ▼
 4. PageController:
    ├── Checks order status (Awaiting Configuration)
-   ├── Loads certificate type attributes
-   ├── Returns applycert.tpl template
+   ├── Loads certificate attributes from product config
+   ├── Returns applycert.tpl template with form
    │
    ▼
-5. User fills form and submits
+5. User fills form (CSR, domain info, contacts) and submits
    │
    ▼
-6. ActionDispatcher routes to ActionController::submitApply()
+6. AJAX request to ActionController::submitApply()
    │
    ▼
 7. ActionController:
-   ├── Validates input data
-   ├── Calls nicsrsAPI::validate()
-   ├── Calls nicsrsAPI::place()
-   ├── Stores applyReturn data (certId, vendorId, DCV info)
-   ├── Updates database via nicsrsSSLSql
-   └── Returns JSON response
+   ├── Validates input data (CSR, domains, contacts)
+   ├── Calls nicsrsAPI::validate() to pre-validate
+   ├── Calls nicsrsAPI::place() to submit order
+   ├── Stores response in configdata.applyReturn
+   ├── Updates order status to "Pending"
+   └── Returns JSON response with certId
    │
    ▼
-8. Certificate enters "Pending" status
-   │
-   ▼
-9. User performs DCV (Email/DNS/HTTP)
-   │
-   ▼
-10. Periodic refresh via collect API
-    │
-    ▼
-11. When status == COMPLETE:
-    ├── Store certificate data
-    ├── Update status to "complete"
-    └── Enable certificate download
+8. User sees pending status with DCV instructions
 ```
 
-### Certificate Download Flow
+---
+
+## Request Flow: Status Refresh (Collect API)
+
+```
+1. User/Admin clicks "Refresh Status"
+   │
+   ▼
+2. AJAX request to ActionController::refreshStatus()
+   │
+   ▼
+3. ActionController:
+   ├── Gets certId from order.remoteid
+   ├── Calls nicsrsAPI::collect(certId)
+   │
+   ▼
+4. API returns full certificate data:
+   {
+     code: 1,
+     status: "COMPLETE",
+     certStatus: "COMPLETE", 
+     data: {
+       beginDate: "2026-01-19 08:00:00",   // Full datetime
+       endDate: "2027-02-20 07:59:59",
+       certificate: "-----BEGIN...",
+       caCertificate: "-----BEGIN...",
+       jks: "base64...",
+       pkcs12: "base64...",
+       jksPass: "password",
+       pkcsPass: "password",
+       vendorId: "2771240592",
+       vendorCertId: "39831817562",
+       dcvList: [{
+         dcvMethod: "CNAME_CSR_HASH",      // Note: with _CSR_HASH
+         is_verify: "verified",
+         domainName: "example.com"
+       }]
+     }
+   }
+   │
+   ▼
+5. ActionController:
+   ├── Merges response into configdata.applyReturn
+   ├── Updates configdata.lastRefresh timestamp
+   ├── Updates order status if changed
+   ├── Saves to database
+   └── Returns JSON response
+```
+
+---
+
+## Request Flow: Certificate Download
 
 ```
 1. User clicks "Download Certificate"
    │
    ▼
-2. ActionController::downCert() called
+2. AJAX request to ActionController::downCert()
    │
    ▼
-3. Fetch latest data from collect API
+3. ActionController:
+   ├── Verifies user permissions
+   ├── Gets certificate data from configdata
    │
    ▼
-4. Check for pre-formatted certificates:
-   ├── jks available? → Include JKS file
-   ├── pkcs12 available? → Include PKCS12 file
+4. nicsrsFunc::zipCert() creates archive:
    │
-   ▼
-5. Create ZIP archive with:
-   ├── Apache format (.crt, .ca-bundle)
+   ├── Apache format (.crt, .ca-bundle, .key)
    ├── Nginx format (.pem combined)
-   ├── IIS/PKCS12 format (.p12)
-   ├── Tomcat/JKS format (.jks)
-   └── passwords.txt (if jks/pkcs12)
+   ├── IIS format (.p12 from pkcs12 data)
+   ├── Tomcat format (.jks from jks data)
+   └── Passwords.txt (jksPass, pkcsPass)
    │
    ▼
-6. Return base64 encoded ZIP
+5. Returns base64 encoded ZIP to browser
 ```
 
 ---
 
-## API Response Data Transfer Object (DTO)
-
-### CertificateData DTO
+## API Client Implementation
 
 ```php
-<?php
-namespace NicsrsAdmin\DTO;
-
-class CertificateData
-{
-    // Response metadata
-    public int $code;
-    public string $status;           // lowercase
-    public ?string $certStatus = null;
+class nicsrsAPI {
+    private const API_BASE = 'https://portal.nicsrs.com/ssl';
     
-    // Certificate files
-    public ?string $certificate = null;
-    public ?string $caCertificate = null;
-    public ?string $privateKey = null;
-    
-    // Pre-formatted certificates (NEW in v1.2.0)
-    public ?string $jks = null;
-    public ?string $pkcs12 = null;
-    public ?string $jksPassword = null;
-    public ?string $pkcsPassword = null;
-    
-    // Dates (FULL DATETIME format)
-    public ?string $beginDate = null;     // Y-m-d H:i:s
-    public ?string $endDate = null;       // Y-m-d H:i:s
-    public ?string $dueDate = null;       // Y-m-d H:i:s
-    
-    // Vendor tracking (NEW in v1.2.0)
-    public ?string $vendorId = null;
-    public ?string $vendorCertId = null;
-    
-    // DCV information
-    public ?string $dcvFileName = null;
-    public ?string $dcvFileContent = null;
-    public ?string $dcvFilePath = null;
-    public ?string $dcvDnsHost = null;
-    public ?string $dcvDnsValue = null;
-    public ?string $dcvDnsType = null;
-    public array $dcvList = [];
-    
-    /**
-     * Create from API response
-     */
-    public static function fromApiResponse(array $response): self
+    public static function collect(string $certId): array
     {
-        $dto = new self();
+        $response = self::request('/collect', [
+            'certId' => $certId
+        ]);
         
-        // Metadata
-        $dto->code = (int) ($response['code'] ?? 0);
-        $dto->status = strtolower($response['status'] ?? 'pending');
-        $dto->certStatus = strtolower($response['certStatus'] ?? $dto->status);
+        // Response contains:
+        // - code: 1 (success), 2 (processing)
+        // - status: "COMPLETE", "PENDING", etc.
+        // - certStatus: "COMPLETE", "PENDING", etc.
+        // - data: certificate data with full datetime
         
-        $data = $response['data'] ?? [];
-        
-        // Certificate files
-        $dto->certificate = $data['certificate'] ?? null;
-        $dto->caCertificate = $data['caCertificate'] ?? null;
-        $dto->privateKey = $data['rsaPrivateKey'] ?? null;
-        
-        // Pre-formatted (base64 encoded)
-        $dto->jks = $data['jks'] ?? null;
-        $dto->pkcs12 = $data['pkcs12'] ?? null;
-        $dto->jksPassword = $data['jksPass'] ?? null;
-        $dto->pkcsPassword = $data['pkcsPass'] ?? null;
-        
-        // Dates (parse full datetime)
-        $dto->beginDate = self::parseDateTime($data['beginDate'] ?? null);
-        $dto->endDate = self::parseDateTime($data['endDate'] ?? null);
-        $dto->dueDate = self::parseDateTime($data['dueDate'] ?? null);
-        
-        // Vendor
-        $dto->vendorId = $data['vendorId'] ?? null;
-        $dto->vendorCertId = $data['vendorCertId'] ?? null;
-        
-        // DCV
-        $dto->dcvFileName = $data['DCVfileName'] ?? null;
-        $dto->dcvFileContent = $data['DCVfileContent'] ?? null;
-        $dto->dcvFilePath = $data['DCVfilePath'] ?? null;
-        $dto->dcvDnsHost = $data['DCVdnsHost'] ?? null;
-        $dto->dcvDnsValue = $data['DCVdnsValue'] ?? null;
-        $dto->dcvDnsType = $data['DCVdnsType'] ?? null;
-        $dto->dcvList = $data['dcvList'] ?? [];
-        
-        return $dto;
+        return $response;
     }
     
-    private static function parseDateTime(?string $value): ?string
+    private static function request(string $endpoint, array $data): array
     {
-        if (empty($value)) return null;
-        $ts = strtotime($value);
-        return $ts ? date('Y-m-d H:i:s', $ts) : null;
-    }
-    
-    /**
-     * Convert to database columns array
-     */
-    public function toDbArray(): array
-    {
-        return array_filter([
-            'cert_status' => $this->certStatus,
-            'vendor_id' => $this->vendorId,
-            'vendor_cert_id' => $this->vendorCertId,
-            'begin_date' => $this->beginDate,
-            'end_date' => $this->endDate,
-            'due_date' => $this->dueDate ? substr($this->dueDate, 0, 10) : null,
-            'certificate' => $this->certificate,
-            'ca_certificate' => $this->caCertificate,
-            'private_key' => $this->privateKey,
-            'jks_data' => $this->jks,
-            'pkcs12_data' => $this->pkcs12,
-            'jks_password' => $this->jksPassword,
-            'pkcs12_password' => $this->pkcsPassword,
-            'dcv_file_name' => $this->dcvFileName,
-            'dcv_file_content' => $this->dcvFileContent,
-            'dcv_file_path' => $this->dcvFilePath,
-            'dcv_dns_host' => $this->dcvDnsHost,
-            'dcv_dns_value' => $this->dcvDnsValue,
-            'dcv_dns_type' => $this->dcvDnsType,
-            'last_sync' => date('Y-m-d H:i:s'),
-        ], fn($v) => $v !== null);
-    }
-    
-    public function hasCertificate(): bool
-    {
-        return !empty($this->certificate);
-    }
-    
-    public function hasJks(): bool
-    {
-        return !empty($this->jks);
-    }
-    
-    public function hasPkcs12(): bool
-    {
-        return !empty($this->pkcs12);
+        // Add API token
+        $data['api_token'] = self::getApiToken();
+        
+        $ch = curl_init(self::API_BASE . $endpoint);
+        curl_setopt_array($ch, [
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => http_build_query($data),
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 30,
+            CURLOPT_SSL_VERIFYPEER => true
+        ]);
+        
+        $response = curl_exec($ch);
+        curl_close($ch);
+        
+        // Log for debugging
+        logModuleCall('nicsrs_ssl', $endpoint, $data, $response);
+        
+        return json_decode($response, true);
     }
 }
 ```
 
 ---
 
-## Helper Classes
+## Date/Time Handling
 
-### DateHelper
+**Critical:** API returns full datetime format `Y-m-d H:i:s`.
 
 ```php
-<?php
-namespace NicsrsAdmin\Helper;
-
-class DateHelper
-{
+class DateHelper {
     /**
-     * Parse full datetime from API
+     * Parse datetime from API response
+     * API format: "2026-01-19 08:00:00"
      */
     public static function parseDateTime(?string $value): ?string
     {
         if (empty($value)) return null;
+        
         $ts = strtotime($value);
-        return $ts ? date('Y-m-d H:i:s', $ts) : null;
+        if ($ts === false) return null;
+        
+        return date('Y-m-d H:i:s', $ts);
     }
     
     /**
-     * Parse date only
+     * Parse date only (for dueDate)
+     * API format: "2028-01-19 00:00:00"
      */
     public static function parseDate(?string $value): ?string
     {
         if (empty($value)) return null;
+        
         $ts = strtotime($value);
-        return $ts ? date('Y-m-d', $ts) : null;
-    }
-    
-    /**
-     * Check if date is valid (not 0000-00-00)
-     */
-    public static function isValidDate($date): bool
-    {
-        if (empty($date)) return false;
-        if ($date === '0000-00-00' || $date === '0000-00-00 00:00:00') return false;
-        return strtotime($date) !== false;
+        if ($ts === false) return null;
+        
+        return date('Y-m-d', $ts);
     }
     
     /**
      * Format for display
      */
-    public static function formatDisplay(?string $date): string
+    public static function formatDisplay(?string $datetime): string
     {
-        if (!self::isValidDate($date)) return 'N/A';
-        return date('M d, Y', strtotime($date));
-    }
-    
-    /**
-     * Format with time
-     */
-    public static function formatWithTime(?string $date): string
-    {
-        if (!self::isValidDate($date)) return 'N/A';
-        return date('M d, Y H:i', strtotime($date));
-    }
-    
-    /**
-     * Calculate days until expiry
-     */
-    public static function daysUntilExpiry(?string $endDate): int
-    {
-        if (!self::isValidDate($endDate)) return 0;
-        $end = new \DateTime($endDate);
-        $now = new \DateTime();
-        $diff = $now->diff($end);
-        return $diff->invert ? -$diff->days : $diff->days;
-    }
-}
-```
-
-### DcvHelper
-
-```php
-<?php
-namespace NicsrsAdmin\Helper;
-
-class DcvHelper
-{
-    /**
-     * DCV method mapping (API value => Display name)
-     */
-    public const METHODS = [
-        'CNAME_CSR_HASH' => 'DNS CNAME',
-        'HTTP_CSR_HASH' => 'HTTP File',
-        'DNS_CSR_HASH' => 'DNS TXT',
-        'EMAIL' => 'Email',
-    ];
-    
-    /**
-     * DCV method types
-     */
-    public const TYPE_DNS = ['CNAME_CSR_HASH', 'DNS_CSR_HASH'];
-    public const TYPE_HTTP = ['HTTP_CSR_HASH'];
-    public const TYPE_EMAIL = ['EMAIL'];
-    
-    /**
-     * Get display name for DCV method
-     */
-    public static function getDisplayName(string $method): string
-    {
-        return self::METHODS[strtoupper($method)] ?? $method;
-    }
-    
-    /**
-     * Get all methods as options
-     */
-    public static function getMethodOptions(): array
-    {
-        return self::METHODS;
-    }
-    
-    /**
-     * Check if DNS-based method
-     */
-    public static function isDnsMethod(string $method): bool
-    {
-        return in_array(strtoupper($method), self::TYPE_DNS);
-    }
-    
-    /**
-     * Check if HTTP-based method
-     */
-    public static function isHttpMethod(string $method): bool
-    {
-        return in_array(strtoupper($method), self::TYPE_HTTP);
-    }
-    
-    /**
-     * Check if Email-based method
-     */
-    public static function isEmailMethod(string $method): bool
-    {
-        return in_array(strtoupper($method), self::TYPE_EMAIL);
-    }
-    
-    /**
-     * Normalize method name from API
-     */
-    public static function normalizeMethod(string $method): string
-    {
-        $method = strtoupper(trim($method));
-        return isset(self::METHODS[$method]) ? $method : 'EMAIL';
+        if (empty($datetime)) return 'N/A';
+        
+        $ts = strtotime($datetime);
+        return date('M j, Y H:i', $ts);
     }
 }
 ```
@@ -738,8 +643,10 @@ class DcvHelper
                                     └─────────┬─────────┘
                                               │
                                     ┌─────────▼─────────┐
-                                    │ API Token (shared)│
-                                    │ ApiConfig::get()  │
+                                    │ API Token Source  │
+                                    │ 1. mod_nicsrs_settings
+                                    │ 2. tbladdonmodules│
+                                    │ 3. configoption2  │
                                     └───────────────────┘
 ```
 
@@ -748,43 +655,105 @@ class DcvHelper
 1. **Client-side**: JavaScript validation for UX
 2. **Dispatcher**: Basic request validation
 3. **Controller**: Business logic validation
-4. **API Service**: Final validation before API call
+4. **API**: NicSRS server-side validation
+5. **Database**: Prepared statements via Capsule ORM
 
-### API Token Priority
+---
+
+## Shared API Token Configuration
 
 ```php
-// 1. Check mod_nicsrs_settings (highest priority)
-// 2. Check tbladdonmodules (fallback)
-// 3. Check configoption2 (legacy)
-
-class ApiConfig
-{
-    public static function getApiToken(): ?string
+// lib/Config/ApiConfig.php
+class ApiConfig {
+    private static ?string $cachedToken = null;
+    
+    public static function getApiToken(): string
     {
-        // Priority 1: Addon settings
+        if (self::$cachedToken !== null) {
+            return self::$cachedToken;
+        }
+        
+        // Priority 1: Addon module settings table
         $token = self::getFromSettings();
-        if ($token) return $token;
+        if ($token) {
+            self::$cachedToken = $token;
+            return $token;
+        }
         
-        // Priority 2: Addon module config
-        $token = self::getFromAddonConfig();
-        if ($token) return $token;
+        // Priority 2: tbladdonmodules table
+        $token = self::getFromModuleConfig();
+        if ($token) {
+            self::$cachedToken = $token;
+            return $token;
+        }
         
-        // Priority 3: Legacy configoption2
-        return self::getFromLegacyConfig();
+        throw new \Exception('API Token not configured');
+    }
+    
+    private static function getFromSettings(): ?string
+    {
+        try {
+            $setting = Capsule::table('mod_nicsrs_settings')
+                ->where('setting_key', 'api_token')
+                ->first();
+            return $setting->setting_value ?? null;
+        } catch (\Exception $e) {
+            return null;
+        }
     }
 }
 ```
 
 ---
 
-## Changelog
+## Error Handling Strategy
 
-### Version 1.2.0 (January 2026)
-- Added CertificateData DTO for API response handling
-- Updated database schema with new columns
-- Added DCV method mapping (CNAME_CSR_HASH, HTTP_CSR_HASH, etc.)
-- Added DateHelper for proper datetime parsing
-- Added pre-formatted certificate support (JKS, PKCS12)
-- Added vendor tracking (vendorId, vendorCertId)
-- Added dueDate for renewal tracking
-- Updated configdata JSON structure
+```php
+// Standard error response format
+class nicsrsResponse {
+    public static function error(string $message): string
+    {
+        return json_encode([
+            'status' => 0,
+            'msg' => 'failed',
+            'error' => $message
+        ]);
+    }
+    
+    public static function success(array $data = []): string
+    {
+        return json_encode([
+            'status' => 1,
+            'msg' => 'success',
+            'data' => $data
+        ]);
+    }
+    
+    public static function apiError(string $message): string
+    {
+        return json_encode([
+            'status' => 0,
+            'msg' => 'API Error',
+            'error' => $message
+        ]);
+    }
+}
+```
+
+---
+
+## Certificate Download Formats
+
+| Format | File Extension | Use Case |
+|--------|---------------|----------|
+| Apache | .crt, .ca-bundle, .key | Apache HTTP Server |
+| Nginx | .pem (combined) | Nginx |
+| IIS | .p12 (from pkcs12) | Microsoft IIS |
+| Tomcat | .jks (from jks) | Apache Tomcat |
+| Combined | .zip | All formats in one download |
+
+---
+
+**Author:** HVN GROUP  
+**Website:** https://hvn.vn  
+**Last Updated:** January 2026
