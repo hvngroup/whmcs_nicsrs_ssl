@@ -219,6 +219,7 @@ $rateInfo = $rateInfo ?? CurrencyHelper::getRateInfo();
                         <?php 
                         $profitClass = $order['profit_usd'] >= 0 ? 'text-success' : 'text-danger';
                         $marginClass = $order['profit_margin'] >= 20 ? 'label-success' : ($order['profit_margin'] >= 10 ? 'label-warning' : 'label-danger');
+                        $displayDate = $order['service_date'] ?? $order['date'] ?? $order['provision_date'] ?? '';
                         ?>
                         <tr>
                             <td>
@@ -226,7 +227,7 @@ $rateInfo = $rateInfo ?? CurrencyHelper::getRateInfo();
                                     #<?php echo $order['order_id']; ?>
                                 </a>
                             </td>
-                            <td><?php echo $helper->formatDate($order['provision_date']); ?></td>
+                            <td><?php echo $helper->formatDate($displayDate); ?></td>
                             <td>
                                 <strong><?php echo $helper->e($order['product_name']); ?></strong>
                                 <br><small class="text-muted"><?php echo $helper->e($order['product_code']); ?></small>

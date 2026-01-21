@@ -256,7 +256,7 @@ class ReportService
     {
         $query = $this->buildProfitQuery();
         
-        $this->applyDateFilters($query, $filters);
+        $this->applyDateFilters($query, $filters, 'h.regdate');
         $this->applyProductFilters($query, $filters);
 
         // Only include completed orders for profit calculation
@@ -264,7 +264,7 @@ class ReportService
             $query->where('o.status', 'complete');
         }
 
-        $orders = $query->orderBy('o.provisiondate', 'desc')->get();
+        $orders = $query->orderBy('h.regdate', 'desc')->get();
 
         $results = [];
         $totalRevenueVnd = 0;
@@ -292,6 +292,8 @@ class ReportService
                 'product_code' => $order->product_code,
                 'product_name' => $order->product_name ?? $order->product_code,
                 'vendor' => $order->vendor ?? 'Unknown',
+                'date' => $order->service_date,
+                'service_date' => $order->service_date, // Explicit service date                
                 'provision_date' => $order->provisiondate,
                 'status' => $order->status,
                 'billing_cycle' => $order->billingcycle,
@@ -352,7 +354,7 @@ class ReportService
         $grouped = [];
 
         foreach ($orders as $order) {
-            $date = $order['provision_date'];
+            $date = $order['service_date'] ?? $order['date'];
             if (empty($date) || $date === '0000-00-00') {
                 continue;
             }
@@ -849,6 +851,7 @@ class ReportService
                 'np.price_data', // JSON with NicSRS cost
                 'h.firstpaymentamount as sale_amount', // VND with VAT
                 'h.billingcycle',
+                'h.regdate as service_date',
             ]);
     }
 
