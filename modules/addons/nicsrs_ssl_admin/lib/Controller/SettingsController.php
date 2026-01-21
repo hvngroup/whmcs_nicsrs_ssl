@@ -138,11 +138,22 @@ class SettingsController extends BaseController
             case 'export_logs':
                 return $this->exportActivityLogs();
 
+            case 'manual_sync':
+                return $this->handleManualSync($post);
+
+            case 'get_sync_status':
+                return $this->getSyncStatus();
+
+            case 'check_expiring':
+                return $this->checkExpiringCertificates();
+
+            case 'update_exchange_rate':
+                return $this->updateExchangeRate($post);
+
             default:
                 return $this->jsonError('Unknown action');
         }
     }
-
     /**
      * Save settings
      * 
@@ -333,6 +344,134 @@ class SettingsController extends BaseController
             
         } catch (\Exception $e) {
             return $this->jsonError('Failed to export logs: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Handle manual sync AJAX request
+     * 
+     * Add this case to your existing handleAjax() method:
+     * 
+     * case 'manual_sync':
+     *     return $this->handleManualSync($post);
+     */
+    
+    /**
+     * Handle manual sync request
+     * 
+     * @param array $post POST data
+     * @return string JSON response
+     */
+    private function handleManualSync(array $post): string
+    {
+        $syncType = isset($post['sync_type']) ? $this->sanitize($post['sync_type']) : 'all';
+        
+        // Validate sync type
+        if (!in_array($syncType, ['status', 'products', 'all'])) {
+            return $this->jsonError('Invalid sync type');
+        }
+        
+        try {
+            // Load SyncService
+            require_once __DIR__ . '/SyncService.php';
+            
+            $syncService = new \NicsrsAdmin\Service\SyncService();
+            $results = $syncService->forceSyncNow($syncType);
+            
+            // Check for errors
+            if (isset($results['error'])) {
+                return $this->jsonError($results['error']);
+            }
+            
+            // Build response message
+            $messages = [];
+            
+            if (isset($results['status_sync'])) {
+                $ss = $results['status_sync'];
+                $messages[] = "Status Sync: {$ss['updated']} updated, {$ss['completed']} completed, {$ss['failed']} failed";
+            }
+            
+            if (isset($results['product_sync'])) {
+                $ps = $results['product_sync'];
+                $messages[] = "Product Sync: {$ps['total_products']} products synced";
+            }
+            
+            // Log activity
+            if ($this->logger) {
+                $this->logger->log('manual_sync', 'settings', null, null, json_encode([
+                    'sync_type' => $syncType,
+                    'results' => $results,
+                ]));
+            }
+            
+            return $this->jsonSuccess(implode('. ', $messages), [
+                'results' => $results,
+                'timestamp' => date('Y-m-d H:i:s'),
+            ]);
+            
+        } catch (\Exception $e) {
+            return $this->jsonError('Sync failed: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Get sync status AJAX handler
+     * 
+     * Add this case to your existing handleAjax() method:
+     * 
+     * case 'get_sync_status':
+     *     return $this->getSyncStatus();
+     */
+    
+    /**
+     * Get current sync status
+     * 
+     * @return string JSON response
+     */
+    private function getSyncStatus(): string
+    {
+        try {
+            require_once __DIR__ . '/SyncService.php';
+            
+            $syncService = new \NicsrsAdmin\Service\SyncService();
+            $status = $syncService->getSyncStatus();
+            
+            return $this->jsonSuccess('Sync status retrieved', $status);
+            
+        } catch (\Exception $e) {
+            return $this->jsonError('Failed to get sync status: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Check expiring certificates and send warnings
+     * 
+     * Add this case to your existing handleAjax() method:
+     * 
+     * case 'check_expiring':
+     *     return $this->checkExpiringCertificates();
+     */
+    
+    /**
+     * Check expiring certificates
+     * 
+     * @return string JSON response
+     */
+    private function checkExpiringCertificates(): string
+    {
+        try {
+            require_once __DIR__ . '/NotificationService.php';
+            
+            $notifier = new \NicsrsAdmin\Service\NotificationService();
+            $results = $notifier->checkAndSendExpiryWarnings();
+            
+            return $this->jsonSuccess(
+                "Checked {$results['checked']} certificates, sent {$results['warnings_sent']} warnings",
+                $results
+            );
+            
+        } catch (\Exception $e) {
+            return $this->jsonError('Check failed: ' . $e->getMessage());
         }
     }
 

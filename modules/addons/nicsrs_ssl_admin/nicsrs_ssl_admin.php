@@ -17,7 +17,7 @@ use WHMCS\Database\Capsule;
 
 // Define module constants
 if (!defined('NICSRS_ADMIN_VERSION')) {
-    define('NICSRS_ADMIN_VERSION', '1.2.0');
+    define('NICSRS_ADMIN_VERSION', '1.3.1');
 }
 if (!defined('NICSRS_ADMIN_PATH')) {
     define('NICSRS_ADMIN_PATH', __DIR__);
@@ -128,14 +128,25 @@ function nicsrs_ssl_admin_activate()
             
             // Insert default settings
             $defaultSettings = [
+                // Notification settings
                 ['setting_key' => 'email_on_issuance', 'setting_value' => '1', 'setting_type' => 'boolean'],
                 ['setting_key' => 'email_on_expiry', 'setting_value' => '1', 'setting_type' => 'boolean'],
                 ['setting_key' => 'expiry_days', 'setting_value' => '30', 'setting_type' => 'integer'],
+                ['setting_key' => 'admin_email', 'setting_value' => '', 'setting_type' => 'string'],
+                
+                // Auto-sync settings
                 ['setting_key' => 'auto_sync_status', 'setting_value' => '1', 'setting_type' => 'boolean'],
                 ['setting_key' => 'sync_interval_hours', 'setting_value' => '6', 'setting_type' => 'integer'],
                 ['setting_key' => 'product_sync_hours', 'setting_value' => '24', 'setting_type' => 'integer'],
+                ['setting_key' => 'sync_batch_size', 'setting_value' => '50', 'setting_type' => 'integer'],
+                ['setting_key' => 'last_status_sync', 'setting_value' => '', 'setting_type' => 'datetime'],
+                ['setting_key' => 'last_product_sync', 'setting_value' => '', 'setting_type' => 'datetime'],
+                ['setting_key' => 'sync_error_count', 'setting_value' => '0', 'setting_type' => 'integer'],
+                
+                // Display settings
                 ['setting_key' => 'date_format', 'setting_value' => 'Y-m-d', 'setting_type' => 'string'],
-                ['setting_key' => 'admin_email', 'setting_value' => '', 'setting_type' => 'string'],
+                
+                // Currency settings
                 ['setting_key' => 'usd_vnd_rate', 'setting_value' => '25000', 'setting_type' => 'number'],
                 ['setting_key' => 'currency_display', 'setting_value' => 'both', 'setting_type' => 'string'],
                 ['setting_key' => 'rate_last_updated', 'setting_value' => '', 'setting_type' => 'datetime'],
@@ -196,14 +207,16 @@ function nicsrs_ssl_admin_upgrade($vars)
 {
     $currentVersion = $vars['version'];
     
-    // Upgrade to v1.3.0 - Add currency settings for Reports
-    if (version_compare($currentVersion, '1.3.0', '<')) {
-        try {
-            // Add new currency settings if not exist
+    try {
+        // Upgrade to v1.2.1 - Add Auto-Sync settings
+        if (version_compare($currentVersion, '1.2.1', '<')) {
+            
+            // New settings for Auto-Sync feature
             $newSettings = [
-                ['setting_key' => 'usd_vnd_rate', 'setting_value' => '25000', 'setting_type' => 'number'],
-                ['setting_key' => 'currency_display', 'setting_value' => 'both', 'setting_type' => 'string'],
-                ['setting_key' => 'rate_last_updated', 'setting_value' => '', 'setting_type' => 'datetime'],
+                ['setting_key' => 'sync_batch_size', 'setting_value' => '50', 'setting_type' => 'integer'],
+                ['setting_key' => 'last_status_sync', 'setting_value' => '', 'setting_type' => 'datetime'],
+                ['setting_key' => 'last_product_sync', 'setting_value' => '', 'setting_type' => 'datetime'],
+                ['setting_key' => 'sync_error_count', 'setting_value' => '0', 'setting_type' => 'integer'],
             ];
 
             foreach ($newSettings as $setting) {
@@ -215,10 +228,50 @@ function nicsrs_ssl_admin_upgrade($vars)
                     Capsule::table('mod_nicsrs_settings')->insert($setting);
                 }
             }
-        } catch (\Exception $e) {
-            // Log error but don't fail upgrade
-            logModuleCall('nicsrs_ssl_admin', 'upgrade_error', $currentVersion, $e->getMessage());
+            
+            // Log upgrade
+            logModuleCall(
+                'nicsrs_ssl_admin',
+                'upgrade_to_1.2.1',
+                ['from' => $currentVersion],
+                'Added Auto-Sync settings',
+                'SUCCESS'
+            );
         }
+        
+        // Upgrade to v1.3.0 - Add currency settings for Reports
+        if (version_compare($currentVersion, '1.3.0', '<')) {
+            
+            // Add new currency settings if not exist
+            $currencySettings = [
+                ['setting_key' => 'usd_vnd_rate', 'setting_value' => '25000', 'setting_type' => 'number'],
+                ['setting_key' => 'currency_display', 'setting_value' => 'both', 'setting_type' => 'string'],
+                ['setting_key' => 'rate_last_updated', 'setting_value' => '', 'setting_type' => 'datetime'],
+            ];
+
+            foreach ($currencySettings as $setting) {
+                $exists = Capsule::table('mod_nicsrs_settings')
+                    ->where('setting_key', $setting['setting_key'])
+                    ->exists();
+                
+                if (!$exists) {
+                    Capsule::table('mod_nicsrs_settings')->insert($setting);
+                }
+            }
+        }
+        
+        // Future upgrades can be added here
+        // if (version_compare($currentVersion, '1.4.0', '<')) { ... }
+        
+    } catch (\Exception $e) {
+        // Log error but don't fail upgrade
+        logModuleCall(
+            'nicsrs_ssl_admin',
+            'upgrade_error',
+            ['from' => $currentVersion, 'to' => NICSRS_ADMIN_VERSION],
+            $e->getMessage(),
+            'ERROR'
+        );
     }
     
     return [
@@ -416,4 +469,9 @@ function renderFooter()
         </div>
     </div><!-- .nicsrs-admin-wrapper -->
     <?php
+}
+
+// Register hooks for cron integration (Auto-Sync feature)
+if (file_exists(__DIR__ . '/hooks.php')) {
+    require_once __DIR__ . '/hooks.php';
 }

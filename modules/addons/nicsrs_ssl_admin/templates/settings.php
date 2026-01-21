@@ -97,35 +97,139 @@ use NicsrsAdmin\Helper\CurrencyHelper;
                 </div>
             </div>
 
-            <!-- Sync Settings -->
+            <!-- Auto-Sync Settings Panel -->
             <div class="panel panel-default">
                 <div class="panel-heading">
-                    <h3 class="panel-title"><i class="fa fa-refresh"></i> Auto-Sync Settings</h3>
+                    <h3 class="panel-title">
+                        <i class="fa fa-refresh"></i> Auto-Sync Settings
+                        <span class="pull-right">
+                            <span id="sync-status-badge" class="label label-default">
+                                <i class="fa fa-circle-o-notch fa-spin"></i> Loading...
+                            </span>
+                        </span>
+                    </h3>
                 </div>
                 <div class="panel-body">
+                    
+                    <!-- Sync Status Display -->
+                    <div id="sync-status-info" class="alert alert-info" style="display: none;">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <strong><i class="fa fa-certificate"></i> Status Sync:</strong>
+                                <ul class="list-unstyled" style="margin-top: 5px; margin-bottom: 0;">
+                                    <li>Last Sync: <span id="last-status-sync">-</span></li>
+                                    <li>Next Sync: <span id="next-status-sync">-</span></li>
+                                    <li>Pending Certs: <span id="pending-certs-count" class="badge">0</span></li>
+                                </ul>
+                            </div>
+                            <div class="col-md-6">
+                                <strong><i class="fa fa-cubes"></i> Product Sync:</strong>
+                                <ul class="list-unstyled" style="margin-top: 5px; margin-bottom: 0;">
+                                    <li>Last Sync: <span id="last-product-sync">-</span></li>
+                                    <li>Next Sync: <span id="next-product-sync">-</span></li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Error Alert (hidden by default) -->
+                    <div id="sync-error-alert" class="alert alert-warning" style="display: none;">
+                        <i class="fa fa-exclamation-triangle"></i>
+                        <strong>Sync Warning:</strong>
+                        <span id="sync-error-message">Auto-sync has encountered errors.</span>
+                    </div>
+
+                    <!-- Enable Auto-Sync Checkbox -->
                     <div class="checkbox">
                         <label>
                             <input type="checkbox" name="auto_sync_status" value="1" form="settingsForm"
-                                   <?php echo !empty($settings['auto_sync_status']) ? 'checked' : ''; ?>>
-                            Enable automatic status sync
+                                id="auto_sync_status"
+                                <?php echo !empty($settings['auto_sync_status']) ? 'checked' : ''; ?>>
+                            <strong>Enable automatic status sync</strong>
                         </label>
+                        <p class="help-block">
+                            When enabled, certificate statuses will be automatically synchronized with NicSRS API 
+                            based on the configured interval via WHMCS cron.
+                        </p>
                     </div>
                     
+                    <!-- Status Sync Interval -->
                     <div class="form-group">
                         <label>Status Sync Interval (hours):</label>
-                        <input type="number" name="sync_interval_hours" class="form-control" style="width: 100px;"
-                               form="settingsForm"
-                               value="<?php echo isset($settings['sync_interval_hours']) ? (int)$settings['sync_interval_hours'] : 6; ?>"
-                               min="1" max="24">
+                        <div class="input-group" style="width: 150px;">
+                            <input type="number" name="sync_interval_hours" class="form-control"
+                                form="settingsForm" id="sync_interval_hours"
+                                value="<?php echo isset($settings['sync_interval_hours']) ? (int)$settings['sync_interval_hours'] : 6; ?>"
+                                min="1" max="24">
+                            <span class="input-group-addon">hours</span>
+                        </div>
+                        <p class="help-block">
+                            How often to sync pending certificate statuses (1-24 hours). 
+                            Recommended: 6 hours for normal usage.
+                        </p>
                     </div>
                     
+                    <!-- Product Sync Interval -->
                     <div class="form-group">
                         <label>Product Sync Interval (hours):</label>
-                        <input type="number" name="product_sync_hours" class="form-control" style="width: 100px;"
-                               form="settingsForm"
-                               value="<?php echo isset($settings['product_sync_hours']) ? (int)$settings['product_sync_hours'] : 24; ?>"
-                               min="1" max="168">
+                        <div class="input-group" style="width: 150px;">
+                            <input type="number" name="product_sync_hours" class="form-control"
+                                form="settingsForm" id="product_sync_hours"
+                                value="<?php echo isset($settings['product_sync_hours']) ? (int)$settings['product_sync_hours'] : 24; ?>"
+                                min="1" max="168">
+                            <span class="input-group-addon">hours</span>
+                        </div>
+                        <p class="help-block">
+                            How often to sync product list and pricing from NicSRS API (1-168 hours). 
+                            Recommended: 24 hours.
+                        </p>
                     </div>
+
+                    <!-- Batch Size -->
+                    <div class="form-group">
+                        <label>Sync Batch Size:</label>
+                        <div class="input-group" style="width: 150px;">
+                            <input type="number" name="sync_batch_size" class="form-control"
+                                form="settingsForm" id="sync_batch_size"
+                                value="<?php echo isset($settings['sync_batch_size']) ? (int)$settings['sync_batch_size'] : 50; ?>"
+                                min="10" max="200">
+                            <span class="input-group-addon">certs</span>
+                        </div>
+                        <p class="help-block">
+                            Maximum certificates to process per sync run (10-200). 
+                            Lower values reduce API load but may take longer to sync all certificates.
+                        </p>
+                    </div>
+
+                    <hr>
+
+                    <!-- Manual Sync Buttons -->
+                    <div class="form-group">
+                        <label>Manual Sync:</label>
+                        <div class="btn-group">
+                            <button type="button" class="btn btn-primary" id="btn-sync-status" onclick="runManualSync('status')">
+                                <i class="fa fa-refresh"></i> Sync Certificate Status
+                            </button>
+                            <button type="button" class="btn btn-default" id="btn-sync-products" onclick="runManualSync('products')">
+                                <i class="fa fa-cubes"></i> Sync Products
+                            </button>
+                            <button type="button" class="btn btn-info" id="btn-check-expiring" onclick="checkExpiringCerts()">
+                                <i class="fa fa-clock-o"></i> Check Expiring
+                            </button>
+                        </div>
+                        <p class="help-block">
+                            Manually trigger sync without waiting for cron schedule.
+                        </p>
+                    </div>
+
+                    <!-- Sync Log (last 5 entries) -->
+                    <div class="form-group" id="sync-log-section" style="display: none;">
+                        <label>Recent Sync Activity:</label>
+                        <div id="sync-log-list" class="well well-sm" style="max-height: 150px; overflow-y: auto; font-size: 12px;">
+                            <!-- Populated by JavaScript -->
+                        </div>
+                    </div>
+
                 </div>
             </div>
 
@@ -506,4 +610,177 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 });
+</script>
+
+<script>
+(function($) {
+    'use strict';
+
+    // Load sync status on page load
+    $(document).ready(function() {
+        loadSyncStatus();
+    });
+
+    /**
+     * Load and display sync status
+     */
+    function loadSyncStatus() {
+        $.ajax({
+            url: 'addonmodules.php?module=nicsrs_ssl_admin&action=settings',
+            type: 'POST',
+            data: {
+                ajax: 1,
+                ajax_action: 'get_sync_status'
+            },
+            dataType: 'json',
+            success: function(response) {
+                if (response.success && response.data) {
+                    updateSyncStatusDisplay(response.data);
+                }
+            },
+            error: function() {
+                $('#sync-status-badge').html('<i class="fa fa-exclamation-circle"></i> Error');
+            }
+        });
+    }
+
+    /**
+     * Update sync status display
+     */
+    function updateSyncStatusDisplay(data) {
+        // Update badge
+        if (data.enabled) {
+            $('#sync-status-badge')
+                .removeClass('label-default label-danger')
+                .addClass('label-success')
+                .html('<i class="fa fa-check"></i> Active');
+        } else {
+            $('#sync-status-badge')
+                .removeClass('label-default label-success')
+                .addClass('label-warning')
+                .html('<i class="fa fa-pause"></i> Disabled');
+        }
+
+        // Show status info
+        $('#sync-status-info').show();
+
+        // Status sync info
+        $('#last-status-sync').text(data.status_sync.last_sync || 'Never');
+        $('#next-status-sync').text(data.status_sync.next_sync || 'On next cron');
+        $('#pending-certs-count').text(data.status_sync.pending_certificates || 0);
+
+        // Product sync info
+        $('#last-product-sync').text(data.product_sync.last_sync || 'Never');
+        $('#next-product-sync').text(data.product_sync.next_sync || 'On next cron');
+
+        // Error alert
+        if (data.error_count >= 3) {
+            $('#sync-error-message').text('Auto-sync has encountered ' + data.error_count + ' consecutive errors.');
+            $('#sync-error-alert').show();
+        } else {
+            $('#sync-error-alert').hide();
+        }
+    }
+
+    /**
+     * Run manual sync
+     */
+    window.runManualSync = function(type) {
+        var btn = type === 'status' ? '#btn-sync-status' : '#btn-sync-products';
+        var originalHtml = $(btn).html();
+
+        $(btn).html('<i class="fa fa-spinner fa-spin"></i> Syncing...').prop('disabled', true);
+
+        $.ajax({
+            url: 'addonmodules.php?module=nicsrs_ssl_admin&action=settings',
+            type: 'POST',
+            data: {
+                ajax: 1,
+                ajax_action: 'manual_sync',
+                sync_type: type
+            },
+            dataType: 'json',
+            success: function(response) {
+                if (response.success) {
+                    NicsrsAdmin.toast(response.message, 'success');
+                    loadSyncStatus(); // Refresh status display
+                    addSyncLogEntry(type, response.message, 'success');
+                } else {
+                    NicsrsAdmin.toast(response.message || 'Sync failed', 'error');
+                    addSyncLogEntry(type, response.message, 'error');
+                }
+            },
+            error: function(xhr) {
+                NicsrsAdmin.toast('Sync request failed', 'error');
+                addSyncLogEntry(type, 'Request failed', 'error');
+            },
+            complete: function() {
+                $(btn).html(originalHtml).prop('disabled', false);
+            }
+        });
+    };
+
+    /**
+     * Check expiring certificates
+     */
+    window.checkExpiringCerts = function() {
+        var btn = '#btn-check-expiring';
+        var originalHtml = $(btn).html();
+
+        $(btn).html('<i class="fa fa-spinner fa-spin"></i> Checking...').prop('disabled', true);
+
+        $.ajax({
+            url: 'addonmodules.php?module=nicsrs_ssl_admin&action=settings',
+            type: 'POST',
+            data: {
+                ajax: 1,
+                ajax_action: 'check_expiring'
+            },
+            dataType: 'json',
+            success: function(response) {
+                if (response.success) {
+                    NicsrsAdmin.toast(response.message, 'success');
+                    addSyncLogEntry('expiry_check', response.message, 'success');
+                } else {
+                    NicsrsAdmin.toast(response.message || 'Check failed', 'error');
+                }
+            },
+            error: function() {
+                NicsrsAdmin.toast('Request failed', 'error');
+            },
+            complete: function() {
+                $(btn).html(originalHtml).prop('disabled', false);
+            }
+        });
+    };
+
+    /**
+     * Add entry to sync log display
+     */
+    function addSyncLogEntry(type, message, status) {
+        var logSection = $('#sync-log-section');
+        var logList = $('#sync-log-list');
+        
+        logSection.show();
+
+        var icon = status === 'success' ? 'fa-check text-success' : 'fa-times text-danger';
+        var timestamp = new Date().toLocaleTimeString();
+        
+        var entry = '<div class="sync-log-entry">' +
+            '<i class="fa ' + icon + '"></i> ' +
+            '<strong>' + timestamp + '</strong> - ' +
+            '<span class="text-muted">[' + type + ']</span> ' +
+            message +
+            '</div>';
+
+        logList.prepend(entry);
+
+        // Keep only last 5 entries
+        var entries = logList.find('.sync-log-entry');
+        if (entries.length > 5) {
+            entries.slice(5).remove();
+        }
+    }
+
+})(jQuery);
 </script>
