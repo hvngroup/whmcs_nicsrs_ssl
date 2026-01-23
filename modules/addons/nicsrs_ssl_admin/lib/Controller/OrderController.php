@@ -123,13 +123,36 @@ class OrderController extends BaseController
         }
 
         if ($search) {
-            $query->where(function ($q) use ($search) {
-                $q->where('o.remoteid', 'like', "%{$search}%")
-                  ->orWhere('c.firstname', 'like', "%{$search}%")
-                  ->orWhere('c.lastname', 'like', "%{$search}%")
-                  ->orWhere('c.email', 'like', "%{$search}%")
-                  ->orWhere('c.companyname', 'like', "%{$search}%")
-                  ->orWhere('o.certtype', 'like', "%{$search}%");
+            // Escape special characters for LIKE query
+            $searchEscaped = addcslashes($search, '%_');
+            
+            $query->where(function ($q) use ($search, $searchEscaped) {
+                // Search by Order ID (exact or partial)
+                if (is_numeric($search)) {
+                    $q->where('o.id', $search)
+                      ->orWhere('o.id', 'like', "%{$search}%");
+                }
+                
+                // Search by Remote ID
+                $q->orWhere('o.remoteid', 'like', "%{$searchEscaped}%");
+                
+                // Search by Client info
+                $q->orWhere('c.firstname', 'like', "%{$searchEscaped}%")
+                  ->orWhere('c.lastname', 'like', "%{$searchEscaped}%")
+                  ->orWhere('c.email', 'like', "%{$searchEscaped}%")
+                  ->orWhere('c.companyname', 'like', "%{$searchEscaped}%");
+                
+                // Search by Certificate type / Product code
+                $q->orWhere('o.certtype', 'like', "%{$searchEscaped}%");
+                
+                // Search by Domain (stored in configdata JSON)
+                // Domain is at: configdata->domainInfo[0]->domainName
+                $q->orWhere('o.configdata', 'like', '%"domainName":"' . $searchEscaped . '%')
+                  ->orWhere('o.configdata', 'like', '%"domainName":"%' . $searchEscaped . '%');
+                
+                // Also search for domain in applyReturn (some certs store it there)
+                $q->orWhere('o.configdata', 'like', '%"domain":"' . $searchEscaped . '%')
+                  ->orWhere('o.configdata', 'like', '%"domain":"%' . $searchEscaped . '%');
             });
         }
 
