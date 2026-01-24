@@ -1,413 +1,638 @@
 <?php
-# Set namespace
+/**
+ * NicSRS SSL Database Operations
+ * 
+ * Handles all database operations for SSL orders
+ * 
+ * @package    WHMCS
+ * @author     HVN GROUP
+ * @version    2.0.0
+ */
+
 namespace nicsrsSSL;
 
-# Set Laravel class alias
 use WHMCS\Database\Capsule;
-use \Exception;
+use Exception;
 
-class nicsrsSSLSql{
+class nicsrsSSLSql
+{
     /**
-     * Get SSL Product Data
-     * @param int $service_id::SSL product ID
-     * @return mixed $response::SSL product data or return false
+     * Table name
      */
-    public static function GetSSLProduct($service_id){
-        try{
-            $response = Capsule::table('nicsrs_sslorders')
-                ->where('serviceid','=', $service_id)
-                ->first();
-            return $response;
-        } catch (Exception $e) {
-            return false;
-        }
-    }
-
-
-    public static function GetUserInfo($userid){
-        try{
-            $response = Capsule::table('tblclients')
-                ->where('id','=', $userid)
-                ->first();
-            return $response;
-        } catch (Exception $e) {
-            return false;
-        }
-    }
+    const TABLE_NAME = 'nicsrs_sslorders';
 
     /**
-     * @param $service_id
-     * @return false|\Illuminate\Database\Query\Builder|mixed|null
+     * Get SSL order by service ID
+     * 
+     * @param int $serviceId WHMCS service ID
+     * @return object|null Order object or null
      */
-    public static function GetDomainCounts($service_id){
-        try{
-            $response = Capsule::table('tblhostingconfigoptions')
-                ->where('relid','=', $service_id)
-                ->first()->qty;
-            return $response;
-        } catch (Exception $e) {
-            return false;
-        }
-    }
-
-
-
-    /**
-     * Reset Product User info
-     * @param string $username::Username
-     * @param string $password::Password
-     * @param int $service_id::Service Id
-     * @return boolean::Operation status
-     */
-    public static function ResetUserInfos($username, $password, $service_id) {
-        # Reset username/password for table 'tblhosting'
+    public static function GetSSLProduct($serviceId)
+    {
         try {
-            Capsule::table('tblhosting')
-                ->where('id', $service_id)
-                ->update([
-                    'username' => $username,
-                    'password' => $password
-                ]);
-            return True;
-        } catch (Exception $e) {
-            Return False;
-        }
-    }
-
-    public static function getCertName($pid){
-        $name = Capsule::table('tblproducts')
-            ->where('id','=', $pid)
-            ->first()
-            ->name;
-        return $name;
-    }
-
-    /**
-     * Get Service ID
-     * @param int $service_id::Service ID
-     * @return mixed::Service ID info or error status
-     */
-    public static function GetServiceID($service_id) {
-        try {
-            $results = Capsule::table('tblhosting')
-                ->where('id', $service_id)
-                ->first();
-            return $results;
-        } catch (Exception $e) {
-            return False;
-        }
-    }
-
-    /**
-     * Create SSL Order
-     * @param array $params::Data from WHMCS
-     * @return int $id::Database order ID
-     */
-    public static function CreateOrders($params) {
-        $id = Capsule::table('nicsrs_sslorders')
-            ->insertGetId([
-                'userid' => $params['clientsdetails']['userid'],
-                'serviceid' => $params['serviceid'],
-                'module' => 'nicsrs_ssl',
-                'certtype' => $params['certtype'],
-                'provisiondate' => date('Y-m-d'),
-                'status' => ORDER_STATUS_AWAIT_CONF
-            ]);
-
-        $result = Capsule::table('nicsrs_sslorders')->find($id);
-
-        return $result;
-    }
-
-    /**
-     * @param $remote_id
-     * @return bool|\Illuminate\Database\Query\Builder|mixed
-     */
-    public static function getSslOrderByRemoteId($remote_id) {
-        try {
-            return Capsule::table('nicsrs_sslorders')
-                ->where('remoteid', $remote_id)
-                ->first();
-        } catch (Exception $e) {
-            return false;
-        }
-    }
-
-    /**
-     * @param $remote_id
-     * @param $config_data
-     * @return bool
-     */
-    public static function updateSslConfigByRemoteId($remote_id, $config_data) {
-        try {
-            Capsule::table('nicsrs_sslorders')
-                ->where('remoteid', $remote_id)
-                ->update(['configdata' => $config_data]);
-            return true;
-        } catch (Exception $e) {
-            return false;
-        }
-    }
-
-    /**
-     * Update SSL Order Config Data
-     */
-    public static function UpdateSslConfig($service_id, $config_data) {
-        try {
-            Capsule::table('nicsrs_sslorders')
-                ->where('serviceid', $service_id)
-                ->update(['configdata' => $config_data]);
-            return True;
-        } catch (Exception $e) {
-            return False;
-        }
-    }
-    public static function UpdateCert($service_id,$config_data,$remoteid,$status){
-        return Capsule::table('nicsrs_sslorders')
-            ->where('serviceid', $service_id)
-            ->update([
-                'configdata' => $config_data,
-                'status'=>$status,
-                'remoteid'=>$remoteid
-
-            ]);
-    }
-    public static function UpdateSslRemoteid($service_id,$remoteid) {
-        try {
-            Capsule::table('nicsrs_sslorders')
-                ->where('serviceid', $service_id)
-                ->update(['remoteid'=>$remoteid]);
-            return True;
-        } catch (Exception $e) {
-            return False;
-        }
-    }
-    public static function UpdateSslStatus($service_id,$status) {
-        try {
-            Capsule::table('nicsrs_sslorders')
-                ->where('serviceid', $service_id)
-                ->update(['status'=>$status]);
-            return True;
-        } catch (Exception $e) {
-            return False;
-        }
-    }
-    public static function UpdateSslPending($service_id,$status) {
-        try {
-            Capsule::table('nicsrs_sslorders')
-                ->where('serviceid', $service_id)
-                ->update(['status'=>$status]);
-            return True;
-        } catch (Exception $e) {
-            return False;
-        }
-    }
-
-    public static function UpdateSslAddon($service_id,$addon) {
-        try {
-            Capsule::table('nicsrs_sslorders')
-                ->where('serviceid', $service_id)
-                ->update(['addon_id'=>$addon]);
-            return True;
-        } catch (Exception $e) {
-            return False;
-        }
-    }
-
-    public static function UpdateSslCerttype($service_id,$certtype) {
-        try {
-            Capsule::table('nicsrs_sslorders')
-                ->where('serviceid', $service_id)
-                ->update(['certtype'=>$certtype]);
-            return True;
-        } catch (Exception $e) {
-            return False;
-        }
-    }
-
-
-    public static function GetSSLOrder($service_id) {
-        try {
-            $respose = Capsule::table('tblhosting')
-                ->where('id', $service_id)
-                ->first();
-            return $respose;
-        } catch (Exception $e) {
-            return False;
-        }
-    }
-
-    public static function TerminateSSLOrder($service_id) {
-        try {
-            Capsule::table('tblhosting')
-                ->where('id', $service_id)
-                ->update(['domainstatus' => 'Terminated']);
-            return True;
-        } catch (Exception $e) {
-            return False;
-        }
-    }
-    public static function UpdateBilling($service_id, $start_date, $expiry_date) {
-        try {
-            Capsule::table('tblhosting')
-                ->where('id', $service_id)
-                ->update(['regdate' => $start_date, 'nextduedate' => $expiry_date, 'nextinvoicedate' => $expiry_date]);
-            return True;
-        } catch (Exception $e) {
-            return False;
-        }
-    }
-
-
-    /**
-     * Update Product Domain Name
-     * @param int $service_id::Service ID
-     * @param string $domain_name::Product's domain name
-     * @return boolean::Operations status
-     */
-    public static function UpdateDomain($service_id, $domain_name) {
-        try {
-            $response = Capsule::table('tblhosting')
-                ->where('id', $service_id)
-                ->update(['domain' => $domain_name]);
-            return True;
-        } catch (Exception $e) {
-            return False;
-        }
-    }
-
-
-
-    /**
-     * Reset Product User info
-     * @param string $username::Username
-     * @param string $password::Password
-     * @param int $service_id::Service Id
-     * @return boolean::Operation status
-     */
-    public static function ResetUserInfo($username, $password, $service_id) {
-        # Reset username/password for table 'tblhosting'
-        try {
-            Capsule::table('tblhosting')
-                ->where('id', $service_id)
-                ->update([
-                    'username' => $username,
-                    'password' => $password
-                ]);
-            return True;
-        } catch (Exception $e) {
-            Return False;
-        }
-    }
-
-
-    /**
-     * Get System Language Setting
-     * @return string $lang::System default language setting
-     */
-    public static function GetLanguage($userid) {
-        try {
-            $results1 =  Capsule::table('tblclients')
-                ->find($userid)->language;
-
-            if (!empty($results1)) {
-                return $results1;
-            }
-            $results2 = Capsule::table('tblconfiguration')
-                ->where('setting', 'language')->first();
-
-            return !empty($results2->value) ? $results2->value : 'chinese';
-        } catch (Exception $e) {
-            return False;
-        }
-    }
-
-    /**
-     * Check table exists or not.
-     * @param $tblName
-     * @return bool
-     */
-    public static function checkTableExists($tblName) {
-        try{
-            return Capsule::table($tblName)->exists();
-        } catch (Exception $e) {
-            return false;
-        }
-    }
-
-    public static function createOrderTable() {
-
-    }
-
-    /**
-     * Update the remote_id of which ssl order has been reissued.
-     * @param $old_remote_id
-     * @param $new_remote_id
-     * @return bool
-     */
-    public static function reissueSsl($old_remote_id, $new_remote_id) {
-        try {
-            Capsule::table('nicsrs_sslorders')
-                ->where('remoteid', $old_remote_id)
-                ->update(['remoteid' => $new_remote_id, 'status' => 'pending']);
-            return true;
-        } catch (Exception $e) {
-            return false;
-        }
-    }
-
-    /**
-     * @param $remote_id
-     * @return bool
-     */
-    public static function replaceSsl($serviceId,$configdata) {
-        try {
-            Capsule::table('nicsrs_sslorders')
+            return Capsule::table(self::TABLE_NAME)
                 ->where('serviceid', $serviceId)
-                ->update([
-                    'status' => ORDER_STATUS_REISSUE,
-                    'configdata'=>$configdata
-                ]);
-            return true;
-        } catch (Exception $e) {
-            return false;
-        }
-    }
-
-    public static function saveReplaceDraft($serviceid, $configdata) {
-        try {
-            Capsule::table('nicsrs_sslorders')
-                ->where('serviceid', $serviceid)
-                ->update([
-                    'configdata' => $configdata,
-                ]);
-            return true;
-        } catch (Exception $e) {
-            return false;
-        }
-    }
-    public static function saveDraft($serviceid, $configdata) {
-        try {
-            Capsule::table('nicsrs_sslorders')
-                ->where('serviceid', $serviceid)
-                ->update([
-                    'configdata' => $configdata,
-                    'status' => ORDER_STATUS_DRAFT
-                ]);
-            return true;
-        } catch (Exception $e) {
-            return false;
-        }
-    }
-
-    public static function GetUserByID($userId) {
-        try {
-            $userInfo = Capsule::table('tblclients')
-                ->where('id', $userId)
                 ->first();
-            return $userInfo;
+        } catch (Exception $e) {
+            logModuleCall(
+                'nicsrs_ssl',
+                'GetSSLProduct',
+                ['serviceid' => $serviceId],
+                $e->getMessage(),
+                ''
+            );
+            return null;
+        }
+    }
+
+    /**
+     * Get SSL order by order ID
+     * 
+     * @param int $orderId Order ID
+     * @return object|null Order object or null
+     */
+    public static function GetOrderById($orderId)
+    {
+        try {
+            return Capsule::table(self::TABLE_NAME)
+                ->where('id', $orderId)
+                ->first();
+        } catch (Exception $e) {
+            return null;
+        }
+    }
+
+    /**
+     * Get SSL order by certificate ID (remoteid)
+     * 
+     * @param string $certId Certificate ID
+     * @return object|null Order object or null
+     */
+    public static function GetOrderByCertId($certId)
+    {
+        try {
+            return Capsule::table(self::TABLE_NAME)
+                ->where('remoteid', $certId)
+                ->first();
+        } catch (Exception $e) {
+            return null;
+        }
+    }
+
+    /**
+     * Get order ID by service ID
+     * 
+     * @param int $serviceId WHMCS service ID
+     * @return int|null Order ID or null
+     */
+    public static function GetOrderIdByServiceId($serviceId)
+    {
+        $order = self::GetSSLProduct($serviceId);
+        return $order ? $order->id : null;
+    }
+
+    /**
+     * Create new SSL order
+     * 
+     * @param array $data Order data
+     * @return int|false Order ID or false on failure
+     */
+    public static function CreateOrder(array $data)
+    {
+        try {
+            // Set defaults
+            $orderData = array_merge([
+                'userid' => 0,
+                'serviceid' => 0,
+                'addon_id' => '',
+                'remoteid' => '',
+                'module' => 'nicsrs_ssl',
+                'certtype' => '',
+                'configdata' => '{}',
+                'provisiondate' => date('Y-m-d'),
+                'completiondate' => '0000-00-00 00:00:00',
+                'status' => 'awaiting',
+            ], $data);
+            
+            // Ensure configdata is JSON string
+            if (is_array($orderData['configdata'])) {
+                $orderData['configdata'] = json_encode($orderData['configdata']);
+            }
+            
+            return Capsule::table(self::TABLE_NAME)->insertGetId($orderData);
+            
+        } catch (Exception $e) {
+            logModuleCall(
+                'nicsrs_ssl',
+                'CreateOrder',
+                $data,
+                $e->getMessage(),
+                ''
+            );
+            return false;
+        }
+    }
+
+    /**
+     * Update order status
+     * 
+     * @param int $orderId Order ID
+     * @param string $status New status
+     * @return bool Success
+     */
+    public static function UpdateOrderStatus($orderId, $status)
+    {
+        try {
+            $updateData = ['status' => $status];
+            
+            // Set completion date if status is complete
+            if (in_array($status, ['complete', 'issued'])) {
+                $updateData['completiondate'] = date('Y-m-d H:i:s');
+            }
+            
+            Capsule::table(self::TABLE_NAME)
+                ->where('id', $orderId)
+                ->update($updateData);
+            
+            return true;
+            
+        } catch (Exception $e) {
+            logModuleCall(
+                'nicsrs_ssl',
+                'UpdateOrderStatus',
+                ['orderId' => $orderId, 'status' => $status],
+                $e->getMessage(),
+                ''
+            );
+            return false;
+        }
+    }
+
+    /**
+     * Update order remote ID (certificate ID)
+     * 
+     * @param int $orderId Order ID
+     * @param string $remoteId Certificate ID from NicSRS
+     * @return bool Success
+     */
+    public static function UpdateRemoteId($orderId, $remoteId)
+    {
+        try {
+            Capsule::table(self::TABLE_NAME)
+                ->where('id', $orderId)
+                ->update(['remoteid' => $remoteId]);
+            
+            return true;
+            
         } catch (Exception $e) {
             return false;
+        }
+    }
+
+    /**
+     * Update order configdata
+     * 
+     * @param int $orderId Order ID
+     * @param array $configData Configuration data
+     * @param bool $merge Merge with existing data
+     * @return bool Success
+     */
+    public static function UpdateConfigData($orderId, array $configData, $merge = true)
+    {
+        try {
+            if ($merge) {
+                $order = self::GetOrderById($orderId);
+                if ($order) {
+                    $existingData = json_decode($order->configdata, true) ?: [];
+                    $configData = array_merge($existingData, $configData);
+                }
+            }
+            
+            Capsule::table(self::TABLE_NAME)
+                ->where('id', $orderId)
+                ->update([
+                    'configdata' => json_encode($configData, JSON_UNESCAPED_UNICODE),
+                ]);
+            
+            return true;
+            
+        } catch (Exception $e) {
+            logModuleCall(
+                'nicsrs_ssl',
+                'UpdateConfigData',
+                ['orderId' => $orderId],
+                $e->getMessage(),
+                ''
+            );
+            return false;
+        }
+    }
+
+    /**
+     * Update specific field in configdata
+     * 
+     * @param int $orderId Order ID
+     * @param string $key Config key
+     * @param mixed $value Config value
+     * @return bool Success
+     */
+    public static function UpdateConfigField($orderId, $key, $value)
+    {
+        return self::UpdateConfigData($orderId, [$key => $value], true);
+    }
+
+    /**
+     * Update order with API response data
+     * 
+     * @param int $orderId Order ID
+     * @param object $apiResponse API response object
+     * @return bool Success
+     */
+    public static function UpdateFromApiResponse($orderId, $apiResponse)
+    {
+        try {
+            $order = self::GetOrderById($orderId);
+            if (!$order) {
+                return false;
+            }
+            
+            $configData = json_decode($order->configdata, true) ?: [];
+            $apiData = (array) $apiResponse;
+            
+            // Update applyReturn section
+            if (!isset($configData['applyReturn'])) {
+                $configData['applyReturn'] = [];
+            }
+            $configData['applyReturn'] = array_merge($configData['applyReturn'], $apiData);
+            $configData['lastRefresh'] = date('Y-m-d H:i:s');
+            
+            // Update DCV list if available
+            if (!empty($apiData['dcvList'])) {
+                $configData['domainInfo'] = [];
+                foreach ($apiData['dcvList'] as $dcv) {
+                    $dcvArray = (array) $dcv;
+                    $configData['domainInfo'][] = [
+                        'domainName' => $dcvArray['domainName'] ?? '',
+                        'dcvMethod' => $dcvArray['dcvMethod'] ?? 'EMAIL',
+                        'dcvEmail' => $dcvArray['dcvEmail'] ?? '',
+                        'isVerified' => ($dcvArray['is_verify'] ?? '') === 'verified',
+                        'is_verify' => $dcvArray['is_verify'] ?? '',
+                    ];
+                }
+            }
+            
+            Capsule::table(self::TABLE_NAME)
+                ->where('id', $orderId)
+                ->update(['configdata' => json_encode($configData, JSON_UNESCAPED_UNICODE)]);
+            
+            return true;
+            
+        } catch (Exception $e) {
+            return false;
+        }
+    }
+
+    /**
+     * Update certificate type
+     * 
+     * @param int $orderId Order ID
+     * @param string $certType Certificate type code
+     * @return bool Success
+     */
+    public static function UpdateCertType($orderId, $certType)
+    {
+        try {
+            Capsule::table(self::TABLE_NAME)
+                ->where('id', $orderId)
+                ->update(['certtype' => $certType]);
+            
+            return true;
+            
+        } catch (Exception $e) {
+            return false;
+        }
+    }
+
+    /**
+     * Get orders by user ID
+     * 
+     * @param int $userId WHMCS user ID
+     * @param array $filters Optional filters
+     * @return array Orders
+     */
+    public static function GetOrdersByUserId($userId, array $filters = [])
+    {
+        try {
+            $query = Capsule::table(self::TABLE_NAME)
+                ->where('userid', $userId);
+            
+            if (!empty($filters['status'])) {
+                $query->where('status', $filters['status']);
+            }
+            
+            if (!empty($filters['limit'])) {
+                $query->limit($filters['limit']);
+            }
+            
+            return $query->orderBy('id', 'desc')->get()->toArray();
+            
+        } catch (Exception $e) {
+            return [];
+        }
+    }
+
+    /**
+     * Get orders by status
+     * 
+     * @param string|array $status Status or array of statuses
+     * @param int $limit Maximum results
+     * @return array Orders
+     */
+    public static function GetOrdersByStatus($status, $limit = 100)
+    {
+        try {
+            $query = Capsule::table(self::TABLE_NAME);
+            
+            if (is_array($status)) {
+                $query->whereIn('status', $status);
+            } else {
+                $query->where('status', $status);
+            }
+            
+            return $query->limit($limit)
+                ->orderBy('id', 'desc')
+                ->get()
+                ->toArray();
+            
+        } catch (Exception $e) {
+            return [];
+        }
+    }
+
+    /**
+     * Delete order
+     * 
+     * @param int $orderId Order ID
+     * @return bool Success
+     */
+    public static function DeleteOrder($orderId)
+    {
+        try {
+            Capsule::table(self::TABLE_NAME)
+                ->where('id', $orderId)
+                ->delete();
+            
+            return true;
+            
+        } catch (Exception $e) {
+            return false;
+        }
+    }
+
+    /**
+     * Check if order exists for service
+     * 
+     * @param int $serviceId WHMCS service ID
+     * @return bool
+     */
+    public static function OrderExists($serviceId)
+    {
+        return self::GetSSLProduct($serviceId) !== null;
+    }
+
+    /**
+     * Get order count by status
+     * 
+     * @param string $status Status
+     * @return int Count
+     */
+    public static function GetOrderCountByStatus($status)
+    {
+        try {
+            return Capsule::table(self::TABLE_NAME)
+                ->where('status', $status)
+                ->count();
+        } catch (Exception $e) {
+            return 0;
+        }
+    }
+
+    /**
+     * Get total order count
+     * 
+     * @return int Count
+     */
+    public static function GetTotalOrderCount()
+    {
+        try {
+            return Capsule::table(self::TABLE_NAME)->count();
+        } catch (Exception $e) {
+            return 0;
+        }
+    }
+
+    /**
+     * Search orders
+     * 
+     * @param string $keyword Search keyword
+     * @param int $limit Maximum results
+     * @return array Orders
+     */
+    public static function SearchOrders($keyword, $limit = 50)
+    {
+        try {
+            return Capsule::table(self::TABLE_NAME)
+                ->where('remoteid', 'like', "%{$keyword}%")
+                ->orWhere('certtype', 'like', "%{$keyword}%")
+                ->orWhere('configdata', 'like', "%{$keyword}%")
+                ->limit($limit)
+                ->orderBy('id', 'desc')
+                ->get()
+                ->toArray();
+        } catch (Exception $e) {
+            return [];
+        }
+    }
+
+    /**
+     * Get pending orders for sync
+     * 
+     * @param int $limit Maximum results
+     * @return array Orders
+     */
+    public static function GetPendingOrdersForSync($limit = 50)
+    {
+        try {
+            return Capsule::table(self::TABLE_NAME)
+                ->whereIn('status', ['pending', 'processing'])
+                ->whereNotNull('remoteid')
+                ->where('remoteid', '!=', '')
+                ->limit($limit)
+                ->orderBy('id', 'asc')
+                ->get()
+                ->toArray();
+        } catch (Exception $e) {
+            return [];
+        }
+    }
+
+    /**
+     * Get expiring certificates
+     * 
+     * @param int $days Days until expiry
+     * @return array Orders
+     */
+    public static function GetExpiringCertificates($days = 30)
+    {
+        try {
+            $expiryDate = date('Y-m-d', strtotime("+{$days} days"));
+            
+            return Capsule::table(self::TABLE_NAME)
+                ->where('status', 'complete')
+                ->whereRaw("JSON_EXTRACT(configdata, '$.applyReturn.endDate') <= ?", [$expiryDate])
+                ->orderBy('id', 'asc')
+                ->get()
+                ->toArray();
+        } catch (Exception $e) {
+            return [];
+        }
+    }
+
+    /**
+     * Bulk update order statuses
+     * 
+     * @param array $orderIds Order IDs
+     * @param string $status New status
+     * @return int Affected rows
+     */
+    public static function BulkUpdateStatus(array $orderIds, $status)
+    {
+        try {
+            return Capsule::table(self::TABLE_NAME)
+                ->whereIn('id', $orderIds)
+                ->update(['status' => $status]);
+        } catch (Exception $e) {
+            return 0;
+        }
+    }
+
+    /**
+     * Create orders table if not exists
+     * 
+     * @return bool Success
+     */
+    public static function CreateTableIfNotExists()
+    {
+        try {
+            if (Capsule::schema()->hasTable(self::TABLE_NAME)) {
+                return true;
+            }
+            
+            Capsule::schema()->create(self::TABLE_NAME, function ($table) {
+                $table->increments('id');
+                $table->integer('userid')->unsigned();
+                $table->integer('serviceid')->unsigned();
+                $table->text('addon_id')->nullable();
+                $table->text('remoteid')->nullable();
+                $table->text('module')->nullable();
+                $table->text('certtype')->nullable();
+                $table->longText('configdata')->nullable();
+                $table->date('provisiondate')->nullable();
+                $table->dateTime('completiondate')->nullable();
+                $table->text('status')->nullable();
+                
+                $table->index('userid');
+                $table->index('serviceid');
+            });
+            
+            return true;
+            
+        } catch (Exception $e) {
+            logModuleCall(
+                'nicsrs_ssl',
+                'CreateTableIfNotExists',
+                [],
+                $e->getMessage(),
+                ''
+            );
+            return false;
+        }
+    }
+
+    /**
+     * Get order with service details
+     * 
+     * @param int $orderId Order ID
+     * @return object|null Order with service info
+     */
+    public static function GetOrderWithService($orderId)
+    {
+        try {
+            return Capsule::table(self::TABLE_NAME . ' as o')
+                ->leftJoin('tblhosting as h', 'o.serviceid', '=', 'h.id')
+                ->leftJoin('tblproducts as p', 'h.packageid', '=', 'p.id')
+                ->leftJoin('tblclients as c', 'o.userid', '=', 'c.id')
+                ->where('o.id', $orderId)
+                ->select([
+                    'o.*',
+                    'h.domainstatus as service_status',
+                    'h.domain as service_domain',
+                    'h.nextduedate',
+                    'p.name as product_name',
+                    'c.firstname',
+                    'c.lastname',
+                    'c.email as client_email',
+                    'c.companyname',
+                ])
+                ->first();
+        } catch (Exception $e) {
+            return self::GetOrderById($orderId);
+        }
+    }
+
+    /**
+     * Get statistics
+     * 
+     * @return array Statistics
+     */
+    public static function GetStatistics()
+    {
+        try {
+            $stats = [
+                'total' => 0,
+                'awaiting' => 0,
+                'pending' => 0,
+                'complete' => 0,
+                'cancelled' => 0,
+                'revoked' => 0,
+                'expired' => 0,
+            ];
+            
+            $counts = Capsule::table(self::TABLE_NAME)
+                ->select('status', Capsule::raw('COUNT(*) as count'))
+                ->groupBy('status')
+                ->get();
+            
+            foreach ($counts as $row) {
+                $status = strtolower($row->status);
+                if (isset($stats[$status])) {
+                    $stats[$status] = $row->count;
+                }
+                $stats['total'] += $row->count;
+            }
+            
+            return $stats;
+            
+        } catch (Exception $e) {
+            return [
+                'total' => 0,
+                'awaiting' => 0,
+                'pending' => 0,
+                'complete' => 0,
+                'cancelled' => 0,
+                'revoked' => 0,
+                'expired' => 0,
+            ];
         }
     }
 }
