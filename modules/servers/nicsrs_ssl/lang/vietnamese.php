@@ -2,212 +2,249 @@
 /**
  * NicSRS SSL Module - Vietnamese Language File
  * 
- * @package    WHMCS
- * @author     HVN GROUP
+ * @package    nicsrs_ssl
  * @version    2.0.0
+ * @author     HVN GROUP
+ * @copyright  Copyright (c) HVN GROUP (https://hvn.vn)
  */
 
 // General
-$_LANG['module_name'] = 'NicSRS SSL';
-$_LANG['success'] = 'Thành công';
-$_LANG['error'] = 'Lỗi';
-$_LANG['warning'] = 'Cảnh báo';
-$_LANG['info'] = 'Thông tin';
-$_LANG['close'] = 'Đóng';
-$_LANG['cancel'] = 'Hủy';
-$_LANG['save'] = 'Lưu';
-$_LANG['submit'] = 'Gửi';
-$_LANG['confirm'] = 'Xác nhận';
-$_LANG['yes'] = 'Có';
-$_LANG['no'] = 'Không';
-$_LANG['optional'] = 'Tùy chọn';
-$_LANG['required'] = 'Bắt buộc';
-$_LANG['actions'] = 'Thao tác';
-$_LANG['view'] = 'Xem';
-$_LANG['copy'] = 'Sao chép';
-$_LANG['copied'] = 'Đã sao chép!';
-$_LANG['days'] = 'ngày';
-$_LANG['days_remaining'] = 'ngày còn lại';
+$_LANG['ssl_management'] = 'Quản lý SSL';
+$_LANG['ssl_certificate'] = 'Chứng chỉ SSL';
+$_LANG['configure_certificate'] = 'Cấu hình Chứng chỉ';
+$_LANG['certificate_management'] = 'Quản lý Chứng chỉ';
+$_LANG['module_version'] = 'Phiên bản Module';
 
-// Status Labels
+// Status
 $_LANG['status'] = 'Trạng thái';
-$_LANG['status_awaiting'] = 'Chờ cấu hình';
-$_LANG['status_pending'] = 'Đang chờ';
-$_LANG['status_processing'] = 'Đang xử lý';
-$_LANG['status_complete'] = 'Đã cấp';
-$_LANG['status_active'] = 'Đang hoạt động';
-$_LANG['status_expiring'] = 'Sắp hết hạn';
-$_LANG['status_expired'] = 'Đã hết hạn';
-$_LANG['status_cancelled'] = 'Đã hủy';
-$_LANG['status_revoked'] = 'Đã thu hồi';
-$_LANG['status_rejected'] = 'Bị từ chối';
+$_LANG['awaiting_configuration'] = 'Chờ cấu hình';
+$_LANG['draft'] = 'Bản nháp';
+$_LANG['pending'] = 'Đang chờ xử lý';
+$_LANG['processing'] = 'Đang xử lý';
+$_LANG['complete'] = 'Hoàn thành';
+$_LANG['issued'] = 'Đã cấp phát';
+$_LANG['cancelled'] = 'Đã hủy';
+$_LANG['revoked'] = 'Đã thu hồi';
+$_LANG['expired'] = 'Đã hết hạn';
+$_LANG['reissue_pending'] = 'Đang chờ cấp lại';
+$_LANG['verified'] = 'Đã xác minh';
+$_LANG['un_verified'] = 'Chưa xác minh';
 
-// Status Messages
-$_LANG['status_cancelled_message'] = 'Đơn hàng chứng chỉ này đã bị hủy.';
-$_LANG['status_revoked_message'] = 'Chứng chỉ này đã bị thu hồi và không còn hiệu lực.';
-$_LANG['status_expired_message'] = 'Chứng chỉ này đã hết hạn. Vui lòng gia hạn dịch vụ để nhận chứng chỉ mới.';
-$_LANG['status_rejected_message'] = 'Yêu cầu chứng chỉ đã bị từ chối bởi Nhà cung cấp chứng chỉ.';
+// Steps
+$_LANG['step'] = 'Bước';
+$_LANG['step_csr'] = 'CSR';
+$_LANG['step_domain'] = 'Xác minh Tên miền';
+$_LANG['step_contacts'] = 'Thông tin Liên hệ';
+$_LANG['step_organization'] = 'Thông tin Tổ chức';
+$_LANG['step_review'] = 'Xem lại';
 
-// Certificate Details
-$_LANG['certificate_details'] = 'Chi tiết chứng chỉ';
-$_LANG['certificate_id'] = 'Mã chứng chỉ';
-$_LANG['certificate_type'] = 'Loại chứng chỉ';
+// CSR Section
+$_LANG['csr'] = 'CSR';
+$_LANG['csr_configuration'] = 'Cấu hình CSR';
+$_LANG['csr_des'] = 'Yêu cầu ký chứng chỉ (CSR) là bắt buộc để đăng ký chứng chỉ SSL. Bạn có thể tự động tạo hoặc dán CSR có sẵn.';
+$_LANG['auto_generate_csr'] = 'Tự động tạo CSR';
+$_LANG['manual_csr'] = 'Nhập CSR thủ công';
+$_LANG['is_manual_csr'] = 'Tôi có CSR riêng';
+$_LANG['paste_csr'] = 'Dán CSR của bạn vào đây';
+$_LANG['generate_csr'] = 'Tạo CSR';
+$_LANG['decode_csr'] = 'Giải mã CSR';
+$_LANG['csr_decoded'] = 'Giải mã CSR thành công';
+$_LANG['invalid_csr'] = 'Định dạng CSR không hợp lệ';
+
+// CSR Fields
+$_LANG['common_name'] = 'Tên miền chính (Common Name)';
+$_LANG['organization'] = 'Tổ chức';
+$_LANG['organizational_unit'] = 'Đơn vị/Phòng ban';
+$_LANG['city'] = 'Thành phố';
+$_LANG['locality'] = 'Thành phố/Địa phương';
+$_LANG['state'] = 'Tỉnh/Thành';
+$_LANG['province'] = 'Tỉnh';
+$_LANG['country'] = 'Quốc gia';
+$_LANG['email'] = 'Email';
+$_LANG['email_address'] = 'Địa chỉ Email';
+
+// Domain Section
 $_LANG['domain'] = 'Tên miền';
+$_LANG['domain_info'] = 'Thông tin Tên miền';
+$_LANG['domain_name'] = 'Tên miền';
 $_LANG['primary_domain'] = 'Tên miền chính';
-$_LANG['domains_count'] = 'Số tên miền';
-$_LANG['domains_secured'] = 'Tên miền được bảo vệ';
-$_LANG['secured_domains'] = 'Các tên miền được bảo vệ';
-$_LANG['valid_from'] = 'Có hiệu lực từ';
-$_LANG['valid_until'] = 'Có hiệu lực đến';
-$_LANG['issued_date'] = 'Ngày cấp';
-$_LANG['expires_date'] = 'Ngày hết hạn';
-$_LANG['vendor'] = 'Nhà cung cấp';
-$_LANG['validation_type'] = 'Loại xác thực';
+$_LANG['additional_domains'] = 'Tên miền bổ sung';
+$_LANG['add_domain'] = 'Thêm tên miền';
+$_LANG['remove_domain'] = 'Xóa';
+$_LANG['max_domain'] = 'Số lượng tên miền tối đa';
+$_LANG['add'] = 'Thêm';
+$_LANG['set_for_all'] = 'Áp dụng cho tất cả';
+$_LANG['must_same_pmain'] = 'Phải giống với tên miền chính';
+$_LANG['overplus'] = 'Bạn đã vượt quá số lượng tên miền cho phép';
 
-// Certificate States
-$_LANG['certificate_issued'] = 'Chứng chỉ đã được cấp thành công';
-$_LANG['certificate_ready_message'] = 'Chứng chỉ SSL của bạn đã được cấp và sẵn sàng để cài đặt.';
-$_LANG['certificate_pending'] = 'Chứng chỉ đang chờ xác thực';
-$_LANG['pending_message'] = 'Đơn hàng chứng chỉ đang được xử lý. Vui lòng hoàn tất xác thực tên miền bên dưới.';
-$_LANG['certificate_expiring'] = 'Chứng chỉ sắp hết hạn';
-$_LANG['certificate_expiring_message'] = 'Chứng chỉ của bạn sẽ hết hạn trong';
-$_LANG['please_renew'] = 'Vui lòng gia hạn dịch vụ để nhận chứng chỉ mới.';
-
-// Quick Actions
-$_LANG['quick_actions'] = 'Thao tác nhanh';
-$_LANG['available_actions'] = 'Các thao tác có sẵn';
-$_LANG['download_certificate'] = 'Tải chứng chỉ';
-$_LANG['download_unavailable'] = 'Không thể tải xuống';
-$_LANG['reissue_certificate'] = 'Cấp lại chứng chỉ';
-$_LANG['reissue_unavailable'] = 'Không thể cấp lại';
-$_LANG['refresh_status'] = 'Làm mới trạng thái';
-$_LANG['manage_certificate'] = 'Quản lý chứng chỉ';
-$_LANG['view_certificate'] = 'Xem chứng chỉ';
-$_LANG['revoke_certificate'] = 'Thu hồi chứng chỉ';
-$_LANG['cancel_order'] = 'Hủy đơn hàng';
-
-// Download
-$_LANG['download_now'] = 'Tải xuống ngay';
-$_LANG['download_format_select'] = 'Gói chứng chỉ bao gồm các định dạng sau:';
-$_LANG['format_crt_desc'] = 'File chứng chỉ';
-$_LANG['format_ca_desc'] = 'CA bundle (chứng chỉ trung gian)';
-$_LANG['format_fullchain_desc'] = 'Full chain cho Nginx';
-$_LANG['format_key_desc'] = 'Private key (nếu được tạo)';
-$_LANG['format_pfx_desc'] = 'PKCS#12 cho IIS/Windows';
-$_LANG['format_jks_desc'] = 'Java KeyStore cho Tomcat';
-
-// Reissue
-$_LANG['new_csr'] = 'CSR mới (Certificate Signing Request)';
-$_LANG['private_key'] = 'Private Key';
-$_LANG['csr_help'] = 'Dán CSR mới của bạn vào đây. Tạo CSR mới từ máy chủ của bạn.';
-$_LANG['private_key_help'] = 'Nếu bạn muốn lưu private key, hãy dán vào đây.';
-$_LANG['submit_reissue'] = 'Gửi yêu cầu cấp lại';
-$_LANG['reissue_warning'] = 'Cảnh báo: Cấp lại sẽ tạo chứng chỉ mới. Chứng chỉ hiện tại vẫn có hiệu lực cho đến khi chứng chỉ mới được cấp.';
-$_LANG['reissue_initiated'] = 'Yêu cầu cấp lại đã được gửi thành công';
-$_LANG['confirm_reissue'] = 'Bạn có chắc chắn muốn cấp lại chứng chỉ này?';
-
-// Order Progress
-$_LANG['order_progress'] = 'Tiến độ đơn hàng';
-$_LANG['order_information'] = 'Thông tin đơn hàng';
-$_LANG['step_application'] = 'Đăng ký';
-$_LANG['step_validation'] = 'Xác thực tên miền';
-$_LANG['step_issuance'] = 'Cấp chứng chỉ';
-
-// Domain Validation (DCV)
-$_LANG['domain_validation'] = 'Xác thực tên miền';
-$_LANG['dcv_instruction'] = 'Hoàn tất xác thực tên miền cho mỗi tên miền bên dưới. Chọn phương thức xác thực và làm theo hướng dẫn.';
-$_LANG['validation_instructions'] = 'Hướng dẫn xác thực';
-$_LANG['validation_details'] = 'Chi tiết xác thực';
-$_LANG['method'] = 'Phương thức';
-$_LANG['verified'] = 'Đã xác thực';
-$_LANG['pending'] = 'Đang chờ';
-$_LANG['save_changes'] = 'Lưu thay đổi';
-
-// DCV Methods
-$_LANG['dcv_email'] = 'Xác thực Email';
-$_LANG['dcv_email_desc'] = 'Xác thực qua email gửi đến quản trị viên tên miền';
-$_LANG['dcv_http'] = 'Xác thực HTTP File';
-$_LANG['dcv_http_desc'] = 'Tải file xác thực lên máy chủ web';
-$_LANG['dcv_https'] = 'Xác thực HTTPS File';
-$_LANG['dcv_https_desc'] = 'Tải file xác thực với HTTPS';
-$_LANG['dcv_cname'] = 'Xác thực DNS CNAME';
-$_LANG['dcv_cname_desc'] = 'Thêm bản ghi CNAME vào DNS';
-$_LANG['dcv_dns'] = 'Xác thực DNS TXT';
-$_LANG['dcv_dns_desc'] = 'Thêm bản ghi TXT vào DNS';
+// DCV (Domain Control Validation)
+$_LANG['dcv'] = 'Xác minh DCV';
+$_LANG['dcv_method'] = 'Phương thức DCV';
+$_LANG['dcv_status'] = 'Trạng thái DCV';
+$_LANG['domain_validation'] = 'Xác minh Tên miền';
+$_LANG['domain_validation_required'] = 'Yêu cầu Xác minh Tên miền';
+$_LANG['please_choose'] = 'Vui lòng chọn';
+$_LANG['http_csr_hash'] = 'Xác minh qua File HTTP';
+$_LANG['https_csr_hash'] = 'Xác minh qua File HTTPS';
+$_LANG['cname_csr_hash'] = 'Xác minh qua DNS CNAME';
+$_LANG['dns_csr_hash'] = 'Xác minh qua DNS TXT';
+$_LANG['email_validation'] = 'Xác minh qua Email';
+$_LANG['update_dcv'] = 'Cập nhật DCV';
+$_LANG['resend_dcv'] = 'Gửi lại DCV';
+$_LANG['dcv_instructions'] = 'Hướng dẫn DCV';
 
 // DCV Instructions
-$_LANG['http_validation'] = 'Xác thực HTTP/HTTPS File';
-$_LANG['http_validation_desc'] = 'Tạo file với nội dung sau tại đường dẫn được chỉ định:';
-$_LANG['file_name'] = 'Tên file';
-$_LANG['file_content'] = 'Nội dung file';
-$_LANG['file_path'] = 'Đường dẫn file';
-$_LANG['dns_validation'] = 'Xác thực DNS';
-$_LANG['dns_validation_desc'] = 'Thêm bản ghi DNS sau vào tên miền của bạn:';
-$_LANG['record_type'] = 'Loại bản ghi';
-$_LANG['host_name'] = 'Tên host';
-$_LANG['value'] = 'Giá trị';
-$_LANG['email_validation'] = 'Xác thực Email';
-$_LANG['email_validation_desc'] = 'Nếu sử dụng xác thực email, kiểm tra hộp thư đến và nhấp vào liên kết xác thực.';
-$_LANG['valid_emails'] = 'Email xác thực hợp lệ';
-
-$_LANG['dcv_email_instruction'] = 'Kiểm tra email và nhấp vào liên kết xác thực.';
-$_LANG['dcv_http_instruction'] = 'Tạo file xác thực tại đường dẫn được chỉ định.';
-$_LANG['dcv_dns_instruction'] = 'Thêm bản ghi DNS vào tên miền của bạn.';
-
-// Cancel
-$_LANG['confirm_cancel'] = 'Xác nhận hủy';
-$_LANG['cancel_confirm_message'] = 'Bạn có chắc chắn muốn hủy đơn hàng chứng chỉ này? Thao tác này không thể hoàn tác.';
-$_LANG['reason'] = 'Lý do';
-$_LANG['cancel_reason_placeholder'] = 'Vui lòng cung cấp lý do hủy...';
-$_LANG['no_keep'] = 'Không, giữ đơn hàng';
-$_LANG['yes_cancel'] = 'Có, hủy đơn hàng';
-
-// Installation Guide
-$_LANG['installation_guide'] = 'Hướng dẫn cài đặt';
-$_LANG['install_note'] = 'Tải gói chứng chỉ để có các file ở nhiều định dạng bao gồm PFX cho IIS và JKS cho Tomcat.';
-
-// Apply Certificate Form
-$_LANG['apply_certificate'] = 'Đăng ký chứng chỉ SSL';
-$_LANG['certificate_signing_request'] = 'Certificate Signing Request (CSR)';
-$_LANG['csr_required'] = 'CSR là bắt buộc để đăng ký chứng chỉ SSL.';
-$_LANG['generate_csr'] = 'Tạo CSR';
-$_LANG['paste_csr'] = 'Dán CSR của bạn vào đây...';
-$_LANG['decode_csr'] = 'Giải mã CSR';
-$_LANG['server_type'] = 'Loại máy chủ';
-$_LANG['select_server_type'] = 'Chọn loại máy chủ web của bạn';
+$_LANG['http_instructions'] = 'Tạo file tại đường dẫn sau trên máy chủ của bạn:';
+$_LANG['https_instructions'] = 'Tạo file tại đường dẫn HTTPS sau trên máy chủ của bạn:';
+$_LANG['dns_cname_instructions'] = 'Thêm bản ghi CNAME sau vào DNS của bạn:';
+$_LANG['dns_txt_instructions'] = 'Thêm bản ghi TXT sau vào DNS của bạn:';
+$_LANG['email_instructions'] = 'Email xác minh sẽ được gửi đến địa chỉ đã chọn.';
+$_LANG['file_path'] = 'Đường dẫn File';
+$_LANG['file_content'] = 'Nội dung File';
+$_LANG['dns_host'] = 'Host DNS';
+$_LANG['dns_value'] = 'Giá trị DNS';
+$_LANG['dns_type'] = 'Loại DNS';
+$_LANG['dcv_email'] = 'Email Xác minh';
+$_LANG['down_txt'] = 'Tải file xác minh';
 
 // Contact Information
-$_LANG['contact_information'] = 'Thông tin liên hệ';
-$_LANG['admin_contact'] = 'Liên hệ quản trị';
-$_LANG['tech_contact'] = 'Liên hệ kỹ thuật';
-$_LANG['organization_info'] = 'Thông tin tổ chức';
+$_LANG['contacts'] = 'Thông tin Liên hệ';
+$_LANG['admin_contact'] = 'Liên hệ Quản trị';
+$_LANG['tech_contact'] = 'Liên hệ Kỹ thuật';
+$_LANG['title'] = 'Chức danh';
 $_LANG['first_name'] = 'Tên';
 $_LANG['last_name'] = 'Họ';
-$_LANG['email'] = 'Email';
-$_LANG['phone'] = 'Điện thoại';
-$_LANG['job_title'] = 'Chức vụ';
-$_LANG['organization'] = 'Tổ chức';
-$_LANG['department'] = 'Phòng ban';
-$_LANG['address'] = 'Địa chỉ';
-$_LANG['city'] = 'Thành phố';
-$_LANG['state'] = 'Tỉnh/Thành';
-$_LANG['postal_code'] = 'Mã bưu chính';
-$_LANG['country'] = 'Quốc gia';
+$_LANG['phone'] = 'Số điện thoại';
+$_LANG['organization_name'] = 'Tên Tổ chức';
 
-// Errors
-$_LANG['error_no_certificate'] = 'Không tìm thấy chứng chỉ cho dịch vụ này';
-$_LANG['error_not_configured'] = 'API token chưa được cấu hình';
-$_LANG['error_invalid_csr'] = 'Định dạng CSR không hợp lệ';
-$_LANG['error_csr_required'] = 'CSR là bắt buộc';
-$_LANG['error_domain_required'] = 'Thông tin tên miền là bắt buộc';
-$_LANG['error_reissue_failed'] = 'Không thể cấp lại chứng chỉ';
-$_LANG['error_download_failed'] = 'Không thể tải chứng chỉ';
-$_LANG['error_cancel_failed'] = 'Không thể hủy đơn hàng';
-$_LANG['error_refresh_failed'] = 'Không thể làm mới trạng thái';
+// Organization Information
+$_LANG['organization_info'] = 'Thông tin Tổ chức';
+$_LANG['org_name'] = 'Tên Tổ chức';
+$_LANG['org_address'] = 'Địa chỉ';
+$_LANG['org_city'] = 'Thành phố';
+$_LANG['org_state'] = 'Tỉnh/Thành';
+$_LANG['org_country'] = 'Quốc gia';
+$_LANG['org_postal'] = 'Mã bưu điện';
+$_LANG['org_phone'] = 'Điện thoại';
+$_LANG['org_division'] = 'Phòng/Ban';
+$_LANG['idType'] = 'Loại giấy tờ';
+$_LANG['organizationCode'] = 'Mã số thuế / ĐKKD';
+$_LANG['organizationRegNumber'] = 'Số đăng ký';
+$_LANG['other'] = 'Khác';
 
-// Loading States
-$_LANG['refreshing'] = 'Đang làm mới...';
-$_LANG['saving'] = 'Đang lưu...';
-$_LANG['downloading'] = 'Đang chuẩn bị tải xuống...';
-$_LANG['processing'] = 'Đang xử lý...';
-$_LANG['submitting'] = 'Đang gửi...';
+// Renewal
+$_LANG['is_renew'] = 'Đây là gia hạn?';
+$_LANG['is_renew_des'] = 'Nếu đây là gia hạn chứng chỉ hiện có, chọn "Có" để có thể nhận thêm thời gian bonus.';
+$_LANG['is_renew_option_new'] = 'Không, chứng chỉ mới';
+$_LANG['is_renew_option_renew'] = 'Có, gia hạn';
+
+// Actions
+$_LANG['actions'] = 'Thao tác';
+$_LANG['submit'] = 'Gửi';
+$_LANG['submit_request'] = 'Gửi Yêu cầu';
+$_LANG['save_draft'] = 'Lưu Bản nháp';
+$_LANG['cancel'] = 'Hủy';
+$_LANG['back'] = 'Quay lại';
+$_LANG['next'] = 'Tiếp theo';
+$_LANG['refresh'] = 'Làm mới';
+$_LANG['refresh_status'] = 'Làm mới Trạng thái';
+$_LANG['download'] = 'Tải xuống';
+$_LANG['download_certificate'] = 'Tải Chứng chỉ';
+$_LANG['down_cert'] = 'Tải Chứng chỉ';
+$_LANG['down_key'] = 'Tải Private Key';
+$_LANG['reissue'] = 'Cấp lại';
+$_LANG['repalce'] = 'Cấp lại';
+$_LANG['reissue_certificate'] = 'Cấp lại Chứng chỉ';
+$_LANG['renew'] = 'Gia hạn';
+$_LANG['renew_certificate'] = 'Gia hạn Chứng chỉ';
+$_LANG['revoke'] = 'Thu hồi';
+$_LANG['revoke_certificate'] = 'Thu hồi Chứng chỉ';
+$_LANG['cancel_order'] = 'Hủy Đơn hàng';
+
+// Download Formats
+$_LANG['select_download_format'] = 'Chọn Định dạng Tải xuống';
+$_LANG['format_all'] = 'Tất cả Định dạng (ZIP)';
+$_LANG['format_apache'] = 'Apache (.crt + .ca-bundle)';
+$_LANG['format_nginx'] = 'Nginx (.pem)';
+$_LANG['format_iis'] = 'IIS (.p12)';
+$_LANG['format_tomcat'] = 'Tomcat (.jks)';
+
+// Certificate Info
+$_LANG['certificate'] = 'Chứng chỉ';
+$_LANG['certificate_info'] = 'Thông tin Chứng chỉ';
+$_LANG['certificate_id'] = 'Mã Chứng chỉ';
+$_LANG['certificate_type'] = 'Loại Chứng chỉ';
+$_LANG['certificate_issued'] = 'Chứng chỉ đã Cấp phát';
+$_LANG['certificate_pending'] = 'Chứng chỉ đang Chờ';
+$_LANG['cert_status'] = 'Trạng thái Chứng chỉ';
+$_LANG['cert_begin'] = 'Ngày cấp';
+$_LANG['cert_end'] = 'Ngày hết hạn';
+$_LANG['days_remaining'] = 'Số ngày còn lại';
+$_LANG['expiring_soon'] = 'Sắp hết hạn';
+$_LANG['vendor_id'] = 'Mã Nhà cung cấp';
+$_LANG['last_refresh'] = 'Cập nhật lần cuối';
+
+// Messages
+$_LANG['apply_des'] = 'Vui lòng hoàn thành biểu mẫu bên dưới để yêu cầu chứng chỉ SSL.';
+$_LANG['message_des'] = 'Yêu cầu chứng chỉ đã được gửi. Vui lòng hoàn thành xác minh tên miền.';
+$_LANG['complete_des'] = 'Chứng chỉ của bạn đã được cấp phát thành công. Bạn có thể tải xuống hoặc cấp lại bên dưới.';
+$_LANG['replace_des'] = 'Vui lòng cung cấp thông tin mới để cấp lại chứng chỉ.';
+$_LANG['cancelled_des'] = 'Chứng chỉ này đã bị hủy hoặc thu hồi.';
+$_LANG['email_info'] = 'Thông tin Email';
+$_LANG['email_wait_info'] = 'Yêu cầu đã được gửi. Vui lòng kiểm tra email để hoàn thành xác minh.';
+
+// Confirmations
+$_LANG['sure_to_cancel'] = 'Bạn có chắc muốn hủy chứng chỉ này?';
+$_LANG['sure_to_replace'] = 'Bạn có chắc muốn cấp lại chứng chỉ này?';
+$_LANG['sure_to_revoke'] = 'Bạn có chắc muốn thu hồi chứng chỉ này? Hành động này không thể hoàn tác.';
+$_LANG['confirm_action'] = 'Xác nhận Thao tác';
+$_LANG['cancel_reason'] = 'Lý do Hủy';
+$_LANG['revoke_reason'] = 'Lý do Thu hồi';
+
+// Success Messages
+$_LANG['success'] = 'Thành công';
+$_LANG['submit_success'] = 'Gửi yêu cầu thành công';
+$_LANG['draft_saved'] = 'Lưu bản nháp thành công';
+$_LANG['status_refreshed'] = 'Đã cập nhật trạng thái';
+$_LANG['dcv_updated'] = 'Đã cập nhật phương thức DCV';
+$_LANG['cancelled_success'] = 'Hủy đơn hàng thành công';
+$_LANG['revoked_success'] = 'Thu hồi chứng chỉ thành công';
+$_LANG['reissue_success'] = 'Gửi yêu cầu cấp lại thành công';
+
+// Error Messages
+$_LANG['error'] = 'Lỗi';
+$_LANG['params_error'] = 'Lỗi tham số';
+$_LANG['action_not_found'] = 'Thao tác không được hỗ trợ';
+$_LANG['pay_order_first'] = 'Vui lòng thanh toán đơn hàng trước';
+$_LANG['product_offline'] = 'Sản phẩm không khả dụng, vui lòng liên hệ hỗ trợ';
+$_LANG['service_error'] = 'Không tìm thấy dịch vụ, vui lòng thử lại';
+$_LANG['status_error'] = 'Trạng thái đơn hàng không hợp lệ';
+$_LANG['sys_error'] = 'Lỗi hệ thống, vui lòng liên hệ hỗ trợ';
+$_LANG['cert_not_found'] = 'Không tìm thấy chứng chỉ';
+$_LANG['cert_not_issued'] = 'Chứng chỉ chưa được cấp phát';
+$_LANG['api_error'] = 'Lỗi API';
+$_LANG['validation_error'] = 'Lỗi Xác thực';
+
+// Server Types
+$_LANG['server_type'] = 'Loại Máy chủ';
+$_LANG['server_other'] = 'Khác';
+$_LANG['server_apache'] = 'Apache';
+$_LANG['server_nginx'] = 'Nginx';
+$_LANG['server_iis'] = 'Microsoft IIS';
+$_LANG['server_tomcat'] = 'Tomcat';
+$_LANG['server_cpanel'] = 'cPanel';
+$_LANG['server_plesk'] = 'Plesk';
+
+// Misc
+$_LANG['loading'] = 'Đang tải...';
+$_LANG['please_wait'] = 'Vui lòng đợi...';
+$_LANG['required'] = 'Bắt buộc';
+$_LANG['optional'] = 'Tùy chọn';
+$_LANG['yes'] = 'Có';
+$_LANG['no'] = 'Không';
+$_LANG['na'] = 'N/A';
+$_LANG['copy'] = 'Sao chép';
+$_LANG['copied'] = 'Đã sao chép!';
+$_LANG['close'] = 'Đóng';
+$_LANG['help'] = 'Trợ giúp';
+$_LANG['more_info'] = 'Thông tin thêm';

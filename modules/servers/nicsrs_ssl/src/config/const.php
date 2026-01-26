@@ -1,12 +1,11 @@
 <?php
 /**
- * NicSRS SSL Module Constants
+ * NicSRS SSL Module - Constants Definition
  * 
- * Defines module constants and configurations
- * 
- * @package    WHMCS
- * @author     HVN GROUP
+ * @package    nicsrs_ssl
  * @version    2.0.0
+ * @author     HVN GROUP
+ * @copyright  Copyright (c) HVN GROUP (https://hvn.vn)
  */
 
 if (!defined("WHMCS")) {
@@ -14,262 +13,409 @@ if (!defined("WHMCS")) {
 }
 
 /**
- * Module Version
+ * API Base URL
  */
-if (!defined('NICSRS_SSL_VERSION')) {
-    define('NICSRS_SSL_VERSION', '2.0.0');
-}
+define('NICSRS_API_URL', 'https://portal.nicsrs.com/ssl');
 
 /**
- * API Configuration
+ * Order Status Constants
  */
-if (!defined('NICSRS_API_URL')) {
-    define('NICSRS_API_URL', 'https://portal.nicsrs.com/ssl');
-}
-
-if (!defined('NICSRS_API_TIMEOUT')) {
-    define('NICSRS_API_TIMEOUT', 60);
-}
-
-/**
- * Certificate Status Constants
- */
-if (!defined('CERT_STATUS_AWAITING')) {
-    define('CERT_STATUS_AWAITING', 'awaiting');
-    define('CERT_STATUS_DRAFT', 'draft');
-    define('CERT_STATUS_PENDING', 'pending');
-    define('CERT_STATUS_PROCESSING', 'processing');
-    define('CERT_STATUS_COMPLETE', 'complete');
-    define('CERT_STATUS_ISSUED', 'issued');
-    define('CERT_STATUS_CANCELLED', 'cancelled');
-    define('CERT_STATUS_REVOKED', 'revoked');
-    define('CERT_STATUS_EXPIRED', 'expired');
-    define('CERT_STATUS_REJECTED', 'rejected');
-    define('CERT_STATUS_EXPIRING', 'expiring');
-}
+define('SSL_STATUS_AWAITING', 'Awaiting Configuration');
+define('SSL_STATUS_DRAFT', 'Draft');
+define('SSL_STATUS_PENDING', 'Pending');
+define('SSL_STATUS_PROCESSING', 'Processing');
+define('SSL_STATUS_COMPLETE', 'Complete');
+define('SSL_STATUS_ISSUED', 'Issued');
+define('SSL_STATUS_CANCELLED', 'Cancelled');
+define('SSL_STATUS_REVOKED', 'Revoked');
+define('SSL_STATUS_EXPIRED', 'Expired');
+define('SSL_STATUS_REISSUE', 'Reissue');
+define('SSL_STATUS_SUSPENDED', 'Suspended');
+define('SSL_STATUS_TERMINATED', 'Terminated');
 
 /**
- * DCV Methods
+ * DCV (Domain Control Validation) Methods
  */
-if (!defined('DCV_METHOD_EMAIL')) {
-    define('DCV_METHOD_EMAIL', 'EMAIL');
-    define('DCV_METHOD_HTTP', 'HTTP_CSR_HASH');
-    define('DCV_METHOD_HTTPS', 'HTTPS_CSR_HASH');
-    define('DCV_METHOD_CNAME', 'CNAME_CSR_HASH');
-    define('DCV_METHOD_DNS', 'DNS_CSR_HASH');
-}
+define('DCV_METHODS', [
+    'HTTP_CSR_HASH' => [
+        'name' => 'HTTP File',
+        'type' => 'http',
+        'description' => 'Upload a file to your web server at /.well-known/pki-validation/',
+        'icon' => 'file-text'
+    ],
+    'HTTPS_CSR_HASH' => [
+        'name' => 'HTTPS File',
+        'type' => 'https',
+        'description' => 'Upload a file to your HTTPS server at /.well-known/pki-validation/',
+        'icon' => 'lock'
+    ],
+    'CNAME_CSR_HASH' => [
+        'name' => 'DNS CNAME',
+        'type' => 'dns',
+        'description' => 'Add a CNAME record to your DNS',
+        'icon' => 'globe'
+    ],
+    'DNS_CSR_HASH' => [
+        'name' => 'DNS TXT',
+        'type' => 'dns',
+        'description' => 'Add a TXT record to your DNS',
+        'icon' => 'list'
+    ],
+    'EMAIL' => [
+        'name' => 'Email',
+        'type' => 'email',
+        'description' => 'Verify via email sent to domain admin',
+        'icon' => 'mail'
+    ],
+]);
 
 /**
- * Validation Types
+ * Certificate Types Configuration
+ * Maps certificate codes to their attributes
  */
-if (!defined('VALIDATION_DV')) {
-    define('VALIDATION_DV', 'dv');
-    define('VALIDATION_OV', 'ov');
-    define('VALIDATION_EV', 'ev');
-}
+define('CERT_TYPES', [
+    // Sectigo DV
+    'sectigo_ov_ssl' => [
+        'name' => 'Sectigo OV SSL',
+        'vendor' => 'Sectigo',
+        'sslType' => 'website_ssl',
+        'sslValidationType' => 'ov',
+        'isMultiDomain' => false,
+        'isWildcard' => false,
+        'supportNormal' => true,
+        'supportIp' => false,
+        'supportWild' => false,
+        'supportHttps' => true,
+        'maxDomains' => 1,
+    ],
+    'sectigo_ov_wildcard' => [
+        'name' => 'Sectigo OV Wildcard',
+        'vendor' => 'Sectigo',
+        'sslType' => 'website_ssl',
+        'sslValidationType' => 'ov',
+        'isMultiDomain' => false,
+        'isWildcard' => true,
+        'supportNormal' => false,
+        'supportIp' => false,
+        'supportWild' => true,
+        'supportHttps' => true,
+        'maxDomains' => 1,
+    ],
+    'sectigo_ev_ssl' => [
+        'name' => 'Sectigo EV SSL',
+        'vendor' => 'Sectigo',
+        'sslType' => 'website_ssl',
+        'sslValidationType' => 'ev',
+        'isMultiDomain' => false,
+        'isWildcard' => false,
+        'supportNormal' => true,
+        'supportIp' => false,
+        'supportWild' => false,
+        'supportHttps' => true,
+        'maxDomains' => 1,
+    ],
+    'sectigo_ev_multidomain' => [
+        'name' => 'Sectigo EV Multi-Domain',
+        'vendor' => 'Sectigo',
+        'sslType' => 'website_ssl',
+        'sslValidationType' => 'ev',
+        'isMultiDomain' => true,
+        'isWildcard' => false,
+        'supportNormal' => true,
+        'supportIp' => false,
+        'supportWild' => false,
+        'supportHttps' => true,
+        'maxDomains' => 250,
+    ],
+    'positivessl' => [
+        'name' => 'PositiveSSL',
+        'vendor' => 'Sectigo',
+        'sslType' => 'website_ssl',
+        'sslValidationType' => 'dv',
+        'isMultiDomain' => false,
+        'isWildcard' => false,
+        'supportNormal' => true,
+        'supportIp' => false,
+        'supportWild' => false,
+        'supportHttps' => true,
+        'maxDomains' => 1,
+    ],
+    'positivessl_wildcard' => [
+        'name' => 'PositiveSSL Wildcard',
+        'vendor' => 'Sectigo',
+        'sslType' => 'website_ssl',
+        'sslValidationType' => 'dv',
+        'isMultiDomain' => false,
+        'isWildcard' => true,
+        'supportNormal' => false,
+        'supportIp' => false,
+        'supportWild' => true,
+        'supportHttps' => true,
+        'maxDomains' => 1,
+    ],
+    'positivessl_multidomain' => [
+        'name' => 'PositiveSSL Multi-Domain',
+        'vendor' => 'Sectigo',
+        'sslType' => 'website_ssl',
+        'sslValidationType' => 'dv',
+        'isMultiDomain' => true,
+        'isWildcard' => false,
+        'supportNormal' => true,
+        'supportIp' => true,
+        'supportWild' => false,
+        'supportHttps' => true,
+        'maxDomains' => 250,
+    ],
+    // DigiCert
+    'digicert_standard_ssl' => [
+        'name' => 'DigiCert Standard SSL',
+        'vendor' => 'DigiCert',
+        'sslType' => 'website_ssl',
+        'sslValidationType' => 'ov',
+        'isMultiDomain' => false,
+        'isWildcard' => false,
+        'supportNormal' => true,
+        'supportIp' => false,
+        'supportWild' => false,
+        'supportHttps' => true,
+        'maxDomains' => 1,
+    ],
+    'digicert_ev_ssl' => [
+        'name' => 'DigiCert EV SSL',
+        'vendor' => 'DigiCert',
+        'sslType' => 'website_ssl',
+        'sslValidationType' => 'ev',
+        'isMultiDomain' => false,
+        'isWildcard' => false,
+        'supportNormal' => true,
+        'supportIp' => false,
+        'supportWild' => false,
+        'supportHttps' => true,
+        'maxDomains' => 1,
+    ],
+    'digicert_wildcard' => [
+        'name' => 'DigiCert Wildcard SSL',
+        'vendor' => 'DigiCert',
+        'sslType' => 'website_ssl',
+        'sslValidationType' => 'ov',
+        'isMultiDomain' => false,
+        'isWildcard' => true,
+        'supportNormal' => false,
+        'supportIp' => false,
+        'supportWild' => true,
+        'supportHttps' => true,
+        'maxDomains' => 1,
+    ],
+    // GlobalSign
+    'globalsign_dv_ssl' => [
+        'name' => 'GlobalSign DV SSL',
+        'vendor' => 'GlobalSign',
+        'sslType' => 'website_ssl',
+        'sslValidationType' => 'dv',
+        'isMultiDomain' => false,
+        'isWildcard' => false,
+        'supportNormal' => true,
+        'supportIp' => false,
+        'supportWild' => false,
+        'supportHttps' => true,
+        'maxDomains' => 1,
+    ],
+    'globalsign_ov_ssl' => [
+        'name' => 'GlobalSign OV SSL',
+        'vendor' => 'GlobalSign',
+        'sslType' => 'website_ssl',
+        'sslValidationType' => 'ov',
+        'isMultiDomain' => false,
+        'isWildcard' => false,
+        'supportNormal' => true,
+        'supportIp' => false,
+        'supportWild' => false,
+        'supportHttps' => true,
+        'maxDomains' => 1,
+    ],
+    'globalsign_ev_ssl' => [
+        'name' => 'GlobalSign EV SSL',
+        'vendor' => 'GlobalSign',
+        'sslType' => 'website_ssl',
+        'sslValidationType' => 'ev',
+        'isMultiDomain' => false,
+        'isWildcard' => false,
+        'supportNormal' => true,
+        'supportIp' => false,
+        'supportWild' => false,
+        'supportHttps' => true,
+        'maxDomains' => 1,
+    ],
+    // GeoTrust
+    'geotrust_quickssl_premium' => [
+        'name' => 'GeoTrust QuickSSL Premium',
+        'vendor' => 'GeoTrust',
+        'sslType' => 'website_ssl',
+        'sslValidationType' => 'dv',
+        'isMultiDomain' => false,
+        'isWildcard' => false,
+        'supportNormal' => true,
+        'supportIp' => false,
+        'supportWild' => false,
+        'supportHttps' => true,
+        'maxDomains' => 1,
+    ],
+    'geotrust_truebusiness_id' => [
+        'name' => 'GeoTrust True BusinessID',
+        'vendor' => 'GeoTrust',
+        'sslType' => 'website_ssl',
+        'sslValidationType' => 'ov',
+        'isMultiDomain' => false,
+        'isWildcard' => false,
+        'supportNormal' => true,
+        'supportIp' => false,
+        'supportWild' => false,
+        'supportHttps' => true,
+        'maxDomains' => 1,
+    ],
+    // Code Signing
+    'sectigo_code_signing' => [
+        'name' => 'Sectigo Code Signing',
+        'vendor' => 'Sectigo',
+        'sslType' => 'code_signing',
+        'sslValidationType' => 'ov',
+        'isMultiDomain' => false,
+        'isWildcard' => false,
+        'supportNormal' => false,
+        'supportIp' => false,
+        'supportWild' => false,
+        'supportHttps' => false,
+        'maxDomains' => 0,
+    ],
+    'sectigo_ev_code_signing' => [
+        'name' => 'Sectigo EV Code Signing',
+        'vendor' => 'Sectigo',
+        'sslType' => 'code_signing',
+        'sslValidationType' => 'ev',
+        'isMultiDomain' => false,
+        'isWildcard' => false,
+        'supportNormal' => false,
+        'supportIp' => false,
+        'supportWild' => false,
+        'supportHttps' => false,
+        'maxDomains' => 0,
+    ],
+    // S/MIME Email
+    'sectigo_personal_auth' => [
+        'name' => 'Sectigo Personal Authentication',
+        'vendor' => 'Sectigo',
+        'sslType' => 'email_ssl',
+        'sslValidationType' => 'dv',
+        'isMultiDomain' => false,
+        'isWildcard' => false,
+        'supportNormal' => false,
+        'supportIp' => false,
+        'supportWild' => false,
+        'supportHttps' => false,
+        'maxDomains' => 0,
+    ],
+]);
 
 /**
- * Server Types
+ * Server Types for Certificate
  */
-if (!defined('SERVER_TYPE_OTHER')) {
-    define('SERVER_TYPE_OTHER', 'other');
-    define('SERVER_TYPE_APACHE', 'apache');
-    define('SERVER_TYPE_NGINX', 'nginx');
-    define('SERVER_TYPE_IIS', 'iis');
-    define('SERVER_TYPE_TOMCAT', 'tomcat');
-    define('SERVER_TYPE_CPANEL', 'cpanel');
-    define('SERVER_TYPE_PLESK', 'plesk');
-}
+define('SERVER_TYPES', [
+    'other' => 'Other',
+    'apache' => 'Apache',
+    'nginx' => 'Nginx',
+    'iis' => 'Microsoft IIS',
+    'tomcat' => 'Tomcat',
+    'cpanel' => 'cPanel',
+    'plesk' => 'Plesk',
+]);
+
+/**
+ * Download Format Types
+ */
+define('DOWNLOAD_FORMATS', [
+    'all' => [
+        'name' => 'All Formats (ZIP)',
+        'description' => 'Contains all certificate formats',
+        'extension' => 'zip'
+    ],
+    'apache' => [
+        'name' => 'Apache',
+        'description' => '.crt + .ca-bundle + .key',
+        'extension' => 'zip'
+    ],
+    'nginx' => [
+        'name' => 'Nginx',
+        'description' => 'Combined .pem file',
+        'extension' => 'pem'
+    ],
+    'iis' => [
+        'name' => 'IIS (PKCS#12)',
+        'description' => '.p12 / .pfx file',
+        'extension' => 'p12'
+    ],
+    'tomcat' => [
+        'name' => 'Tomcat (JKS)',
+        'description' => 'Java KeyStore file',
+        'extension' => 'jks'
+    ],
+]);
 
 /**
  * API Response Codes
  */
-if (!defined('API_CODE_SUCCESS')) {
-    define('API_CODE_SUCCESS', 1);
-    define('API_CODE_PROCESSING', 2);
-    define('API_CODE_ERROR', 0);
-    define('API_CODE_VALIDATION_ERROR', -1);
-    define('API_CODE_UNKNOWN_ERROR', -2);
-    define('API_CODE_PRODUCT_ERROR', -3);
-    define('API_CODE_INSUFFICIENT_CREDIT', -4);
-    define('API_CODE_CA_ERROR', -6);
-    define('API_CODE_PERMISSION_DENIED', 400);
-}
+define('API_CODE_SUCCESS', 1);
+define('API_CODE_PROCESSING', 2);
+define('API_CODE_VALIDATION_ERROR', -1);
+define('API_CODE_UNKNOWN_ERROR', -2);
+define('API_CODE_PRODUCT_ERROR', -3);
+define('API_CODE_INSUFFICIENT_CREDIT', -4);
+define('API_CODE_CA_ERROR', -6);
+define('API_CODE_PERMISSION_DENIED', 400);
 
 /**
- * DCV Methods Array
+ * Status to CSS class mapping
  */
-$GLOBALS['NICSRS_DCV_METHODS'] = [
-    DCV_METHOD_EMAIL => [
-        'name' => 'Email Validation',
-        'type' => 'email',
-        'description' => 'Verify via email to domain administrator',
-    ],
-    DCV_METHOD_HTTP => [
-        'name' => 'HTTP File Validation',
-        'type' => 'http',
-        'description' => 'Upload validation file to web server via HTTP',
-    ],
-    DCV_METHOD_HTTPS => [
-        'name' => 'HTTPS File Validation',
-        'type' => 'https',
-        'description' => 'Upload validation file to web server via HTTPS',
-    ],
-    DCV_METHOD_CNAME => [
-        'name' => 'DNS CNAME Validation',
-        'type' => 'dns',
-        'description' => 'Add a CNAME record to your DNS',
-    ],
-    DCV_METHOD_DNS => [
-        'name' => 'DNS TXT Validation',
-        'type' => 'dns',
-        'description' => 'Add a TXT record to your DNS',
-    ],
-];
+define('STATUS_CLASSES', [
+    'Awaiting Configuration' => 'default',
+    'Draft' => 'default',
+    'Pending' => 'warning',
+    'Processing' => 'warning',
+    'Complete' => 'success',
+    'Issued' => 'success',
+    'Cancelled' => 'danger',
+    'Revoked' => 'danger',
+    'Expired' => 'danger',
+    'Suspended' => 'warning',
+    'Terminated' => 'danger',
+    'Reissue' => 'info',
+]);
 
 /**
- * Certificate Status Array
+ * Validation Types
  */
-$GLOBALS['NICSRS_CERT_STATUSES'] = [
-    CERT_STATUS_AWAITING => [
-        'label' => 'Awaiting Configuration',
-        'class' => 'default',
-        'icon' => 'hourglass-start',
-    ],
-    CERT_STATUS_DRAFT => [
-        'label' => 'Draft',
-        'class' => 'default',
-        'icon' => 'file-o',
-    ],
-    CERT_STATUS_PENDING => [
-        'label' => 'Pending',
-        'class' => 'warning',
-        'icon' => 'clock-o',
-    ],
-    CERT_STATUS_PROCESSING => [
-        'label' => 'Processing',
-        'class' => 'info',
-        'icon' => 'spinner',
-    ],
-    CERT_STATUS_COMPLETE => [
-        'label' => 'Issued',
-        'class' => 'success',
-        'icon' => 'check-circle',
-    ],
-    CERT_STATUS_ISSUED => [
-        'label' => 'Issued',
-        'class' => 'success',
-        'icon' => 'check-circle',
-    ],
-    CERT_STATUS_CANCELLED => [
-        'label' => 'Cancelled',
-        'class' => 'danger',
-        'icon' => 'ban',
-    ],
-    CERT_STATUS_REVOKED => [
-        'label' => 'Revoked',
-        'class' => 'danger',
-        'icon' => 'times-circle',
-    ],
-    CERT_STATUS_EXPIRED => [
-        'label' => 'Expired',
-        'class' => 'danger',
-        'icon' => 'calendar-times-o',
-    ],
-    CERT_STATUS_REJECTED => [
-        'label' => 'Rejected',
-        'class' => 'danger',
-        'icon' => 'exclamation-circle',
-    ],
-    CERT_STATUS_EXPIRING => [
-        'label' => 'Expiring Soon',
-        'class' => 'warning',
-        'icon' => 'exclamation-triangle',
-    ],
-];
-
-/**
- * Server Types Array
- */
-$GLOBALS['NICSRS_SERVER_TYPES'] = [
-    SERVER_TYPE_OTHER => 'Other',
-    SERVER_TYPE_APACHE => 'Apache',
-    SERVER_TYPE_NGINX => 'Nginx',
-    SERVER_TYPE_IIS => 'Microsoft IIS',
-    SERVER_TYPE_TOMCAT => 'Tomcat',
-    SERVER_TYPE_CPANEL => 'cPanel',
-    SERVER_TYPE_PLESK => 'Plesk',
-];
-
-/**
- * Validation Types Array
- */
-$GLOBALS['NICSRS_VALIDATION_TYPES'] = [
-    VALIDATION_DV => [
+define('VALIDATION_TYPES', [
+    'dv' => [
         'name' => 'Domain Validation',
-        'short' => 'DV',
-        'description' => 'Basic domain ownership verification',
+        'requiresOrganization' => false,
+        'requiresContacts' => false,
     ],
-    VALIDATION_OV => [
+    'ov' => [
         'name' => 'Organization Validation',
-        'short' => 'OV',
-        'description' => 'Verifies domain and organization details',
+        'requiresOrganization' => true,
+        'requiresContacts' => true,
     ],
-    VALIDATION_EV => [
+    'ev' => [
         'name' => 'Extended Validation',
-        'short' => 'EV',
-        'description' => 'Highest level of validation with green bar',
+        'requiresOrganization' => true,
+        'requiresContacts' => true,
     ],
-];
+]);
 
 /**
- * Helper function to get DCV methods
- * 
- * @return array
+ * Default CSR Configuration
  */
-function nicsrs_getDcvMethods()
-{
-    return $GLOBALS['NICSRS_DCV_METHODS'];
-}
-
-/**
- * Helper function to get certificate statuses
- * 
- * @return array
- */
-function nicsrs_getCertStatuses()
-{
-    return $GLOBALS['NICSRS_CERT_STATUSES'];
-}
-
-/**
- * Helper function to get status configuration
- * 
- * @param string $status Status code
- * @return array|null
- */
-function nicsrs_getStatusConfig($status)
-{
-    $status = strtolower($status);
-    return $GLOBALS['NICSRS_CERT_STATUSES'][$status] ?? null;
-}
-
-/**
- * Helper function to get server types
- * 
- * @return array
- */
-function nicsrs_getServerTypes()
-{
-    return $GLOBALS['NICSRS_SERVER_TYPES'];
-}
-
-/**
- * Helper function to get validation types
- * 
- * @return array
- */
-function nicsrs_getValidationTypes()
-{
-    return $GLOBALS['NICSRS_VALIDATION_TYPES'];
-}
+define('DEFAULT_CSR_CONFIG', [
+    'private_key_bits' => 2048,
+    'private_key_type' => OPENSSL_KEYTYPE_RSA,
+    'digest_alg' => 'sha256',
+]);

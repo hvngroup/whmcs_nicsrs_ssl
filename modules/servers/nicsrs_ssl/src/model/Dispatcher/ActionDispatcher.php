@@ -1,12 +1,12 @@
 <?php
 /**
- * NicSRS SSL Action Dispatcher
+ * NicSRS SSL Module - Action Dispatcher
+ * Routes action requests to appropriate controller methods
  * 
- * Routes AJAX actions to appropriate controller methods
- * 
- * @package    WHMCS
- * @author     HVN GROUP
+ * @package    nicsrs_ssl
  * @version    2.0.0
+ * @author     HVN GROUP
+ * @copyright  Copyright (c) HVN GROUP (https://hvn.vn)
  */
 
 namespace nicsrsSSL;
@@ -16,155 +16,179 @@ use Exception;
 class ActionDispatcher
 {
     /**
-     * Allowed actions mapping
-     * action_name => method_name
+     * Action routes mapping
      */
-    protected $allowedActions = [
-        // Certificate Application
-        'submitApply' => 'submitApply',
+    private static $routes = [
+        // CSR actions
+        'generateCSR' => 'generateCSR',
         'decodeCsr' => 'decodeCsr',
-        'validateCsr' => 'decodeCsr',
+        'decodeCSR' => 'decodeCsr', // Alias
         
-        // Status
+        // Certificate application
+        'submitApply' => 'submitApply',
+        'saveDraft' => 'saveDraft',
+        
+        // Status actions
         'refreshStatus' => 'refreshStatus',
-        'checkStatus' => 'refreshStatus',
-        
-        // DCV
-        'batchUpdateDCV' => 'batchUpdateDCV',
-        'updateDCV' => 'batchUpdateDCV',
-        'getDcvEmails' => 'getDcvEmails',
-        'getEmails' => 'getDcvEmails',
+        'refresh' => 'refreshStatus', // Alias
         
         // Download
         'downCert' => 'downCert',
-        'downloadCert' => 'downCert',
-        'downloadFile' => 'downloadFile',
+        'download' => 'downCert', // Alias
+        'downloadCertificate' => 'downCert', // Alias
         
-        // Certificate Management
-        'reissueCertificate' => 'reissueCertificate',
-        'reissue' => 'reissueCertificate',
-        'submitReissue' => 'reissueCertificate',
-        'submitReplace' => 'reissueCertificate',
+        // DCV actions
+        'batchUpdateDCV' => 'batchUpdateDCV',
+        'updateDCV' => 'batchUpdateDCV', // Alias
+        'resendDCVEmail' => 'resendDCVEmail',
+        'resendDCV' => 'resendDCVEmail', // Alias
         
+        // Order management
         'cancelOrder' => 'cancelOrder',
-        'cancel' => 'cancelOrder',
+        'cancel' => 'cancelOrder', // Alias
+        'revoke' => 'revoke',
+        'revokeOrder' => 'revoke', // Alias
         
-        'revokeCertificate' => 'revokeCertificate',
-        'revoke' => 'revokeCertificate',
+        // Reissue/Replace
+        'submitReissue' => 'submitReissue',
+        'submitReplace' => 'submitReissue', // Alias for backward compatibility
+        'reissue' => 'submitReissue', // Alias
         
-        // Legacy actions (for backward compatibility)
-        'replace' => 'reissueCertificate',
+        // Renew
+        'renew' => 'renew',
+        'renewCertificate' => 'renew', // Alias
     ];
 
     /**
-     * Dispatch action to controller
-     * 
-     * @param string $action Action name
-     * @param array $params Module parameters
-     * @return string JSON response
+     * Actions that don't require authentication
      */
-    public function dispatch($action, $params)
+    private static $publicActions = [
+        'generateCSR',
+        'decodeCsr',
+    ];
+
+    /**
+     * Dispatch action request
+     */
+    public static function dispatch(string $action, array $params): array
     {
         try {
-            // Validate action
-            if (empty($action)) {
-                return $this->errorResponse('Action is required');
+            // Normalize action name
+            $action = trim($action);
+            
+            // Get controller method
+            $method = self::$routes[$action] ?? null;
+
+            if (!$method) {
+                return ResponseFormatter::error("Action not found: {$action}");
             }
-            
-            // Check if action is allowed
-            if (!isset($this->allowedActions[$action])) {
-                return $this->errorResponse("Unknown action: {$action}");
+
+            // Check if method exists
+            if (!method_exists(ActionController::class, $method)) {
+                return ResponseFormatter::error("Action method not implemented: {$method}");
             }
-            
-            $method = $this->allowedActions[$action];
-            
-            // Create controller
-            $controller = new ActionController();
-            
-            // Verify method exists
-            if (!method_exists($controller, $method)) {
-                return $this->errorResponse("Method not implemented: {$method}");
+
+            // Validate service ownership for protected actions
+            if (!in_array($action, self::$publicActions)) {
+                if (!self::validateAccess($params)) {
+                    return ResponseFormatter::error('Access denied');
+                }
             }
-            
-            // Log the action
-            $this->logAction($action, $params);
-            
-            // Execute action
-            return $controller->$method($params);
-            
+
+            // Call controller method
+            $result = ActionController::$method($params);
+
+            // Log successful action
+            logModuleCall('nicsrs_ssl', "Action:{$action}", [
+                'serviceid' => $params['serviceid'] ?? null,
+            ], $result['success'] ?? false ? 'Success' : ($result['message'] ?? 'Failed'));
+
+            return $result;
+
         } catch (Exception $e) {
-            // Log error
-            logModuleCall(
-                'nicsrs_ssl',
-                'ActionDispatcher',
-                ['action' => $action],
-                $e->getMessage(),
-                $e->getTraceAsString()
-            );
-            
-            return $this->errorResponse($e->getMessage());
+            logModuleCall('nicsrs_ssl', "ActionDispatcher::{$action}", $params, $e->getMessage());
+            return ResponseFormatter::error($e->getMessage());
         }
     }
 
     /**
-     * Return error response
-     * 
-     * @param string $message Error message
-     * @return string JSON response
+     * Dispatch and output JSON response
      */
-    protected function errorResponse($message)
+    public static function dispatchJson(string $action, array $params): void
     {
-        return json_encode([
-            'status' => 0,
-            'msg' => 'failed',
-            'error' => [$message],
-        ]);
-    }
-
-    /**
-     * Log action for debugging
-     * 
-     * @param string $action Action name
-     * @param array $params Parameters
-     */
-    protected function logAction($action, $params)
-    {
-        // Only log in debug mode or for important actions
-        $logActions = ['submitApply', 'reissueCertificate', 'cancelOrder', 'revokeCertificate'];
+        $result = self::dispatch($action, $params);
         
-        if (in_array($action, $logActions)) {
-            logModuleCall(
-                'nicsrs_ssl',
-                'Action_' . $action,
-                [
-                    'serviceid' => $params['serviceid'] ?? 'unknown',
-                    'userid' => $params['userid'] ?? 'unknown',
-                ],
-                'Action initiated',
-                ''
-            );
+        // Handle file download
+        if (isset($result['download']) && $result['download']) {
+            self::sendDownload($result);
+            return;
         }
+        
+        // Handle redirect
+        if (isset($result['redirect']) && $result['redirect']) {
+            header('Location: ' . $result['url']);
+            exit;
+        }
+        
+        // JSON response
+        ResponseFormatter::json($result);
     }
 
     /**
-     * Check if action requires authentication
-     * 
-     * @param string $action Action name
-     * @return bool
+     * Validate user access to service
      */
-    protected function requiresAuth($action)
+    private static function validateAccess(array $params): bool
     {
-        // All actions require authentication
-        return true;
+        // Admin always has access
+        if (defined('ADMINAREA') && ADMINAREA) {
+            return true;
+        }
+
+        // Check service ownership
+        return PageDispatcher::validateServiceOwnership($params);
+    }
+
+    /**
+     * Send file download response
+     */
+    private static function sendDownload(array $result): void
+    {
+        $filename = $result['filename'] ?? 'download.zip';
+        $content = $result['content'] ?? '';
+        $mimeType = $result['mimeType'] ?? 'application/octet-stream';
+
+        // Decode if base64
+        if (preg_match('/^[a-zA-Z0-9\/\r\n+]*={0,2}$/', $content)) {
+            $decoded = base64_decode($content, true);
+            if ($decoded !== false) {
+                $content = $decoded;
+            }
+        }
+
+        header('Content-Type: ' . $mimeType);
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        header('Content-Length: ' . strlen($content));
+        header('Cache-Control: no-cache, no-store, must-revalidate');
+        header('Pragma: no-cache');
+        header('Expires: 0');
+
+        echo $content;
+        exit;
     }
 
     /**
      * Get list of available actions
-     * 
-     * @return array Action names
      */
-    public function getAvailableActions()
+    public static function getAvailableActions(): array
     {
-        return array_keys($this->allowedActions);
+        return array_keys(self::$routes);
+    }
+
+    /**
+     * Check if action exists
+     */
+    public static function actionExists(string $action): bool
+    {
+        return isset(self::$routes[$action]);
     }
 }

@@ -1,477 +1,357 @@
-{**
- * NicSRS SSL - Certificate Application Template
- * Form for applying new SSL certificate
- *
- * @package    WHMCS
- * @author     HVN GROUP
- * @version    2.0.0
- *}
+<link rel="stylesheet" href="{$WEB_ROOT}/{$MODULE_PATH}/assets/css/ssl-manager.css">
 
-<link rel="stylesheet" href="{$WEB_ROOT}/modules/servers/nicsrs_ssl/view/home/css/nicsrs-modern.css">
+<div class="sslm-container">
+    <!-- Config for JS -->
+    <script type="application/json" id="sslmConfig">{
+        "serviceId": {$serviceid},
+        "ajaxUrl": "clientarea.php?action=productdetails&id={$serviceid}&modop=custom",
+        "lang": {$_LANG_JSON}
+    }</script>
 
-<div class="nicsrs-ssl-container">
-    
-    {* Alert Container *}
-    <div class="nicsrs-alert-container"></div>
-    
-    {* Header *}
-    <div class="alert alert-info nicsrs-pending-banner">
-        <div class="row">
-            <div class="col-sm-1 text-center">
-                <i class="fa fa-certificate fa-3x"></i>
-            </div>
-            <div class="col-sm-11">
-                <h4 style="margin-top: 0;">{$_LANG.apply_certificate|default:'Apply for SSL Certificate'}</h4>
-                <p style="margin-bottom: 0;">{$_LANG.apply_message|default:'Complete the form below to request your SSL certificate.'}</p>
-            </div>
-        </div>
+    <!-- Page Header -->
+    <div class="sslm-alert sslm-alert--info">
+        <i>ℹ️</i>
+        <span>{$_LANG.apply_des}</span>
     </div>
-    
-    {* Application Form *}
-    <form id="applyForm" class="nicsrs-apply-form">
-        <input type="hidden" name="serviceid" value="{$serviceId}">
-        
-        {* Step 1: CSR *}
-        <div class="panel panel-primary">
-            <div class="panel-heading">
-                <h3 class="panel-title">
-                    <span class="step-number">1</span>
-                    {$_LANG.certificate_signing_request|default:'Certificate Signing Request (CSR)'}
-                </h3>
+
+    <!-- Progress Steps -->
+    <div class="sslm-steps">
+        <div class="sslm-step sslm-step--active" data-step="1">
+            <span class="sslm-step__number">1</span>
+            <span class="sslm-step__title">{$_LANG.step_csr}</span>
+        </div>
+        <div class="sslm-step" data-step="2">
+            <span class="sslm-step__number">2</span>
+            <span class="sslm-step__title">{$_LANG.step_domain}</span>
+        </div>
+        {if $requiresOrganization}
+        <div class="sslm-step" data-step="3">
+            <span class="sslm-step__number">3</span>
+            <span class="sslm-step__title">{$_LANG.step_contacts}</span>
+        </div>
+        <div class="sslm-step" data-step="4">
+            <span class="sslm-step__number">4</span>
+            <span class="sslm-step__title">{$_LANG.step_organization}</span>
+        </div>
+        {else}
+        <div class="sslm-step" data-step="3">
+            <span class="sslm-step__number">3</span>
+            <span class="sslm-step__title">{$_LANG.step_contacts}</span>
+        </div>
+        {/if}
+    </div>
+
+    <form id="sslApplyForm" method="post">
+        <input type="hidden" name="privateKey" id="privateKey" value="">
+
+        <!-- Renewal Option (for website_ssl) -->
+        {if $sslType == 'website_ssl'}
+        <div class="sslm-card">
+            <div class="sslm-card__header">
+                <h3>{$_LANG.is_renew}</h3>
             </div>
-            <div class="panel-body">
-                <div class="row">
-                    <div class="col-md-8">
-                        <div class="form-group">
-                            <label for="csr">
-                                CSR <span class="text-danger">*</span>
-                            </label>
-                            <textarea class="form-control" id="csr" name="csr" rows="12" 
-                                      placeholder="-----BEGIN CERTIFICATE REQUEST-----&#10;...&#10;-----END CERTIFICATE REQUEST-----"
-                                      required>{$configData.csr|default:''}</textarea>
-                            <p class="help-block">
-                                {$_LANG.csr_help_text|default:'Paste your CSR here. Generate a CSR from your web server or use our CSR generator.'}
-                            </p>
-                        </div>
-                        
-                        <div class="form-group">
-                            <label for="privateKey">
-                                {$_LANG.private_key|default:'Private Key'} ({$_LANG.optional|default:'Optional'})
-                            </label>
-                            <textarea class="form-control" id="privateKey" name="privateKey" rows="6"
-                                      placeholder="-----BEGIN PRIVATE KEY-----">{$configData.privateKey|default:''}</textarea>
-                            <p class="help-block">
-                                {$_LANG.private_key_store_help|default:'Store your private key here for safekeeping (optional).'}
-                            </p>
-                        </div>
-                    </div>
-                    <div class="col-md-4">
-                        <div class="well">
-                            <h5><i class="fa fa-info-circle"></i> {$_LANG.csr_info|default:'CSR Information'}</h5>
-                            <div id="csrInfo" style="display: none;">
-                                <table class="table table-condensed table-bordered" style="font-size: 12px;">
-                                    <tr>
-                                        <th>CN</th>
-                                        <td id="csrCN">-</td>
-                                    </tr>
-                                    <tr>
-                                        <th>O</th>
-                                        <td id="csrO">-</td>
-                                    </tr>
-                                    <tr>
-                                        <th>L</th>
-                                        <td id="csrL">-</td>
-                                    </tr>
-                                    <tr>
-                                        <th>ST</th>
-                                        <td id="csrST">-</td>
-                                    </tr>
-                                    <tr>
-                                        <th>C</th>
-                                        <td id="csrC">-</td>
-                                    </tr>
-                                </table>
-                            </div>
-                            <p id="csrPlaceholder" class="text-muted" style="font-size: 12px;">
-                                {$_LANG.csr_decode_prompt|default:'Enter CSR and click Decode to view information.'}
-                            </p>
-                            <button type="button" class="btn btn-info btn-sm btn-block" id="btnDecodeCsr">
-                                <i class="fa fa-search"></i> {$_LANG.decode_csr|default:'Decode CSR'}
-                            </button>
-                        </div>
-                        
-                        <div class="well">
-                            <h5><i class="fa fa-shield"></i> {$_LANG.certificate_type|default:'Certificate Type'}</h5>
-                            <p><strong>{$certType|escape:'html'}</strong></p>
-                            {if $productInfo}
-                            <small class="text-muted">
-                                {$productInfo.vendor} - {$productInfo.validation|upper}
-                            </small>
-                            {/if}
-                        </div>
-                    </div>
+            <div class="sslm-card__body">
+                <p class="sslm-help-text">{$_LANG.is_renew_des}</p>
+                <div class="sslm-radio-group">
+                    <label class="sslm-radio">
+                        <input type="radio" name="isRenew" value="0" checked>
+                        <span>{$_LANG.is_renew_option_new}</span>
+                    </label>
+                    <label class="sslm-radio">
+                        <input type="radio" name="isRenew" value="1">
+                        <span>{$_LANG.is_renew_option_renew}</span>
+                    </label>
                 </div>
             </div>
         </div>
-        
-        {* Step 2: Domain Information *}
-        <div class="panel panel-default">
-            <div class="panel-heading">
-                <h3 class="panel-title">
-                    <span class="step-number">2</span>
-                    {$_LANG.domain_information|default:'Domain Information'}
-                </h3>
+        {/if}
+
+        <!-- CSR Section -->
+        <div class="sslm-card">
+            <div class="sslm-card__header">
+                <h3>{$_LANG.csr_configuration}</h3>
             </div>
-            <div class="panel-body">
-                <div class="form-group">
-                    <label>{$_LANG.primary_domain|default:'Primary Domain'} <span class="text-danger">*</span></label>
-                    <input type="text" class="form-control" id="primaryDomain" name="primaryDomain" 
-                           value="{$domain|escape:'html'}" readonly>
-                    <p class="help-block">{$_LANG.primary_domain_help|default:'Primary domain is extracted from CSR.'}</p>
-                </div>
+            <div class="sslm-card__body">
+                <p class="sslm-help-text">{$_LANG.csr_des}</p>
                 
-                <div class="form-group">
-                    <label>{$_LANG.dcv_method|default:'Domain Validation Method'} <span class="text-danger">*</span></label>
-                    <select class="form-control" id="dcvMethod" name="dcvMethod">
-                        {foreach $dcvMethods as $code => $method}
-                        <option value="{$code}">{$method.name} - {$method.description}</option>
-                        {/foreach}
-                    </select>
+                <!-- CSR Mode Toggle - Default: Auto Generate -->
+                <div class="sslm-radio-group" style="margin-top: 16px;">
+                    <label class="sslm-radio">
+                        <input type="radio" name="csrMode" value="auto" checked>
+                        <span>{$_LANG.auto_generate_csr}</span>
+                    </label>
+                    <label class="sslm-radio">
+                        <input type="radio" name="csrMode" value="manual">
+                        <span>{$_LANG.manual_csr}</span>
+                    </label>
                 </div>
-                
-                <div class="form-group" id="dcvEmailGroup" style="display: none;">
-                    <label>{$_LANG.dcv_email_address|default:'Validation Email'}</label>
-                    <select class="form-control" id="dcvEmail" name="dcvEmail">
-                        <option value="">{$_LANG.loading|default:'Loading...'}</option>
-                    </select>
-                </div>
-                
-                <div class="form-group">
-                    <label>{$_LANG.server_type|default:'Server Type'}</label>
-                    <select class="form-control" id="serverType" name="serverType">
-                        <option value="other">{$_LANG.other|default:'Other'}</option>
-                        <option value="apache">Apache</option>
-                        <option value="nginx">Nginx</option>
-                        <option value="iis">Microsoft IIS</option>
-                        <option value="tomcat">Tomcat</option>
-                        <option value="cpanel">cPanel</option>
-                        <option value="plesk">Plesk</option>
-                    </select>
-                </div>
-            </div>
-        </div>
-        
-        {* Step 3: Contact Information (for OV/EV) *}
-        {if $validationRequired != 'dv'}
-        <div class="panel panel-default">
-            <div class="panel-heading">
-                <h3 class="panel-title">
-                    <span class="step-number">3</span>
-                    {$_LANG.contact_information|default:'Contact Information'}
-                </h3>
-            </div>
-            <div class="panel-body">
-                {* Admin Contact *}
-                <h5 class="text-primary"><i class="fa fa-user"></i> {$_LANG.admin_contact|default:'Administrative Contact'}</h5>
-                <div class="row">
-                    <div class="col-md-6">
-                        <div class="form-group">
-                            <label>{$_LANG.first_name|default:'First Name'} <span class="text-danger">*</span></label>
-                            <input type="text" class="form-control" name="admin_firstName" required>
+
+                <!-- Auto CSR Fields (shown by default) -->
+                <div id="autoCSRFields" class="sslm-form-section">
+                    <div class="sslm-form-row">
+                        <div class="sslm-form-group">
+                            <label>{$_LANG.common_name} <span class="sslm-required">*</span></label>
+                            <input type="text" name="commonName" class="sslm-input" 
+                                   placeholder="example.com or *.example.com" required>
+                            <span class="sslm-help-text">Enter domain name (e.g., example.com)</span>
+                        </div>
+                        <div class="sslm-form-group">
+                            <label>{$_LANG.organization}</label>
+                            <input type="text" name="organization" class="sslm-input" 
+                                   value="{$client.companyName|escape:'html'}">
                         </div>
                     </div>
-                    <div class="col-md-6">
-                        <div class="form-group">
-                            <label>{$_LANG.last_name|default:'Last Name'} <span class="text-danger">*</span></label>
-                            <input type="text" class="form-control" name="admin_lastName" required>
+                    <div class="sslm-form-row">
+                        <div class="sslm-form-group">
+                            <label>{$_LANG.city}</label>
+                            <input type="text" name="city" class="sslm-input" 
+                                   value="{$client.city|escape:'html'}">
+                        </div>
+                        <div class="sslm-form-group">
+                            <label>{$_LANG.state}</label>
+                            <input type="text" name="state" class="sslm-input" 
+                                   value="{$client.state|escape:'html'}">
                         </div>
                     </div>
-                </div>
-                <div class="row">
-                    <div class="col-md-6">
-                        <div class="form-group">
-                            <label>{$_LANG.email|default:'Email'} <span class="text-danger">*</span></label>
-                            <input type="email" class="form-control" name="admin_email" required>
-                        </div>
-                    </div>
-                    <div class="col-md-6">
-                        <div class="form-group">
-                            <label>{$_LANG.phone|default:'Phone'} <span class="text-danger">*</span></label>
-                            <input type="text" class="form-control" name="admin_phone" required>
-                        </div>
-                    </div>
-                </div>
-                <div class="row">
-                    <div class="col-md-6">
-                        <div class="form-group">
-                            <label>{$_LANG.job_title|default:'Job Title'}</label>
-                            <input type="text" class="form-control" name="admin_jobTitle">
-                        </div>
-                    </div>
-                    <div class="col-md-6">
-                        <div class="form-group">
-                            <label>{$_LANG.organization|default:'Organization'} <span class="text-danger">*</span></label>
-                            <input type="text" class="form-control" name="admin_organization" required>
-                        </div>
-                    </div>
-                </div>
-                
-                <hr>
-                
-                {* Organization Info *}
-                <h5 class="text-primary"><i class="fa fa-building"></i> {$_LANG.organization_info|default:'Organization Information'}</h5>
-                <div class="row">
-                    <div class="col-md-12">
-                        <div class="form-group">
-                            <label>{$_LANG.address|default:'Address'} <span class="text-danger">*</span></label>
-                            <input type="text" class="form-control" name="org_address" required>
-                        </div>
-                    </div>
-                </div>
-                <div class="row">
-                    <div class="col-md-4">
-                        <div class="form-group">
-                            <label>{$_LANG.city|default:'City'} <span class="text-danger">*</span></label>
-                            <input type="text" class="form-control" name="org_city" required>
-                        </div>
-                    </div>
-                    <div class="col-md-4">
-                        <div class="form-group">
-                            <label>{$_LANG.state|default:'State/Province'} <span class="text-danger">*</span></label>
-                            <input type="text" class="form-control" name="org_state" required>
-                        </div>
-                    </div>
-                    <div class="col-md-4">
-                        <div class="form-group">
-                            <label>{$_LANG.postal_code|default:'Postal Code'} <span class="text-danger">*</span></label>
-                            <input type="text" class="form-control" name="org_postalCode" required>
-                        </div>
-                    </div>
-                </div>
-                <div class="row">
-                    <div class="col-md-6">
-                        <div class="form-group">
-                            <label>{$_LANG.country|default:'Country'} <span class="text-danger">*</span></label>
-                            <select class="form-control" name="org_country" required>
-                                <option value="">{$_LANG.select_country|default:'Select Country'}</option>
-                                {foreach $countryList as $code => $name}
-                                <option value="{$code}">{$name}</option>
+                    <div class="sslm-form-row">
+                        <div class="sslm-form-group">
+                            <label>{$_LANG.country}</label>
+                            <select name="country" class="sslm-select">
+                                <option value="">{$_LANG.please_choose}</option>
+                                {foreach $countries as $code => $name}
+                                <option value="{$code}" {if $client.country == $code}selected{/if}>{$name}</option>
                                 {/foreach}
                             </select>
                         </div>
-                    </div>
-                    <div class="col-md-6">
-                        <div class="form-group">
-                            <label>{$_LANG.phone|default:'Phone'} <span class="text-danger">*</span></label>
-                            <input type="text" class="form-control" name="org_phone" required>
+                        <div class="sslm-form-group">
+                            <label>{$_LANG.email}</label>
+                            <input type="email" name="csrEmail" class="sslm-input" 
+                                   value="{$client.email|escape:'html'}">
                         </div>
+                    </div>
+                </div>
+
+                <!-- Manual CSR Textarea (hidden by default) -->
+                <div id="manualCSRField" class="sslm-form-section" style="display: none;">
+                    <div class="sslm-form-group">
+                        <label>{$_LANG.paste_csr} <span class="sslm-required">*</span></label>
+                        <textarea name="csr" class="sslm-textarea sslm-textarea--code" 
+                                  placeholder="-----BEGIN CERTIFICATE REQUEST-----"></textarea>
+                    </div>
+                    <button type="button" class="sslm-btn sslm-btn--secondary sslm-btn--sm" 
+                            onclick="SSLManager.decodeCSR()">
+                        {$_LANG.decode_csr}
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Domain Information -->
+        {if $sslType == 'website_ssl'}
+        <div class="sslm-card">
+            <div class="sslm-card__header">
+                <h3>{$_LANG.domain_info}</h3>
+                {if $isMultiDomain}
+                <span class="sslm-badge sslm-badge--info">{$_LANG.max_domain}: {$maxDomains}</span>
+                {/if}
+            </div>
+            <div class="sslm-card__body">
+                <div class="sslm-domain-list" data-max-domains="{$maxDomains}">
+                    <!-- Domain Row -->
+                    <div class="sslm-domain-row" style="margin-bottom: 16px;">
+                        <div class="sslm-form-row">
+                            <div class="sslm-form-group" style="flex: 2;">
+                                <label><span class="sslm-domain-number">1</span>. {$_LANG.domain_name} <span class="sslm-required">*</span></label>
+                                <input type="text" name="domainName[]" class="sslm-input" 
+                                       placeholder="example.com" required>
+                            </div>
+                            <div class="sslm-form-group" style="flex: 1;">
+                                <label>{$_LANG.dcv_method} <span class="sslm-required">*</span></label>
+                                <select name="dcvMethod[]" class="sslm-select" required>
+                                    <option value="">{$_LANG.please_choose}</option>
+                                    {if $supportOptions.supportHttps}
+                                    <option value="HTTP_CSR_HASH">{$_LANG.http_csr_hash}</option>
+                                    <option value="HTTPS_CSR_HASH">{$_LANG.https_csr_hash}</option>
+                                    {/if}
+                                    <option value="CNAME_CSR_HASH">{$_LANG.cname_csr_hash}</option>
+                                    <option value="DNS_CSR_HASH">{$_LANG.dns_csr_hash}</option>
+                                </select>
+                            </div>
+                            <div class="sslm-form-group" style="flex: 0 0 80px; align-self: flex-end;">
+                                <button type="button" class="sslm-btn sslm-btn--secondary sslm-btn--sm sslm-remove-domain" 
+                                        style="display: none;">
+                                    {$_LANG.remove_domain}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {if $isMultiDomain}
+                <div style="margin-top: 12px;">
+                    <button type="button" class="sslm-btn sslm-btn--secondary sslm-btn--sm sslm-add-domain">
+                        + {$_LANG.add_domain}
+                    </button>
+                    <button type="button" class="sslm-btn sslm-btn--secondary sslm-btn--sm sslm-set-for-all" style="margin-left: 8px;">
+                        {$_LANG.set_for_all}
+                    </button>
+                </div>
+                {/if}
+            </div>
+        </div>
+        {/if}
+
+        <!-- Contact Information -->
+        <div class="sslm-card">
+            <div class="sslm-card__header">
+                <h3>{$_LANG.contacts}</h3>
+            </div>
+            <div class="sslm-card__body">
+                <div class="sslm-form-row">
+                    <div class="sslm-form-group">
+                        <label>{$_LANG.first_name} {if $requiresOrganization}<span class="sslm-required">*</span>{/if}</label>
+                        <input type="text" name="adminFirstName" class="sslm-input" 
+                               value="{$client.firstName|escape:'html'}" {if $requiresOrganization}required{/if}>
+                    </div>
+                    <div class="sslm-form-group">
+                        <label>{$_LANG.last_name} {if $requiresOrganization}<span class="sslm-required">*</span>{/if}</label>
+                        <input type="text" name="adminLastName" class="sslm-input" 
+                               value="{$client.lastName|escape:'html'}" {if $requiresOrganization}required{/if}>
+                    </div>
+                </div>
+                <div class="sslm-form-row">
+                    <div class="sslm-form-group">
+                        <label>{$_LANG.email_address} {if $requiresOrganization}<span class="sslm-required">*</span>{/if}</label>
+                        <input type="email" name="adminEmail" class="sslm-input" 
+                               value="{$client.email|escape:'html'}" {if $requiresOrganization}required{/if}>
+                    </div>
+                    <div class="sslm-form-group">
+                        <label>{$_LANG.phone} {if $requiresOrganization}<span class="sslm-required">*</span>{/if}</label>
+                        <input type="text" name="adminPhone" class="sslm-input" 
+                               value="{$client.phone|escape:'html'}" {if $requiresOrganization}required{/if}>
+                    </div>
+                </div>
+                {if $requiresOrganization}
+                <div class="sslm-form-row">
+                    <div class="sslm-form-group">
+                        <label>{$_LANG.organization_name} <span class="sslm-required">*</span></label>
+                        <input type="text" name="adminOrganizationName" class="sslm-input" 
+                               value="{$client.companyName|escape:'html'}" required>
+                    </div>
+                    <div class="sslm-form-group">
+                        <label>{$_LANG.title}</label>
+                        <input type="text" name="adminTitle" class="sslm-input" 
+                               placeholder="IT Manager">
+                    </div>
+                </div>
+                {/if}
+            </div>
+        </div>
+
+        <!-- Organization Information (for OV/EV) -->
+        {if $requiresOrganization}
+        <div class="sslm-card">
+            <div class="sslm-card__header">
+                <h3>{$_LANG.organization_info}</h3>
+            </div>
+            <div class="sslm-card__body">
+                <div class="sslm-form-row">
+                    <div class="sslm-form-group">
+                        <label>{$_LANG.org_name} <span class="sslm-required">*</span></label>
+                        <input type="text" name="orgName" class="sslm-input" 
+                               value="{$client.companyName|escape:'html'}" required>
+                    </div>
+                    <div class="sslm-form-group">
+                        <label>{$_LANG.org_division}</label>
+                        <input type="text" name="orgDivision" class="sslm-input">
+                    </div>
+                </div>
+                <div class="sslm-form-row">
+                    <div class="sslm-form-group">
+                        <label>{$_LANG.org_address} <span class="sslm-required">*</span></label>
+                        <input type="text" name="orgAddress" class="sslm-input" 
+                               value="{$client.address|escape:'html'}" required>
+                    </div>
+                </div>
+                <div class="sslm-form-row">
+                    <div class="sslm-form-group">
+                        <label>{$_LANG.org_city} <span class="sslm-required">*</span></label>
+                        <input type="text" name="orgCity" class="sslm-input" 
+                               value="{$client.city|escape:'html'}" required>
+                    </div>
+                    <div class="sslm-form-group">
+                        <label>{$_LANG.org_state} <span class="sslm-required">*</span></label>
+                        <input type="text" name="orgState" class="sslm-input" 
+                               value="{$client.state|escape:'html'}" required>
+                    </div>
+                </div>
+                <div class="sslm-form-row">
+                    <div class="sslm-form-group">
+                        <label>{$_LANG.org_country} <span class="sslm-required">*</span></label>
+                        <select name="orgCountry" class="sslm-select" required>
+                            <option value="">{$_LANG.please_choose}</option>
+                            {foreach $countries as $code => $name}
+                            <option value="{$code}" {if $client.country == $code}selected{/if}>{$name}</option>
+                            {/foreach}
+                        </select>
+                    </div>
+                    <div class="sslm-form-group">
+                        <label>{$_LANG.org_postal}</label>
+                        <input type="text" name="orgPostCode" class="sslm-input" 
+                               value="{$client.postCode|escape:'html'}">
+                    </div>
+                </div>
+                <div class="sslm-form-row">
+                    <div class="sslm-form-group">
+                        <label>{$_LANG.org_phone} <span class="sslm-required">*</span></label>
+                        <input type="text" name="orgPhone" class="sslm-input" 
+                               value="{$client.phone|escape:'html'}" required>
+                    </div>
+                    <div class="sslm-form-group">
+                        <label>{$_LANG.idType}</label>
+                        <select name="idType" class="sslm-select">
+                            <option value="TYDMZ">{$_LANG.organizationCode}</option>
+                            <option value="OTHERS">{$_LANG.other}</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="sslm-form-row">
+                    <div class="sslm-form-group">
+                        <label>{$_LANG.organizationRegNumber}</label>
+                        <input type="text" name="organizationRegNumber" class="sslm-input">
                     </div>
                 </div>
             </div>
         </div>
         {/if}
-        
-        {* Submit Section *}
-        <div class="panel panel-success">
-            <div class="panel-body">
-                <div class="row">
-                    <div class="col-md-8">
-                        <div class="checkbox">
-                            <label>
-                                <input type="checkbox" id="agreeTerms" required>
-                                {$_LANG.agree_terms|default:'I confirm that the information provided is accurate and I agree to the terms of service.'}
-                            </label>
-                        </div>
-                    </div>
-                    <div class="col-md-4 text-right">
-                        <button type="submit" class="btn btn-success btn-lg" id="btnSubmitApply">
-                            <i class="fa fa-paper-plane"></i> {$_LANG.submit_application|default:'Submit Application'}
-                        </button>
-                    </div>
+
+        <!-- Server Type -->
+        <div class="sslm-card">
+            <div class="sslm-card__header">
+                <h3>{$_LANG.server_type}</h3>
+            </div>
+            <div class="sslm-card__body">
+                <div class="sslm-form-group">
+                    <select name="server" class="sslm-select" style="max-width: 300px;">
+                        {foreach $serverTypes as $code => $name}
+                        <option value="{$code}">{$name}</option>
+                        {/foreach}
+                    </select>
+                    <span class="sslm-help-text">Select your web server type for proper certificate format</span>
                 </div>
             </div>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="sslm-action-bar">
+            <button type="button" class="sslm-btn sslm-btn--secondary" data-action="saveDraft">
+                {$_LANG.save_draft}
+            </button>
+            <button type="button" class="sslm-btn sslm-btn--primary sslm-btn--lg" data-action="submitApply">
+                {$_LANG.submit_request}
+            </button>
         </div>
     </form>
 </div>
 
-<script src="{$WEB_ROOT}/modules/servers/nicsrs_ssl/view/home/js/nicsrs-client.js"></script>
-<script>
-    NicsrsSSL.init({
-        serviceId: {$serviceId},
-        baseUrl: '{$moduleLink}',
-        lang: {
-            processing: '{$_LANG.processing|default:"Processing..."}',
-            success: '{$_LANG.success|default:"Success"}',
-            error: '{$_LANG.error|default:"Error"}'
-        }
-    });
-
-    $(document).ready(function() {
-        // Decode CSR button
-        $('#btnDecodeCsr').click(function() {
-            var csr = $('#csr').val().trim();
-            if (!csr) {
-                NicsrsSSL.showError('{$_LANG.csr_required|default:"Please enter a CSR"}');
-                return;
-            }
-            
-            var btn = $(this);
-            btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i>');
-            
-            $.ajax({
-                url: '{$moduleLink}',
-                type: 'POST',
-                data: { step: 'decodeCsr', csr: csr, serviceid: {$serviceId} },
-                dataType: 'json',
-                success: function(response) {
-                    if (response.status == 1 && response.data) {
-                        $('#csrCN').text(response.data.commonName || '-');
-                        $('#csrO').text(response.data.organization || '-');
-                        $('#csrL').text(response.data.locality || '-');
-                        $('#csrST').text(response.data.state || '-');
-                        $('#csrC').text(response.data.country || '-');
-                        
-                        if (response.data.commonName) {
-                            $('#primaryDomain').val(response.data.commonName);
-                        }
-                        
-                        $('#csrPlaceholder').hide();
-                        $('#csrInfo').show();
-                    } else {
-                        NicsrsSSL.showError(response.msg || 'Failed to decode CSR');
-                    }
-                },
-                error: function() {
-                    NicsrsSSL.showError('Network error');
-                },
-                complete: function() {
-                    btn.prop('disabled', false).html('<i class="fa fa-search"></i> {$_LANG.decode_csr|default:"Decode CSR"}');
-                }
-            });
-        });
-        
-        // DCV Method change
-        $('#dcvMethod').change(function() {
-            var method = $(this).val();
-            if (method === 'EMAIL') {
-                $('#dcvEmailGroup').show();
-                loadDcvEmails();
-            } else {
-                $('#dcvEmailGroup').hide();
-            }
-        });
-        
-        // Load DCV emails
-        function loadDcvEmails() {
-            var domain = $('#primaryDomain').val();
-            if (!domain) return;
-            
-            $.ajax({
-                url: '{$moduleLink}',
-                type: 'POST',
-                data: { step: 'getDcvEmails', domain: domain, serviceid: {$serviceId} },
-                dataType: 'json',
-                success: function(response) {
-                    if (response.status == 1 && response.data && response.data.emails) {
-                        var select = $('#dcvEmail').empty();
-                        $.each(response.data.emails, function(i, email) {
-                            select.append('<option value="' + email + '">' + email + '</option>');
-                        });
-                    }
-                }
-            });
-        }
-        
-        // Form submit
-        $('#applyForm').submit(function(e) {
-            e.preventDefault();
-            
-            if (!$('#agreeTerms').is(':checked')) {
-                NicsrsSSL.showError('{$_LANG.agree_required|default:"Please agree to the terms"}');
-                return;
-            }
-            
-            var csr = $('#csr').val().trim();
-            if (!csr) {
-                NicsrsSSL.showError('{$_LANG.csr_required|default:"CSR is required"}');
-                return;
-            }
-            
-            var btn = $('#btnSubmitApply');
-            btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> {$_LANG.processing|default:"Processing..."}');
-            
-            var domainInfo = [{
-                domainName: $('#primaryDomain').val(),
-                dcvMethod: $('#dcvMethod').val(),
-                dcvEmail: $('#dcvEmail').val() || ''
-            }];
-            
-            var data = {
-                csr: csr,
-                privateKey: $('#privateKey').val(),
-                domainInfo: domainInfo,
-                server: $('#serverType').val()
-            };
-            
-            {if $validationRequired != 'dv'}
-            data.Administrator = {
-                firstName: $('[name="admin_firstName"]').val(),
-                lastName: $('[name="admin_lastName"]').val(),
-                email: $('[name="admin_email"]').val(),
-                mobile: $('[name="admin_phone"]').val(),
-                job: $('[name="admin_jobTitle"]').val(),
-                organation: $('[name="admin_organization"]').val()
-            };
-            
-            data.organizationInfo = {
-                name: $('[name="admin_organization"]').val(),
-                address: $('[name="org_address"]').val(),
-                city: $('[name="org_city"]').val(),
-                state: $('[name="org_state"]').val(),
-                postCode: $('[name="org_postalCode"]').val(),
-                country: $('[name="org_country"]').val(),
-                phone: $('[name="org_phone"]').val()
-            };
-            {/if}
-            
-            $.ajax({
-                url: '{$moduleLink}',
-                type: 'POST',
-                data: { step: 'submitApply', data: JSON.stringify(data), serviceid: {$serviceId} },
-                dataType: 'json',
-                success: function(response) {
-                    if (response.status == 1) {
-                        NicsrsSSL.showSuccess('{$_LANG.application_submitted|default:"Application submitted successfully!"}');
-                        setTimeout(function() {
-                            location.reload();
-                        }, 2000);
-                    } else {
-                        NicsrsSSL.showError(response.msg || 'Submission failed');
-                        btn.prop('disabled', false).html('<i class="fa fa-paper-plane"></i> {$_LANG.submit_application|default:"Submit Application"}');
-                    }
-                },
-                error: function() {
-                    NicsrsSSL.showError('Network error');
-                    btn.prop('disabled', false).html('<i class="fa fa-paper-plane"></i> {$_LANG.submit_application|default:"Submit Application"}');
-                }
-            });
-        });
-    });
-</script>
-
-<style>
-    .step-number {
-        display: inline-block;
-        width: 28px;
-        height: 28px;
-        background: rgba(255,255,255,0.2);
-        border-radius: 50%;
-        text-align: center;
-        line-height: 28px;
-        margin-right: 10px;
-        font-weight: bold;
-    }
-    .panel-primary .step-number {
-        background: rgba(255,255,255,0.3);
-    }
-</style>
+<script src="{$WEB_ROOT}/{$MODULE_PATH}/assets/js/ssl-manager.js"></script>

@@ -1,340 +1,288 @@
-{**
- * NicSRS SSL - Reissue Certificate Template
- * Form for reissuing existing SSL certificate
- *
- * @package    WHMCS
- * @author     HVN GROUP
- * @version    2.0.0
- *}
+<link rel="stylesheet" href="{$WEB_ROOT}/{$MODULE_PATH}/assets/css/ssl-manager.css">
 
-<link rel="stylesheet" href="{$WEB_ROOT}/modules/servers/nicsrs_ssl/view/home/css/nicsrs-modern.css">
+<div class="sslm-container">
+    <script type="application/json" id="sslmConfig">{
+        "serviceId": {$serviceid},
+        "ajaxUrl": "clientarea.php?action=productdetails&id={$serviceid}&modop=custom",
+        "lang": {$_LANG_JSON}
+    }</script>
 
-<div class="nicsrs-ssl-container">
-    
-    {* Alert Container *}
-    <div class="nicsrs-alert-container"></div>
-    
-    {* Header *}
-    <div class="alert alert-warning">
-        <div class="row">
-            <div class="col-sm-1 text-center">
-                <i class="fa fa-refresh fa-3x"></i>
-            </div>
-            <div class="col-sm-11">
-                <h4 style="margin-top: 0;">{$_LANG.reissue_certificate|default:'Reissue Certificate'}</h4>
-                <p style="margin-bottom: 0;">{$_LANG.reissue_description|default:'Generate a new certificate with a new CSR. Your current certificate will remain valid until the new one is issued.'}</p>
+    <!-- Page Header -->
+    <div class="sslm-alert sslm-alert--info">
+        <i>🔄</i>
+        <span>{$_LANG.replace_des}</span>
+    </div>
+
+    <!-- Current Certificate Info -->
+    <div class="sslm-card">
+        <div class="sslm-card__header">
+            <h3>{$_LANG.certificate_info}</h3>
+            <span class="sslm-badge sslm-badge--info">{$_LANG.reissue}</span>
+        </div>
+        <div class="sslm-card__body">
+            <div class="sslm-cert-info">
+                <div class="sslm-cert-info__item">
+                    <label>{$_LANG.certificate_id}</label>
+                    <span>{$remoteid|default:'N/A'}</span>
+                </div>
+                <div class="sslm-cert-info__item">
+                    <label>{$_LANG.certificate_type}</label>
+                    <span>{$productCode}</span>
+                </div>
+                <div class="sslm-cert-info__item">
+                    <label>{$_LANG.status}</label>
+                    <span class="sslm-badge sslm-badge--warning">{$_LANG.reissue_pending}</span>
+                </div>
             </div>
         </div>
     </div>
-    
-    {* Current Certificate Info *}
-    <div class="panel panel-default">
-        <div class="panel-heading">
-            <h3 class="panel-title">
-                <i class="fa fa-certificate"></i> {$_LANG.current_certificate|default:'Current Certificate'}
-            </h3>
-        </div>
-        <div class="panel-body">
-            <div class="row">
-                <div class="col-md-6">
-                    <table class="table table-condensed">
-                        <tr>
-                            <th style="width: 40%;">{$_LANG.certificate_id|default:'Certificate ID'}:</th>
-                            <td><code>{$certId|escape:'html'}</code></td>
-                        </tr>
-                        <tr>
-                            <th>{$_LANG.domain|default:'Domain'}:</th>
-                            <td><strong>{$domain|escape:'html'}</strong></td>
-                        </tr>
-                    </table>
-                </div>
-                <div class="col-md-6">
-                    <table class="table table-condensed">
-                        <tr>
-                            <th style="width: 40%;">{$_LANG.status|default:'Status'}:</th>
-                            <td><span class="label label-success">{$_LANG.status_active|default:'Active'}</span></td>
-                        </tr>
-                        <tr>
-                            <th>{$_LANG.domains_count|default:'Domains'}:</th>
-                            <td>{$domainInfo|count}</td>
-                        </tr>
-                    </table>
-                </div>
+
+    <form id="sslReissueForm" method="post">
+        <input type="hidden" name="privateKey" id="privateKey" value="">
+        <input type="hidden" name="certId" value="{$remoteid}">
+
+        <!-- CSR Section -->
+        <div class="sslm-card">
+            <div class="sslm-card__header">
+                <h3>{$_LANG.csr_configuration}</h3>
             </div>
-            
-            {if count($domainInfo) > 1}
-            <div class="well well-sm">
-                <strong>{$_LANG.secured_domains|default:'Secured Domains'}:</strong>
-                <ul style="margin-bottom: 0; margin-top: 5px; columns: 2;">
-                    {foreach $domainInfo as $dInfo}
-                    <li>{$dInfo.domainName|escape:'html'}</li>
-                    {/foreach}
-                </ul>
-            </div>
-            {/if}
-        </div>
-    </div>
-    
-    {* Reissue Form *}
-    <form id="reissueForm">
-        <input type="hidden" name="serviceid" value="{$serviceId}">
-        
-        <div class="panel panel-primary">
-            <div class="panel-heading">
-                <h3 class="panel-title">
-                    <i class="fa fa-file-text-o"></i> {$_LANG.new_certificate_request|default:'New Certificate Request'}
-                </h3>
-            </div>
-            <div class="panel-body">
-                {* Warning *}
-                <div class="alert alert-warning" style="margin-bottom: 20px;">
-                    <i class="fa fa-exclamation-triangle"></i>
-                    <strong>{$_LANG.important|default:'Important'}:</strong>
-                    {$_LANG.reissue_warning_detail|default:'Reissuing will create a new certificate. You will need to reinstall the certificate on your server after the new one is issued. The current certificate remains valid during this process.'}
-                </div>
+            <div class="sslm-card__body">
+                <p class="sslm-help-text">{$_LANG.csr_des}</p>
                 
-                <div class="row">
-                    <div class="col-md-8">
-                        {* New CSR *}
-                        <div class="form-group">
-                            <label for="newCsr">
-                                {$_LANG.new_csr|default:'New CSR (Certificate Signing Request)'} 
-                                <span class="text-danger">*</span>
-                            </label>
-                            <textarea class="form-control" id="newCsr" name="csr" rows="12" 
-                                      placeholder="-----BEGIN CERTIFICATE REQUEST-----&#10;...&#10;-----END CERTIFICATE REQUEST-----"
-                                      required></textarea>
-                            <p class="help-block">
-                                {$_LANG.new_csr_help|default:'Generate a new CSR from your server with the same domain name.'}
-                            </p>
+                <!-- CSR Mode Toggle -->
+                <div class="sslm-radio-group" style="margin-top: 16px;">
+                    <label class="sslm-radio">
+                        <input type="radio" name="csrMode" value="auto" checked>
+                        <span>{$_LANG.auto_generate_csr}</span>
+                    </label>
+                    <label class="sslm-radio">
+                        <input type="radio" name="csrMode" value="manual">
+                        <span>{$_LANG.manual_csr}</span>
+                    </label>
+                </div>
+
+                <!-- Auto CSR Fields -->
+                <div id="autoCSRFields" class="sslm-form-section">
+                    <div class="sslm-form-row">
+                        <div class="sslm-form-group">
+                            <label>{$_LANG.common_name} <span class="sslm-required">*</span></label>
+                            <input type="text" name="commonName" class="sslm-input" 
+                                   value="{$existingData.domainInfo[0].domainName|escape:'html'}"
+                                   placeholder="example.com or *.example.com" required>
                         </div>
-                        
-                        {* New Private Key *}
-                        <div class="form-group">
-                            <label for="newPrivateKey">
-                                {$_LANG.new_private_key|default:'New Private Key'} 
-                                ({$_LANG.optional|default:'Optional'})
-                            </label>
-                            <textarea class="form-control" id="newPrivateKey" name="privateKey" rows="6"
-                                      placeholder="-----BEGIN PRIVATE KEY-----"></textarea>
-                            <p class="help-block">
-                                {$_LANG.private_key_help|default:'If you want to store your private key, paste it here.'}
-                            </p>
+                        <div class="sslm-form-group">
+                            <label>{$_LANG.organization}</label>
+                            <input type="text" name="organization" class="sslm-input" 
+                                   value="{$existingData.Administrator.organation|escape:'html'}">
                         </div>
                     </div>
-                    
-                    <div class="col-md-4">
-                        {* CSR Decoder *}
-                        <div class="well">
-                            <h5><i class="fa fa-info-circle"></i> {$_LANG.new_csr_info|default:'New CSR Information'}</h5>
-                            <div id="newCsrInfo" style="display: none;">
-                                <table class="table table-condensed table-bordered" style="font-size: 12px;">
-                                    <tr>
-                                        <th>CN</th>
-                                        <td id="newCsrCN">-</td>
-                                    </tr>
-                                    <tr>
-                                        <th>O</th>
-                                        <td id="newCsrO">-</td>
-                                    </tr>
-                                    <tr>
-                                        <th>C</th>
-                                        <td id="newCsrC">-</td>
-                                    </tr>
-                                </table>
+                    <div class="sslm-form-row">
+                        <div class="sslm-form-group">
+                            <label>{$_LANG.city}</label>
+                            <input type="text" name="city" class="sslm-input" 
+                                   value="{$existingData.organizationInfo.city|escape:'html'}">
+                        </div>
+                        <div class="sslm-form-group">
+                            <label>{$_LANG.state}</label>
+                            <input type="text" name="state" class="sslm-input" 
+                                   value="{$existingData.organizationInfo.state|escape:'html'}">
+                        </div>
+                    </div>
+                    <div class="sslm-form-row">
+                        <div class="sslm-form-group">
+                            <label>{$_LANG.country}</label>
+                            <select name="country" class="sslm-select">
+                                <option value="">{$_LANG.please_choose}</option>
+                                {foreach $countries as $code => $name}
+                                <option value="{$code}" {if $existingData.organizationInfo.country == $code}selected{/if}>{$name}</option>
+                                {/foreach}
+                            </select>
+                        </div>
+                        <div class="sslm-form-group">
+                            <label>{$_LANG.email}</label>
+                            <input type="email" name="csrEmail" class="sslm-input" 
+                                   value="{$existingData.Administrator.email|escape:'html'}">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Manual CSR Textarea -->
+                <div id="manualCSRField" class="sslm-form-section" style="display: none;">
+                    <div class="sslm-form-group">
+                        <label>{$_LANG.paste_csr} <span class="sslm-required">*</span></label>
+                        <textarea name="csr" class="sslm-textarea sslm-textarea--code" 
+                                  placeholder="-----BEGIN CERTIFICATE REQUEST-----"></textarea>
+                    </div>
+                    <button type="button" class="sslm-btn sslm-btn--secondary sslm-btn--sm" 
+                            onclick="SSLManager.decodeCSR()">
+                        {$_LANG.decode_csr}
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Domain Information -->
+        {if $sslType == 'website_ssl'}
+        <div class="sslm-card">
+            <div class="sslm-card__header">
+                <h3>{$_LANG.domain_info}</h3>
+                {if $isMultiDomain}
+                <span class="sslm-badge sslm-badge--info">{$_LANG.max_domain}: {$maxDomains}</span>
+                {/if}
+            </div>
+            <div class="sslm-card__body">
+                <div class="sslm-domain-list" data-max-domains="{$maxDomains}">
+                    {foreach $existingData.domainInfo as $index => $domain}
+                    <div class="sslm-domain-row" style="margin-bottom: 16px;">
+                        <div class="sslm-form-row">
+                            <div class="sslm-form-group" style="flex: 2;">
+                                <label><span class="sslm-domain-number">{$index+1}</span>. {$_LANG.domain_name} <span class="sslm-required">*</span></label>
+                                <input type="text" name="domainName[]" class="sslm-input" 
+                                       value="{$domain.domainName|escape:'html'}"
+                                       placeholder="example.com" required>
                             </div>
-                            <p id="newCsrPlaceholder" class="text-muted" style="font-size: 12px;">
-                                {$_LANG.csr_decode_prompt|default:'Enter CSR and click Decode to verify.'}
-                            </p>
-                            <button type="button" class="btn btn-info btn-sm btn-block" id="btnDecodeNewCsr">
-                                <i class="fa fa-search"></i> {$_LANG.decode_csr|default:'Decode CSR'}
-                            </button>
+                            <div class="sslm-form-group" style="flex: 1;">
+                                <label>{$_LANG.dcv_method} <span class="sslm-required">*</span></label>
+                                <select name="dcvMethod[]" class="sslm-select" required>
+                                    <option value="">{$_LANG.please_choose}</option>
+                                    <option value="HTTP_CSR_HASH" {if $domain.dcvMethod == 'HTTP_CSR_HASH'}selected{/if}>{$_LANG.http_csr_hash}</option>
+                                    <option value="HTTPS_CSR_HASH" {if $domain.dcvMethod == 'HTTPS_CSR_HASH'}selected{/if}>{$_LANG.https_csr_hash}</option>
+                                    <option value="CNAME_CSR_HASH" {if $domain.dcvMethod == 'CNAME_CSR_HASH'}selected{/if}>{$_LANG.cname_csr_hash}</option>
+                                    <option value="DNS_CSR_HASH" {if $domain.dcvMethod == 'DNS_CSR_HASH'}selected{/if}>{$_LANG.dns_csr_hash}</option>
+                                </select>
+                            </div>
+                            <div class="sslm-form-group" style="flex: 0 0 80px; align-self: flex-end;">
+                                {if $index > 0}
+                                <button type="button" class="sslm-btn sslm-btn--secondary sslm-btn--sm sslm-remove-domain">
+                                    {$_LANG.remove_domain}
+                                </button>
+                                {/if}
+                            </div>
                         </div>
-                        
-                        {* Tips *}
-                        <div class="well">
-                            <h5><i class="fa fa-lightbulb-o"></i> {$_LANG.tips|default:'Tips'}</h5>
-                            <ul style="font-size: 12px; padding-left: 20px; margin-bottom: 0;">
-                                <li>{$_LANG.tip_same_domain|default:'Use the same domain name as your current certificate.'}</li>
-                                <li>{$_LANG.tip_new_key|default:'Generate a new private key with your new CSR.'}</li>
-                                <li>{$_LANG.tip_reinstall|default:'Reinstall certificate after reissue completes.'}</li>
-                            </ul>
+                    </div>
+                    {foreachelse}
+                    <!-- Default empty row if no existing domains -->
+                    <div class="sslm-domain-row" style="margin-bottom: 16px;">
+                        <div class="sslm-form-row">
+                            <div class="sslm-form-group" style="flex: 2;">
+                                <label><span class="sslm-domain-number">1</span>. {$_LANG.domain_name} <span class="sslm-required">*</span></label>
+                                <input type="text" name="domainName[]" class="sslm-input" 
+                                       placeholder="example.com" required>
+                            </div>
+                            <div class="sslm-form-group" style="flex: 1;">
+                                <label>{$_LANG.dcv_method} <span class="sslm-required">*</span></label>
+                                <select name="dcvMethod[]" class="sslm-select" required>
+                                    <option value="">{$_LANG.please_choose}</option>
+                                    <option value="HTTP_CSR_HASH">{$_LANG.http_csr_hash}</option>
+                                    <option value="HTTPS_CSR_HASH">{$_LANG.https_csr_hash}</option>
+                                    <option value="CNAME_CSR_HASH">{$_LANG.cname_csr_hash}</option>
+                                    <option value="DNS_CSR_HASH">{$_LANG.dns_csr_hash}</option>
+                                </select>
+                            </div>
+                            <div class="sslm-form-group" style="flex: 0 0 80px;"></div>
                         </div>
+                    </div>
+                    {/foreach}
+                </div>
+
+                {if $isMultiDomain}
+                <div style="margin-top: 12px;">
+                    <button type="button" class="sslm-btn sslm-btn--secondary sslm-btn--sm sslm-add-domain">
+                        + {$_LANG.add_domain}
+                    </button>
+                    <button type="button" class="sslm-btn sslm-btn--secondary sslm-btn--sm sslm-set-for-all" style="margin-left: 8px;">
+                        {$_LANG.set_for_all}
+                    </button>
+                </div>
+                {/if}
+            </div>
+        </div>
+        {/if}
+
+        <!-- Contact Information (for OV/EV) -->
+        {if $requiresOrganization}
+        <div class="sslm-card">
+            <div class="sslm-card__header">
+                <h3>{$_LANG.contacts}</h3>
+            </div>
+            <div class="sslm-card__body">
+                <div class="sslm-form-row">
+                    <div class="sslm-form-group">
+                        <label>{$_LANG.first_name} <span class="sslm-required">*</span></label>
+                        <input type="text" name="adminFirstName" class="sslm-input" 
+                               value="{$existingData.Administrator.firstName|escape:'html'}" required>
+                    </div>
+                    <div class="sslm-form-group">
+                        <label>{$_LANG.last_name} <span class="sslm-required">*</span></label>
+                        <input type="text" name="adminLastName" class="sslm-input" 
+                               value="{$existingData.Administrator.lastName|escape:'html'}" required>
+                    </div>
+                </div>
+                <div class="sslm-form-row">
+                    <div class="sslm-form-group">
+                        <label>{$_LANG.email_address} <span class="sslm-required">*</span></label>
+                        <input type="email" name="adminEmail" class="sslm-input" 
+                               value="{$existingData.Administrator.email|escape:'html'}" required>
+                    </div>
+                    <div class="sslm-form-group">
+                        <label>{$_LANG.phone} <span class="sslm-required">*</span></label>
+                        <input type="text" name="adminPhone" class="sslm-input" 
+                               value="{$existingData.Administrator.mobile|escape:'html'}" required>
+                    </div>
+                </div>
+                <div class="sslm-form-row">
+                    <div class="sslm-form-group">
+                        <label>{$_LANG.organization_name} <span class="sslm-required">*</span></label>
+                        <input type="text" name="adminOrganizationName" class="sslm-input" 
+                               value="{$existingData.Administrator.organation|escape:'html'}" required>
+                    </div>
+                    <div class="sslm-form-group">
+                        <label>{$_LANG.title}</label>
+                        <input type="text" name="adminTitle" class="sslm-input" 
+                               value="{$existingData.Administrator.job|escape:'html'}">
                     </div>
                 </div>
             </div>
         </div>
-        
-        {* Domain Validation *}
-        <div class="panel panel-default">
-            <div class="panel-heading">
-                <h3 class="panel-title">
-                    <i class="fa fa-shield"></i> {$_LANG.domain_validation|default:'Domain Validation'}
-                </h3>
+        {/if}
+
+        <!-- Server Type -->
+        <div class="sslm-card">
+            <div class="sslm-card__header">
+                <h3>{$_LANG.server_type}</h3>
             </div>
-            <div class="panel-body">
-                <p class="text-muted">{$_LANG.reissue_dcv_note|default:'Domain validation will be required again for the reissued certificate.'}</p>
-                
-                <div class="table-responsive">
-                    <table class="table table-bordered" id="reissueDomainTable">
-                        <thead>
-                            <tr>
-                                <th>{$_LANG.domain|default:'Domain'}</th>
-                                <th style="width: 250px;">{$_LANG.dcv_method|default:'Validation Method'}</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {foreach $domainInfo as $idx => $dInfo}
-                            <tr>
-                                <td>
-                                    <strong>{$dInfo.domainName|escape:'html'}</strong>
-                                    <input type="hidden" name="domains[{$idx}][domainName]" value="{$dInfo.domainName|escape:'html'}">
-                                </td>
-                                <td>
-                                    <select class="form-control input-sm" name="domains[{$idx}][dcvMethod]">
-                                        {foreach $dcvMethods as $code => $method}
-                                        <option value="{$code}" {if $dInfo.dcvMethod == $code}selected{/if}>
-                                            {$method.name}
-                                        </option>
-                                        {/foreach}
-                                    </select>
-                                </td>
-                            </tr>
-                            {/foreach}
-                        </tbody>
-                    </table>
+            <div class="sslm-card__body">
+                <div class="sslm-form-group">
+                    <select name="server" class="sslm-select" style="max-width: 300px;">
+                        {foreach $serverTypes as $code => $name}
+                        <option value="{$code}" {if $configdata.server == $code}selected{/if}>{$name}</option>
+                        {/foreach}
+                    </select>
                 </div>
             </div>
         </div>
-        
-        {* Submit Section *}
-        <div class="panel panel-default">
-            <div class="panel-body">
-                <div class="row">
-                    <div class="col-md-6">
-                        <a href="{$moduleLink}" class="btn btn-default">
-                            <i class="fa fa-arrow-left"></i> {$_LANG.back|default:'Back'}
-                        </a>
-                    </div>
-                    <div class="col-md-6 text-right">
-                        <button type="submit" class="btn btn-warning btn-lg" id="btnSubmitReissue">
-                            <i class="fa fa-refresh"></i> {$_LANG.submit_reissue|default:'Submit Reissue Request'}
-                        </button>
-                    </div>
+
+        <!-- Confirmation -->
+        <div class="sslm-card sslm-card--warning">
+            <div class="sslm-card__body">
+                <div class="sslm-alert sslm-alert--warning" style="margin: 0;">
+                    <i>⚠️</i>
+                    <span><strong>{$_LANG.sure_to_replace}</strong><br>
+                    Reissuing will invalidate the current certificate. The new certificate will need domain validation again.</span>
                 </div>
             </div>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="sslm-action-bar">
+            <a href="clientarea.php?action=productdetails&id={$serviceid}" class="sslm-btn sslm-btn--secondary">
+                {$_LANG.back}
+            </a>
+            <button type="button" class="sslm-btn sslm-btn--primary sslm-btn--lg" data-action="reissueCert">
+                🔄 {$_LANG.reissue_certificate}
+            </button>
         </div>
     </form>
 </div>
 
-<script src="{$WEB_ROOT}/modules/servers/nicsrs_ssl/view/home/js/nicsrs-client.js"></script>
-<script>
-    NicsrsSSL.init({
-        serviceId: {$serviceId},
-        baseUrl: '{$moduleLink}',
-        lang: {
-            processing: '{$_LANG.processing|default:"Processing..."}',
-            success: '{$_LANG.success|default:"Success"}',
-            error: '{$_LANG.error|default:"Error"}'
-        }
-    });
-
-    $(document).ready(function() {
-        // Decode New CSR
-        $('#btnDecodeNewCsr').click(function() {
-            var csr = $('#newCsr').val().trim();
-            if (!csr) {
-                NicsrsSSL.showError('{$_LANG.csr_required|default:"Please enter a CSR"}');
-                return;
-            }
-            
-            var btn = $(this);
-            btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i>');
-            
-            $.ajax({
-                url: '{$moduleLink}',
-                type: 'POST',
-                data: { step: 'decodeCsr', csr: csr, serviceid: {$serviceId} },
-                dataType: 'json',
-                success: function(response) {
-                    if (response.status == 1 && response.data) {
-                        $('#newCsrCN').text(response.data.commonName || '-');
-                        $('#newCsrO').text(response.data.organization || '-');
-                        $('#newCsrC').text(response.data.country || '-');
-                        
-                        // Verify domain matches
-                        if (response.data.commonName && response.data.commonName !== '{$domain|escape:"js"}') {
-                            NicsrsSSL.showError('{$_LANG.domain_mismatch|default:"Warning: Domain does not match current certificate!"}');
-                        }
-                        
-                        $('#newCsrPlaceholder').hide();
-                        $('#newCsrInfo').show();
-                    } else {
-                        NicsrsSSL.showError(response.msg || 'Failed to decode CSR');
-                    }
-                },
-                error: function() {
-                    NicsrsSSL.showError('Network error');
-                },
-                complete: function() {
-                    btn.prop('disabled', false).html('<i class="fa fa-search"></i> {$_LANG.decode_csr|default:"Decode CSR"}');
-                }
-            });
-        });
-        
-        // Form Submit
-        $('#reissueForm').submit(function(e) {
-            e.preventDefault();
-            
-            var csr = $('#newCsr').val().trim();
-            if (!csr) {
-                NicsrsSSL.showError('{$_LANG.csr_required|default:"New CSR is required"}');
-                return;
-            }
-            
-            if (!confirm('{$_LANG.confirm_reissue|default:"Are you sure you want to reissue this certificate?"}')) {
-                return;
-            }
-            
-            var btn = $('#btnSubmitReissue');
-            btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> {$_LANG.processing|default:"Processing..."}');
-            
-            // Collect domain info
-            var domainInfo = [];
-            $('#reissueDomainTable tbody tr').each(function() {
-                domainInfo.push({
-                    domainName: $(this).find('input[name*="domainName"]').val(),
-                    dcvMethod: $(this).find('select').val()
-                });
-            });
-            
-            var data = {
-                csr: csr,
-                privateKey: $('#newPrivateKey').val(),
-                domainInfo: domainInfo
-            };
-            
-            $.ajax({
-                url: '{$moduleLink}',
-                type: 'POST',
-                data: { step: 'reissueCertificate', data: JSON.stringify(data), serviceid: {$serviceId} },
-                dataType: 'json',
-                success: function(response) {
-                    if (response.status == 1) {
-                        NicsrsSSL.showSuccess('{$_LANG.reissue_submitted|default:"Reissue request submitted successfully!"}');
-                        setTimeout(function() {
-                            window.location.href = '{$moduleLink}';
-                        }, 2000);
-                    } else {
-                        NicsrsSSL.showError(response.msg || 'Reissue failed');
-                        btn.prop('disabled', false).html('<i class="fa fa-refresh"></i> {$_LANG.submit_reissue|default:"Submit Reissue Request"}');
-                    }
-                },
-                error: function() {
-                    NicsrsSSL.showError('Network error');
-                    btn.prop('disabled', false).html('<i class="fa fa-refresh"></i> {$_LANG.submit_reissue|default:"Submit Reissue Request"}');
-                }
-            });
-        });
-    });
-</script>
+<script src="{$WEB_ROOT}/{$MODULE_PATH}/assets/js/ssl-manager.js"></script>

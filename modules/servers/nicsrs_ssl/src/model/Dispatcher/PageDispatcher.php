@@ -1,12 +1,12 @@
 <?php
 /**
- * NicSRS SSL Page Dispatcher
- * 
+ * NicSRS SSL Module - Page Dispatcher
  * Routes page requests to appropriate controller methods
  * 
- * @package    WHMCS
- * @author     HVN GROUP
+ * @package    nicsrs_ssl
  * @version    2.0.0
+ * @author     HVN GROUP
+ * @copyright  Copyright (c) HVN GROUP (https://hvn.vn)
  */
 
 namespace nicsrsSSL;
@@ -16,99 +16,116 @@ use Exception;
 class PageDispatcher
 {
     /**
-     * Allowed page actions
+     * Page routes mapping
      */
-    protected $allowedActions = [
-        'index',
-        'manage',
-        'reissue',
-        'view',
-        'apply',
-        'replace',
+    private static $routes = [
+        'index' => 'index',
+        'apply' => 'index',
+        'manage' => 'manage',
+        'reissue' => 'reissue',
+        'replace' => 'reissue', // Alias for backward compatibility
     ];
 
     /**
-     * Dispatch page request to controller
-     * 
-     * @param string $action Action name
-     * @param array $params Module parameters
-     * @return array Template configuration
-     * @throws Exception
+     * Dispatch page request
      */
-    public function dispatch($action, $params)
+    public static function dispatch(string $page, array $params): array
     {
-        // Default to index if no action specified
-        if (empty($action)) {
-            $action = 'index';
-        }
-        
-        // Validate action
-        if (!in_array($action, $this->allowedActions)) {
-            $action = 'index';
-        }
-        
-        // Create controller
-        $controller = new PageController();
-        
-        // Verify method exists
-        if (!method_exists($controller, $action)) {
-            // Fallback to index
-            $action = 'index';
-        }
-        
         try {
-            // Execute action
-            return $controller->$action($params);
+            // Normalize page name
+            $page = strtolower(trim($page));
             
+            // Get controller method
+            $method = self::$routes[$page] ?? 'index';
+
+            // Check if method exists in PageController
+            if (!method_exists(PageController::class, $method)) {
+                return self::handleError($params, "Page not found: {$page}");
+            }
+
+            // Call controller method
+            return PageController::$method($params);
+
         } catch (Exception $e) {
-            // Log error
-            logModuleCall(
-                'nicsrs_ssl',
-                'PageDispatcher',
-                ['action' => $action],
-                $e->getMessage(),
-                $e->getTraceAsString()
-            );
-            
-            // Return error template
-            return $this->errorResponse($e->getMessage());
+            logModuleCall('nicsrs_ssl', 'PageDispatcher::dispatch', [
+                'page' => $page,
+                'params' => $params
+            ], $e->getMessage());
+
+            return self::handleError($params, $e->getMessage());
         }
     }
-    
+
     /**
-     * Return error template response
-     * 
-     * @param string $message Error message
-     * @return array Template configuration
+     * Dispatch based on order status
      */
-    protected function errorResponse($message)
+    public static function dispatchByStatus(array $params): array
     {
-        return [
-            'tabOverviewReplacementTemplate' => 'view/error.tpl',
-            'templateVariables' => [
-                'usefulErrorHelper' => $message,
-            ],
-        ];
+        try {
+            return PageController::index($params);
+        } catch (Exception $e) {
+            logModuleCall('nicsrs_ssl', 'PageDispatcher::dispatchByStatus', $params, $e->getMessage());
+            return self::handleError($params, $e->getMessage());
+        }
     }
-    
+
     /**
-     * Get list of available page actions
-     * 
-     * @return array Action names
+     * Handle error with user-friendly page
      */
-    public function getAvailableActions()
+    private static function handleError(array $params, string $message): array
     {
-        return $this->allowedActions;
+        return TemplateHelper::error($params, $message);
     }
-    
+
     /**
-     * Check if action is valid
-     * 
-     * @param string $action Action name
-     * @return bool
+     * Check if service belongs to user
      */
-    public function isValidAction($action)
+    public static function validateServiceOwnership(array $params): bool
     {
-        return in_array($action, $this->allowedActions);
+        $serviceId = $params['serviceid'] ?? 0;
+        $userId = $params['userid'] ?? 0;
+
+        if (!$serviceId || !$userId) {
+            return false;
+        }
+
+        try {
+            $service = \WHMCS\Database\Capsule::table('tblhosting')
+                ->where('id', $serviceId)
+                ->where('userid', $userId)
+                ->first();
+
+            return $service !== null;
+        } catch (Exception $e) {
+            return false;
+        }
+    }
+
+    /**
+     * Check if service is active
+     */
+    public static function isServiceActive(array $params): bool
+    {
+        $serviceId = $params['serviceid'] ?? 0;
+
+        if (!$serviceId) {
+            return false;
+        }
+
+        try {
+            $service = \WHMCS\Database\Capsule::table('tblhosting')
+                ->where('id', $serviceId)
+                ->first();
+
+            if (!$service) {
+                return false;
+            }
+
+            // Check domain status
+            $activeStatuses = ['Active', 'Suspended'];
+            return in_array($service->domainstatus, $activeStatuses);
+        } catch (Exception $e) {
+            return false;
+        }
     }
 }
