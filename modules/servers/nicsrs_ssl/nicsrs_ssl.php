@@ -332,28 +332,88 @@ function nicsrs_ssl_clientRefresh(array $params)
  */
 function nicsrs_ssl_ClientArea(array $params)
 {
-    // Handle AJAX actions
-    if (isset($_REQUEST['modop']) && $_REQUEST['modop'] === 'custom') {
-        $action = $_REQUEST['a'] ?? '';
-        
-        if (!empty($action)) {
-            // Check if this is an AJAX request
-            if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && 
-                strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') {
-                
-                header('Content-Type: application/json');
-                $result = ActionDispatcher::dispatch($action, $params);
-                echo json_encode($result);
-                exit;
+    // Ensure database table exists
+    OrderRepository::ensureTableExists();
+    
+    // Get requested action
+    $requestedAction = isset($_REQUEST['step']) ? $_REQUEST['step'] : 'index';
+    
+    // Also check for 'a' parameter (AJAX actions)
+    if (isset($_REQUEST['modop']) && $_REQUEST['modop'] === 'custom' && isset($_REQUEST['a'])) {
+        $requestedAction = $_REQUEST['a'];
+    }
+    
+    // Handle page views (index)
+    if ($requestedAction === 'index') {
+        try {
+            $result = PageDispatcher::dispatchByStatus($params);
+            
+            // Convert to WHMCS expected format
+            if (isset($result['templatefile'])) {
+                return [
+                    'tabOverviewReplacementTemplate' => 'view/' . $result['templatefile'] . '.tpl',
+                    'templateVariables' => $result['vars'] ?? [],
+                ];
             }
             
-            // Non-AJAX custom action - render appropriate page
-            return PageDispatcher::dispatch($action, $params);
+            return $result;
+            
+        } catch (Exception $e) {
+            logModuleCall('nicsrs_ssl', __FUNCTION__, $params, $e->getMessage(), $e->getTraceAsString());
+            
+            return [
+                'tabOverviewReplacementTemplate' => 'view/error.tpl',
+                'templateVariables' => [
+                    'errorTitle' => 'Error',
+                    'errorMessage' => $e->getMessage(),
+                ],
+            ];
         }
     }
     
-    // Default page rendering based on order status
-    return PageDispatcher::dispatchByStatus($params);
+    // Handle AJAX actions
+    try {
+        // Check if this is an AJAX request
+        $isAjax = !empty($_SERVER['HTTP_X_REQUESTED_WITH']) && 
+                  strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest';
+        
+        if ($isAjax) {
+            header('Content-Type: application/json');
+            $result = ActionDispatcher::dispatch($requestedAction, $params);
+            echo json_encode($result);
+            exit;
+        }
+        
+        // Non-AJAX action - might be a page view
+        $result = PageDispatcher::dispatch($requestedAction, $params);
+        
+        if (isset($result['templatefile'])) {
+            return [
+                'tabOverviewReplacementTemplate' => 'view/' . $result['templatefile'] . '.tpl',
+                'templateVariables' => $result['vars'] ?? [],
+            ];
+        }
+        
+        return $result;
+        
+    } catch (Exception $e) {
+        logModuleCall('nicsrs_ssl', __FUNCTION__, $params, $e->getMessage(), $e->getTraceAsString());
+        
+        // For AJAX requests, return JSON error
+        if (!empty($_SERVER['HTTP_X_REQUESTED_WITH'])) {
+            header('Content-Type: application/json');
+            echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+            exit;
+        }
+        
+        return [
+            'tabOverviewReplacementTemplate' => 'view/error.tpl',
+            'templateVariables' => [
+                'errorTitle' => 'Error',
+                'errorMessage' => $e->getMessage(),
+            ],
+        ];
+    }
 }
 
 /**

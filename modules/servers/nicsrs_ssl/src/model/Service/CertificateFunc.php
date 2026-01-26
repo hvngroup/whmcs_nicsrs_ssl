@@ -515,6 +515,10 @@ README;
      */
     public static function getClientLanguage(int $userId): string
     {
+        if (!$userId) {
+            return 'english';
+        }
+        
         try {
             $client = \WHMCS\Database\Capsule::table('tblclients')
                 ->where('id', $userId)
@@ -524,5 +528,13 @@ README;
         } catch (Exception $e) {
             return 'english';
         }
+    }
+    
+    /**
+     * Create orders table if not exist (backward compatibility)
+     */
+    public static function createOrdersTableIfNotExist(): void
+    {
+        OrderRepository::ensureTableExists();
     }
 }

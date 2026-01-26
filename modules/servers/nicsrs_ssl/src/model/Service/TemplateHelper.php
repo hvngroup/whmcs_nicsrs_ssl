@@ -23,10 +23,18 @@ class TemplateHelper
             CertificateFunc::getClientLanguage($params['userid'] ?? 0)
         );
 
+        // Get WHMCS system URL
+        $systemUrl = '';
+        try {
+            $systemUrl = \WHMCS\Config\Setting::getValue('SystemURL');
+        } catch (\Exception $e) {
+            $systemUrl = '';
+        }
+
         return [
             '_LANG' => $language,
             '_LANG_JSON' => json_encode($language, JSON_UNESCAPED_UNICODE),
-            'WEB_ROOT' => $GLOBALS['CONFIG']['SystemURL'] ?? '',
+            'WEB_ROOT' => rtrim($systemUrl, '/'),
             'MODULE_PATH' => 'modules/servers/nicsrs_ssl',
             'serviceid' => $params['serviceid'] ?? 0,
             'userid' => $params['userid'] ?? 0,
