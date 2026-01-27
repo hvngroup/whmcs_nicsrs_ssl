@@ -230,6 +230,7 @@ document.addEventListener('DOMContentLoaded', function() {
     var brandColors = {
         'Sectigo': '#1a5276',
         'Comodo': '#2980b9',
+        'Positive': '#2980b9',
         'DigiCert': '#27ae60',
         'GeoTrust': '#8e44ad',
         'Thawte': '#d35400',

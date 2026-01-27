@@ -433,22 +433,43 @@ function nicsrs_ssl_ClientArea(array $params)
     $step = $_GET['step'] ?? $_REQUEST['step'] ?? '';
     
     // Map step names to action methods
+    // Includes backward compatibility with old module step names
     $stepToAction = [
+        // Certificate application
         'applyssl'      => 'submitApply',
         'savedraft'     => 'saveDraft',
         'submitApply'   => 'submitApply',
         'saveDraft'     => 'saveDraft',
+        
+        // Status actions
         'refreshStatus' => 'refreshStatus',
         'refresh'       => 'refreshStatus',
+        
+        // Download actions
         'downCert'      => 'downCert',
+        'downcert'      => 'downCert',      // Lowercase variant
         'download'      => 'downCert',
+        'downkey'       => 'downCert',      // Old module: download private key
+        
+        // DCV actions
         'batchUpdateDCV'=> 'batchUpdateDCV',
         'resendDCVEmail'=> 'resendDCVEmail',
+        
+        // Order management
         'cancelOrder'   => 'cancelOrder',
+        'cancleOrder'   => 'cancelOrder',   // Old module typo
         'revoke'        => 'revoke',
+        
+        // Reissue/Replace
         'submitReissue' => 'submitReissue',
         'reissue'       => 'submitReissue',
+        'replacessl'    => 'submitReissue', // Old module name
+        'submitReplace' => 'submitReissue', // Alternative name
+        
+        // Renew
         'renew'         => 'renew',
+        
+        // CSR tools
         'generateCSR'   => 'generateCSR',
         'decodeCsr'     => 'decodeCsr',
     ];
