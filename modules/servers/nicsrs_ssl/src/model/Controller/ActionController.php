@@ -80,7 +80,7 @@ class ActionController
             }
 
             // Get form data
-            $formData = self::parseApplyFormData();
+            $formData = self::parseApplyFormData($params);
 
             // Validate form data
             $errors = self::validateApplyData($formData, $params);
@@ -118,12 +118,13 @@ class ActionController
                 'privateKey' => $formData['privateKey'] ?? '',
                 'domainInfo' => $formData['domainInfo'],
                 'server' => $formData['server'] ?? 'other',
+                'originalfromOthers' => $formData['originalfromOthers'] ?? '0',
                 'applyReturn' => (array) ($placeParsed['data'] ?? []),
                 'applyParams' => $apiRequest,
                 'lastRefresh' => date('Y-m-d H:i:s'),
             ];
 
-            // Add contact info for OV/EV
+            // Add contact info
             if (!empty($formData['Administrator'])) {
                 $configdata['Administrator'] = $formData['Administrator'];
             }
@@ -169,11 +170,19 @@ class ActionController
                 return ResponseFormatter::error('Order not found');
             }
 
-            $formData = self::parseApplyFormData();
+            $formData = self::parseApplyFormData($params);
 
             $configdata = json_decode($order->configdata, true) ?: [];
+            
+            // Merge form data into configdata
             $configdata = array_merge($configdata, [
-                'draft' => $formData,
+                'csr' => $formData['csr'] ?? '',
+                'privateKey' => $formData['privateKey'] ?? '',
+                'domainInfo' => $formData['domainInfo'] ?? [],
+                'Administrator' => $formData['Administrator'] ?? [],
+                'organizationInfo' => $formData['organizationInfo'] ?? [],
+                'renewOrNot' => $formData['renewOrNot'] ?? 'purchase',
+                'originalfromOthers' => $formData['originalfromOthers'] ?? '0',
                 'draftSavedAt' => date('Y-m-d H:i:s'),
             ]);
 
@@ -185,6 +194,7 @@ class ActionController
             return ResponseFormatter::success('Draft saved successfully');
 
         } catch (Exception $e) {
+            logModuleCall('nicsrs_ssl', 'saveDraft', $params, $e->getMessage());
             return ResponseFormatter::error($e->getMessage());
         }
     }
@@ -205,8 +215,8 @@ class ActionController
                 return ResponseFormatter::error('No certificate ID found');
             }
 
-            $response = ApiService::collect($params, $order->remoteid);
-            $parsed = ApiService::parseResponse($response);
+            $apiResponse = ApiService::collect($params, $order->remoteid);
+            $parsed = ApiService::parseResponse($apiResponse);
 
             if (!$parsed['success'] && !$parsed['isProcessing']) {
                 return ResponseFormatter::error($parsed['message']);
@@ -343,8 +353,8 @@ class ActionController
                 $domainInfo = json_decode($domainInfo, true);
             }
 
-            $response = ApiService::batchUpdateDCV($params, $order->remoteid, $domainInfo);
-            $parsed = ApiService::parseResponse($response);
+            $apiResponse = ApiService::batchUpdateDCV($params, $order->remoteid, $domainInfo);
+            $parsed = ApiService::parseResponse($apiResponse);
 
             if (!$parsed['success']) {
                 return ResponseFormatter::error($parsed['message']);
@@ -382,8 +392,8 @@ class ActionController
                 return ResponseFormatter::error('Domain and email are required');
             }
 
-            $response = ApiService::resendDCVEmail($params, $order->remoteid, $domain, $email);
-            $parsed = ApiService::parseResponse($response);
+            $apiResponse = ApiService::resendDCVEmail($params, $order->remoteid, $domain, $email);
+            $parsed = ApiService::parseResponse($apiResponse);
 
             if (!$parsed['success']) {
                 return ResponseFormatter::error($parsed['message']);
@@ -415,8 +425,8 @@ class ActionController
             $reason = $_POST['reason'] ?? 'Customer requested cancellation';
 
             if (!empty($order->remoteid)) {
-                $response = ApiService::cancel($params, $order->remoteid, $reason);
-                $parsed = ApiService::parseResponse($response);
+                $apiResponse = ApiService::cancel($params, $order->remoteid, $reason);
+                $parsed = ApiService::parseResponse($apiResponse);
 
                 if (!$parsed['success']) {
                     return ResponseFormatter::error($parsed['message']);
@@ -450,8 +460,8 @@ class ActionController
 
             $reason = $_POST['reason'] ?? 'Customer requested revocation';
 
-            $response = ApiService::revoke($params, $order->remoteid, $reason);
-            $parsed = ApiService::parseResponse($response);
+            $apiResponse = ApiService::revoke($params, $order->remoteid, $reason);
+            $parsed = ApiService::parseResponse($apiResponse);
 
             if (!$parsed['success']) {
                 return ResponseFormatter::error($parsed['message']);
@@ -482,7 +492,7 @@ class ActionController
                 return ResponseFormatter::error('Certificate must be issued to reissue');
             }
 
-            $formData = self::parseApplyFormData();
+            $formData = self::parseApplyFormData($params);
 
             // Build reissue request
             $reissueRequest = [];
@@ -495,8 +505,8 @@ class ActionController
                 $reissueRequest['domainInfo'] = $formData['domainInfo'];
             }
 
-            $response = ApiService::reissue($params, $order->remoteid, $reissueRequest);
-            $parsed = ApiService::parseResponse($response);
+            $apiResponse = ApiService::reissue($params, $order->remoteid, $reissueRequest);
+            $parsed = ApiService::parseResponse($apiResponse);
 
             if (!$parsed['success'] && !$parsed['isProcessing']) {
                 return ResponseFormatter::error($parsed['message']);
@@ -543,8 +553,8 @@ class ActionController
                 return ResponseFormatter::error('Order not found');
             }
 
-            $response = ApiService::renew($params, $order->remoteid);
-            $parsed = ApiService::parseResponse($response);
+            $apiResponse = ApiService::renew($params, $order->remoteid);
+            $parsed = ApiService::parseResponse($apiResponse);
 
             if (!$parsed['success']) {
                 return ResponseFormatter::error($parsed['message']);
@@ -562,57 +572,96 @@ class ActionController
     // ==========================================
 
     /**
-     * Parse form data from POST
+     * Parse form data from POST - Updated for new JS format
      */
-    private static function parseApplyFormData(): array
+    private static function parseApplyFormData(array $params = []): array
     {
         $data = [];
 
-        // CSR
-        $csrMode = $_POST['csrMode'] ?? 'auto';
+        // Renew or Purchase
+        $data['renewOrNot'] = $_POST['renewOrNot'] ?? 'purchase';
+
+        // CSR Mode - Check if manual CSR is provided
+        $isManualCsr = isset($_POST['isManualCsr']) && 
+                       ($_POST['isManualCsr'] === 'on' || $_POST['isManualCsr'] === '1' || $_POST['isManualCsr'] === 'true');
+        $data['originalfromOthers'] = $_POST['originalfromOthers'] ?? ($isManualCsr ? '1' : '0');
         
-        if ($csrMode === 'manual' && !empty($_POST['csr'])) {
+        // Get domain first (needed for auto CSR generation)
+        $domain = '';
+        
+        // Get domain from domains array (new format from JS)
+        if (isset($_POST['domains']) && is_array($_POST['domains'])) {
+            foreach ($_POST['domains'] as $d) {
+                if (!empty($d['name'])) {
+                    $domain = trim($d['name']);
+                    break;
+                }
+            }
+        }
+        
+        // Fallback to domainInfo (JSON string from JS)
+        if (empty($domain) && isset($_POST['domainInfo'])) {
+            $domainInfo = $_POST['domainInfo'];
+            if (is_string($domainInfo)) {
+                $domainInfo = json_decode($domainInfo, true);
+            }
+            if (is_array($domainInfo) && !empty($domainInfo[0]['domainName'])) {
+                $domain = $domainInfo[0]['domainName'];
+            }
+        }
+        
+        // Handle CSR
+        if ($isManualCsr && !empty($_POST['csr'])) {
+            // Manual CSR provided
             $data['csr'] = trim($_POST['csr']);
+            $data['privateKey'] = ''; // No private key when using manual CSR
         } else {
-            // Auto-generate CSR
+            // Auto-generate CSR from contact info
             $csrParams = [
-                'cn' => $_POST['commonName'] ?? $_POST['domain'] ?? '',
-                'org' => $_POST['organization'] ?? '',
-                'ou' => $_POST['organizationalUnit'] ?? '',
-                'city' => $_POST['city'] ?? '',
-                'state' => $_POST['state'] ?? '',
-                'country' => $_POST['country'] ?? '',
-                'email' => $_POST['email'] ?? '',
+                'cn' => $domain,
+                'org' => $_POST['adminOrganizationName'] ?? '',
+                'ou' => $_POST['division'] ?? 'IT Department',
+                'city' => $_POST['adminCity'] ?? '',
+                'state' => $_POST['adminProvince'] ?? '',
+                'country' => $_POST['adminCountry'] ?? '',
+                'email' => $_POST['adminEmail'] ?? '',
             ];
             
-            $generated = CertificateFunc::generateCSR($csrParams);
-            $data['csr'] = $generated['csr'];
-            $data['privateKey'] = $generated['privateKey'];
+            try {
+                $generated = CertificateFunc::generateCSR($csrParams);
+                $data['csr'] = $generated['csr'];
+                $data['privateKey'] = $generated['privateKey'];
+            } catch (Exception $e) {
+                logModuleCall('nicsrs_ssl', 'generateCSR_error', $csrParams, $e->getMessage());
+                $data['csr'] = '';
+                $data['privateKey'] = '';
+            }
         }
 
-        // Domain Info
+        // Domain Info - Parse from new JS format
         $data['domainInfo'] = [];
         
-        if (isset($_POST['domainInfo']) && is_array($_POST['domainInfo'])) {
-            $data['domainInfo'] = $_POST['domainInfo'];
-        } else {
-            // Parse from individual fields
-            $domains = $_POST['domainName'] ?? [];
-            $dcvMethods = $_POST['dcvMethod'] ?? [];
-            $dcvEmails = $_POST['dcvEmail'] ?? [];
-
-            if (!is_array($domains)) {
-                $domains = [$domains];
-                $dcvMethods = [$dcvMethods];
-                $dcvEmails = [$dcvEmails ?? ''];
+        // Check for JSON-encoded domainInfo from JS
+        if (isset($_POST['domainInfo'])) {
+            $domainInfo = $_POST['domainInfo'];
+            if (is_string($domainInfo)) {
+                $decoded = json_decode($domainInfo, true);
+                if (is_array($decoded)) {
+                    $data['domainInfo'] = $decoded;
+                }
+            } elseif (is_array($domainInfo)) {
+                $data['domainInfo'] = $domainInfo;
             }
-
-            foreach ($domains as $i => $domain) {
-                if (!empty($domain)) {
+        }
+        
+        // Parse from domains[] array format (from HTML form)
+        if (empty($data['domainInfo']) && isset($_POST['domains']) && is_array($_POST['domains'])) {
+            foreach ($_POST['domains'] as $d) {
+                if (!empty($d['name'])) {
                     $data['domainInfo'][] = [
-                        'domainName' => trim($domain),
-                        'dcvMethod' => $dcvMethods[$i] ?? 'HTTP_CSR_HASH',
-                        'dcvEmail' => $dcvEmails[$i] ?? '',
+                        'domainName' => trim($d['name']),
+                        'dcvMethod' => $d['dcvMethod'] ?? 'HTTP_CSR_HASH',
+                        'dcvEmail' => $d['dcvEmail'] ?? '',
                     ];
                 }
             }
@@ -621,37 +670,54 @@ class ActionController
         // Server type
         $data['server'] = $_POST['server'] ?? 'other';
 
-        // Administrator contact (for OV/EV)
-        if (!empty($_POST['adminFirstName'])) {
+        // Administrator contact - Check for JSON-encoded or form fields
+        if (isset($_POST['Administrator'])) {
+            $admin = $_POST['Administrator'];
+            if (is_string($admin)) {
+                $decoded = json_decode($admin, true);
+                if (is_array($decoded)) {
+                    $data['Administrator'] = $decoded;
+                }
+            } elseif (is_array($admin)) {
+                $data['Administrator'] = $admin;
+            }
+        }
+        
+        // Parse from individual form fields
+        if (empty($data['Administrator']) && !empty($_POST['adminFirstName'])) {
             $data['Administrator'] = [
                 'firstName' => $_POST['adminFirstName'] ?? '',
                 'lastName' => $_POST['adminLastName'] ?? '',
                 'email' => $_POST['adminEmail'] ?? '',
                 'mobile' => $_POST['adminPhone'] ?? '',
-                'job' => $_POST['adminTitle'] ?? '',
+                'job' => $_POST['adminTitle'] ?? 'IT Manager',
                 'organation' => $_POST['adminOrganizationName'] ?? '',
+                'country' => $_POST['adminCountry'] ?? '',
+                'address' => $_POST['adminAddress'] ?? '',
+                'city' => $_POST['adminCity'] ?? '',
+                'state' => $_POST['adminProvince'] ?? '',
+                'postCode' => $_POST['adminPostcode'] ?? '',
             ];
         }
 
-        // Technical contact (copy from admin if not provided)
+        // Technical contact (copy from admin)
         $data['tech'] = $data['Administrator'] ?? [];
+        $data['finance'] = $data['Administrator'] ?? [];
 
         // Organization info (for OV/EV)
-        if (!empty($_POST['orgName'])) {
+        if (!empty($_POST['organizationName'])) {
             $data['organizationInfo'] = [
-                'name' => $_POST['orgName'] ?? '',
-                'country' => $_POST['orgCountry'] ?? '',
-                'state' => $_POST['orgState'] ?? '',
-                'city' => $_POST['orgCity'] ?? '',
-                'address' => $_POST['orgAddress'] ?? '',
-                'postCode' => $_POST['orgPostCode'] ?? '',
-                'phone' => $_POST['orgPhone'] ?? '',
-                'division' => $_POST['orgDivision'] ?? '',
+                'organizationName' => $_POST['organizationName'] ?? '',
+                'division' => $_POST['division'] ?? 'IT Department',
+                'duns' => $_POST['duns'] ?? '',
+                'organizationPhone' => $_POST['organizationPhone'] ?? '',
+                'organizationCity' => $_POST['organizationCity'] ?? '',
+                'organizationRegion' => $_POST['organizationRegion'] ?? '',
+                'organizationCountry' => $_POST['organizationCountry'] ?? '',
+                'organizationAddress' => $_POST['organizationAddress'] ?? '',
+                'organizationPostalCode' => $_POST['organizationPostalCode'] ?? '',
             ];
         }
-
-        // Is renewal
-        $data['isRenew'] = $_POST['isRenew'] ?? '0';
 
         return $data;
     }
@@ -665,7 +731,7 @@ class ActionController
 
         // CSR required
         if (empty($data['csr'])) {
-            $errors['csr'] = 'CSR is required';
+            $errors['csr'] = 'CSR is required. Please check domain and contact information.';
         }
 
         // At least one domain required
@@ -676,13 +742,26 @@ class ActionController
                 if (empty($domain['domainName'])) {
                     $errors["domain_{$i}"] = 'Domain name is required';
                 } elseif (!CertificateFunc::validateDomain($domain['domainName'])) {
-                    $errors["domain_{$i}"] = 'Invalid domain format';
+                    $errors["domain_{$i}"] = "Invalid domain format: {$domain['domainName']}";
                 }
                 
                 if (empty($domain['dcvMethod'])) {
                     $errors["dcv_{$i}"] = 'DCV method is required';
                 }
             }
+        }
+
+        // Validate admin contact
+        if (empty($data['Administrator']['firstName'])) {
+            $errors['adminFirstName'] = 'First name is required';
+        }
+        if (empty($data['Administrator']['lastName'])) {
+            $errors['adminLastName'] = 'Last name is required';
+        }
+        if (empty($data['Administrator']['email'])) {
+            $errors['adminEmail'] = 'Email is required';
+        } elseif (!filter_var($data['Administrator']['email'], FILTER_VALIDATE_EMAIL)) {
+            $errors['adminEmail'] = 'Invalid email format';
         }
 
         return $errors;
@@ -702,14 +781,14 @@ class ActionController
         if (!empty($formData['Administrator'])) {
             $request['Administrator'] = $formData['Administrator'];
             $request['tech'] = $formData['tech'] ?? $formData['Administrator'];
-            $request['finance'] = $formData['Administrator'];
+            $request['finance'] = $formData['finance'] ?? $formData['Administrator'];
         }
 
         if (!empty($formData['organizationInfo'])) {
             $request['organizationInfo'] = $formData['organizationInfo'];
         }
 
-        if ($formData['isRenew'] === '1') {
+        if ($formData['renewOrNot'] === 'renew') {
             $request['isRenew'] = true;
         }
 

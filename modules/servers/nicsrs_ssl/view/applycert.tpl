@@ -1,357 +1,316 @@
-<link rel="stylesheet" href="{$WEB_ROOT}/{$MODULE_PATH}/assets/css/ssl-manager.css">
+{**
+ * SSL Certificate Application Form
+ * Auto-generate CSR as default, auto-fill contact from client info
+ * 
+ * @package    NicSRS SSL Module
+ * @author     HVN GROUP
+ * @version    2.0.0
+ *}
+
+<link href="{$WEB_ROOT}/modules/servers/nicsrs_ssl/view/assets/css/ssl-manager.css" rel="stylesheet" type="text/css">
+
+{* Parse configData if it's a JSON string *}
+{if is_string($configData) && $configData}
+    {assign var="cfgData" value=$configData|json_decode:true}
+{elseif is_array($configData)}
+    {assign var="cfgData" value=$configData}
+{else}
+    {assign var="cfgData" value=[]}
+{/if}
+
+{* Parse countries if it's a JSON string *}
+{if is_string($countries) && $countries}
+    {assign var="countryList" value=$countries|json_decode:true}
+{elseif is_array($countries)}
+    {assign var="countryList" value=$countries}
+{else}
+    {assign var="countryList" value=[]}
+{/if}
+
+{* Determine selected country *}
+{assign var="selectedCountry" value=""}
+{if !empty($cfgData.Administrator.country)}
+    {assign var="selectedCountry" value=$cfgData.Administrator.country}
+{elseif !empty($clientsdetails.countrycode)}
+    {assign var="selectedCountry" value=$clientsdetails.countrycode}
+{/if}
 
 <div class="sslm-container">
-    <!-- Config for JS -->
-    <script type="application/json" id="sslmConfig">{
-        "serviceId": {$serviceid},
-        "ajaxUrl": "clientarea.php?action=productdetails&id={$serviceid}&modop=custom",
-        "lang": {$_LANG_JSON}
-    }</script>
-
-    <!-- Page Header -->
-    <div class="sslm-alert sslm-alert--info">
-        <i>ℹ️</i>
-        <span>{$_LANG.apply_des}</span>
+    {* Header Alert *}
+    <div class="sslm-alert sslm-alert-info">
+        <i class="fas fa-info-circle"></i>
+        <span>{$_LANG.apply_cert_notice|default:'You are requesting the certificate. Please submit the necessary information required.'}</span>
     </div>
 
-    <!-- Progress Steps -->
-    <div class="sslm-steps">
-        <div class="sslm-step sslm-step--active" data-step="1">
-            <span class="sslm-step__number">1</span>
-            <span class="sslm-step__title">{$_LANG.step_csr}</span>
-        </div>
-        <div class="sslm-step" data-step="2">
-            <span class="sslm-step__number">2</span>
-            <span class="sslm-step__title">{$_LANG.step_domain}</span>
-        </div>
-        {if $requiresOrganization}
-        <div class="sslm-step" data-step="3">
-            <span class="sslm-step__number">3</span>
-            <span class="sslm-step__title">{$_LANG.step_contacts}</span>
-        </div>
-        <div class="sslm-step" data-step="4">
-            <span class="sslm-step__number">4</span>
-            <span class="sslm-step__title">{$_LANG.step_organization}</span>
-        </div>
-        {else}
-        <div class="sslm-step" data-step="3">
-            <span class="sslm-step__number">3</span>
-            <span class="sslm-step__title">{$_LANG.step_contacts}</span>
-        </div>
-        {/if}
-    </div>
-
-    <form id="sslApplyForm" method="post">
-        <input type="hidden" name="privateKey" id="privateKey" value="">
-
-        <!-- Renewal Option (for website_ssl) -->
-        {if $sslType == 'website_ssl'}
+    <form id="sslm-apply-form" method="post">
+        <input type="hidden" name="action" value="submitApply">
+        <input type="hidden" name="serviceid" value="{$serviceid}">
+        
+        {* Section 1: Renew or Not *}
         <div class="sslm-card">
-            <div class="sslm-card__header">
-                <h3>{$_LANG.is_renew}</h3>
-            </div>
-            <div class="sslm-card__body">
-                <p class="sslm-help-text">{$_LANG.is_renew_des}</p>
+            <div class="sslm-card-header">
+                <span class="sslm-step-number">1</span>
+                <span class="sslm-step-title">{$_LANG.renew_or_not|default:'Renew or not'}</span>
                 <div class="sslm-radio-group">
                     <label class="sslm-radio">
-                        <input type="radio" name="isRenew" value="0" checked>
-                        <span>{$_LANG.is_renew_option_new}</span>
+                        <input type="radio" name="renewOrNot" value="purchase" checked>
+                        <span class="sslm-radio-mark"></span>
+                        {$_LANG.purchase|default:'Purchase'}
                     </label>
                     <label class="sslm-radio">
-                        <input type="radio" name="isRenew" value="1">
-                        <span>{$_LANG.is_renew_option_renew}</span>
+                        <input type="radio" name="renewOrNot" value="renew">
+                        <span class="sslm-radio-mark"></span>
+                        {$_LANG.renew|default:'Renew'}
                     </label>
+                </div>
+            </div>
+            <div class="sslm-card-body">
+                <p class="sslm-text-muted">{$_LANG.renew_description|default:'If you already have an SSL certificate and need to renew it, please choose Renew. An SSL certificate can be renewed within 30 days of expiration. If this is not a renewal order, please choose Purchase.'}</p>
+            </div>
+        </div>
+
+        {* Section 2: CSR *}
+        <div class="sslm-card">
+            <div class="sslm-card-header">
+                <span class="sslm-step-number">2</span>
+                <span class="sslm-step-title">{$_LANG.csr|default:'CSR'}</span>
+            </div>
+            <div class="sslm-card-body">
+                <p class="sslm-text-muted">{$_LANG.csr_description|default:'The CSR is the original file of your public key, which contains your server and organization information that will be validated by CA. To complete the validation successfully, it is recommended to generate a CSR created by the system.'}</p>
+                
+                <div class="sslm-toggle-row">
+                    <span class="sslm-toggle-label">{$_LANG.fill_manually|default:'Fill manually'}</span>
+                    <label class="sslm-switch">
+                        <input type="checkbox" id="isManualCsr" name="isManualCsr" {if !empty($cfgData.csr)}checked{/if}>
+                        <span class="sslm-slider"></span>
+                    </label>
+                </div>
+                
+                <div id="csrTextarea" class="sslm-csr-textarea" style="{if empty($cfgData.csr)}display: none;{/if}">
+                    <textarea name="csr" id="csr" placeholder="{$_LANG.csr_placeholder|default:'-----BEGIN CERTIFICATE REQUEST-----\n...\n-----END CERTIFICATE REQUEST-----'}">{$cfgData.csr|default:''}</textarea>
                 </div>
             </div>
         </div>
-        {/if}
 
-        <!-- CSR Section -->
+        {* Section 3: Domain Information *}
         <div class="sslm-card">
-            <div class="sslm-card__header">
-                <h3>{$_LANG.csr_configuration}</h3>
+            <div class="sslm-card-header">
+                <span class="sslm-step-number">3</span>
+                <span class="sslm-step-title">{$_LANG.domain_information|default:'Domain Information'}</span>
             </div>
-            <div class="sslm-card__body">
-                <p class="sslm-help-text">{$_LANG.csr_des}</p>
-                
-                <!-- CSR Mode Toggle - Default: Auto Generate -->
-                <div class="sslm-radio-group" style="margin-top: 16px;">
-                    <label class="sslm-radio">
-                        <input type="radio" name="csrMode" value="auto" checked>
-                        <span>{$_LANG.auto_generate_csr}</span>
-                    </label>
-                    <label class="sslm-radio">
-                        <input type="radio" name="csrMode" value="manual">
-                        <span>{$_LANG.manual_csr}</span>
-                    </label>
+            <div class="sslm-card-body">
+                <div class="sslm-domain-header">
+                    <div class="sslm-domain-col">{$_LANG.domain|default:'Domain'}</div>
+                    <div class="sslm-dcv-col">{$_LANG.dcv_method|default:'DCV method'}</div>
                 </div>
-
-                <!-- Auto CSR Fields (shown by default) -->
-                <div id="autoCSRFields" class="sslm-form-section">
-                    <div class="sslm-form-row">
-                        <div class="sslm-form-group">
-                            <label>{$_LANG.common_name} <span class="sslm-required">*</span></label>
-                            <input type="text" name="commonName" class="sslm-input" 
-                                   placeholder="example.com or *.example.com" required>
-                            <span class="sslm-help-text">Enter domain name (e.g., example.com)</span>
+                
+                <div id="domainList">
+                    {assign var="domainValue" value=""}
+                    {assign var="dcvValue" value=""}
+                    {if !empty($cfgData.domainInfo[0].domainName)}
+                        {assign var="domainValue" value=$cfgData.domainInfo[0].domainName}
+                    {/if}
+                    {if !empty($cfgData.domainInfo[0].dcvMethod)}
+                        {assign var="dcvValue" value=$cfgData.domainInfo[0].dcvMethod}
+                    {/if}
+                    
+                    <div class="sslm-domain-row" data-index="0">
+                        <div class="sslm-domain-col">
+                            <input type="text" name="domains[0][name]" class="sslm-input sslm-domain-input" placeholder="{$_LANG.domain_placeholder|default:'example.com'}" value="{$domainValue}">
                         </div>
-                        <div class="sslm-form-group">
-                            <label>{$_LANG.organization}</label>
-                            <input type="text" name="organization" class="sslm-input" 
-                                   value="{$client.companyName|escape:'html'}">
-                        </div>
-                    </div>
-                    <div class="sslm-form-row">
-                        <div class="sslm-form-group">
-                            <label>{$_LANG.city}</label>
-                            <input type="text" name="city" class="sslm-input" 
-                                   value="{$client.city|escape:'html'}">
-                        </div>
-                        <div class="sslm-form-group">
-                            <label>{$_LANG.state}</label>
-                            <input type="text" name="state" class="sslm-input" 
-                                   value="{$client.state|escape:'html'}">
-                        </div>
-                    </div>
-                    <div class="sslm-form-row">
-                        <div class="sslm-form-group">
-                            <label>{$_LANG.country}</label>
-                            <select name="country" class="sslm-select">
-                                <option value="">{$_LANG.please_choose}</option>
-                                {foreach $countries as $code => $name}
-                                <option value="{$code}" {if $client.country == $code}selected{/if}>{$name}</option>
-                                {/foreach}
+                        <div class="sslm-dcv-col">
+                            <select name="domains[0][dcvMethod]" class="sslm-select sslm-dcv-select">
+                                <option value="">{$_LANG.choose|default:'Choose'}</option>
+                                <option value="CNAME_CSR_HASH" {if $dcvValue == 'CNAME_CSR_HASH'}selected{/if}>{$_LANG.dns_cname|default:'DNS CNAME'}</option>
+                                <option value="HTTP_CSR_HASH" {if $dcvValue == 'HTTP_CSR_HASH'}selected{/if}>{$_LANG.http_file|default:'HTTP File'}</option>
+                                <option value="HTTPS_CSR_HASH" {if $dcvValue == 'HTTPS_CSR_HASH'}selected{/if}>{$_LANG.https_file|default:'HTTPS File'}</option>
+                                <option value="EMAIL" {if $dcvValue == 'EMAIL'}selected{/if}>{$_LANG.email|default:'Email'}</option>
                             </select>
                         </div>
-                        <div class="sslm-form-group">
-                            <label>{$_LANG.email}</label>
-                            <input type="email" name="csrEmail" class="sslm-input" 
-                                   value="{$client.email|escape:'html'}">
+                        {if $ismultidomain || $maxdomain > 1}
+                        <div class="sslm-action-col">
+                            <button type="button" class="sslm-btn-icon sslm-btn-remove" onclick="removeDomain(this)" style="display:none;">
+                                <i class="fas fa-times"></i>
+                            </button>
                         </div>
+                        {/if}
                     </div>
                 </div>
-
-                <!-- Manual CSR Textarea (hidden by default) -->
-                <div id="manualCSRField" class="sslm-form-section" style="display: none;">
-                    <div class="sslm-form-group">
-                        <label>{$_LANG.paste_csr} <span class="sslm-required">*</span></label>
-                        <textarea name="csr" class="sslm-textarea sslm-textarea--code" 
-                                  placeholder="-----BEGIN CERTIFICATE REQUEST-----"></textarea>
-                    </div>
-                    <button type="button" class="sslm-btn sslm-btn--secondary sslm-btn--sm" 
-                            onclick="SSLManager.decodeCSR()">
-                        {$_LANG.decode_csr}
+                
+                {if $ismultidomain || $maxdomain > 1}
+                <div class="sslm-domain-actions">
+                    <button type="button" class="sslm-btn sslm-btn-outline" onclick="addDomain()">
+                        <i class="fas fa-plus"></i> {$_LANG.add_domain|default:'Add Domain'}
                     </button>
-                </div>
-            </div>
-        </div>
-
-        <!-- Domain Information -->
-        {if $sslType == 'website_ssl'}
-        <div class="sslm-card">
-            <div class="sslm-card__header">
-                <h3>{$_LANG.domain_info}</h3>
-                {if $isMultiDomain}
-                <span class="sslm-badge sslm-badge--info">{$_LANG.max_domain}: {$maxDomains}</span>
-                {/if}
-            </div>
-            <div class="sslm-card__body">
-                <div class="sslm-domain-list" data-max-domains="{$maxDomains}">
-                    <!-- Domain Row -->
-                    <div class="sslm-domain-row" style="margin-bottom: 16px;">
-                        <div class="sslm-form-row">
-                            <div class="sslm-form-group" style="flex: 2;">
-                                <label><span class="sslm-domain-number">1</span>. {$_LANG.domain_name} <span class="sslm-required">*</span></label>
-                                <input type="text" name="domainName[]" class="sslm-input" 
-                                       placeholder="example.com" required>
-                            </div>
-                            <div class="sslm-form-group" style="flex: 1;">
-                                <label>{$_LANG.dcv_method} <span class="sslm-required">*</span></label>
-                                <select name="dcvMethod[]" class="sslm-select" required>
-                                    <option value="">{$_LANG.please_choose}</option>
-                                    {if $supportOptions.supportHttps}
-                                    <option value="HTTP_CSR_HASH">{$_LANG.http_csr_hash}</option>
-                                    <option value="HTTPS_CSR_HASH">{$_LANG.https_csr_hash}</option>
-                                    {/if}
-                                    <option value="CNAME_CSR_HASH">{$_LANG.cname_csr_hash}</option>
-                                    <option value="DNS_CSR_HASH">{$_LANG.dns_csr_hash}</option>
-                                </select>
-                            </div>
-                            <div class="sslm-form-group" style="flex: 0 0 80px; align-self: flex-end;">
-                                <button type="button" class="sslm-btn sslm-btn--secondary sslm-btn--sm sslm-remove-domain" 
-                                        style="display: none;">
-                                    {$_LANG.remove_domain}
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                {if $isMultiDomain}
-                <div style="margin-top: 12px;">
-                    <button type="button" class="sslm-btn sslm-btn--secondary sslm-btn--sm sslm-add-domain">
-                        + {$_LANG.add_domain}
-                    </button>
-                    <button type="button" class="sslm-btn sslm-btn--secondary sslm-btn--sm sslm-set-for-all" style="margin-left: 8px;">
-                        {$_LANG.set_for_all}
-                    </button>
-                </div>
-                {/if}
-            </div>
-        </div>
-        {/if}
-
-        <!-- Contact Information -->
-        <div class="sslm-card">
-            <div class="sslm-card__header">
-                <h3>{$_LANG.contacts}</h3>
-            </div>
-            <div class="sslm-card__body">
-                <div class="sslm-form-row">
-                    <div class="sslm-form-group">
-                        <label>{$_LANG.first_name} {if $requiresOrganization}<span class="sslm-required">*</span>{/if}</label>
-                        <input type="text" name="adminFirstName" class="sslm-input" 
-                               value="{$client.firstName|escape:'html'}" {if $requiresOrganization}required{/if}>
-                    </div>
-                    <div class="sslm-form-group">
-                        <label>{$_LANG.last_name} {if $requiresOrganization}<span class="sslm-required">*</span>{/if}</label>
-                        <input type="text" name="adminLastName" class="sslm-input" 
-                               value="{$client.lastName|escape:'html'}" {if $requiresOrganization}required{/if}>
-                    </div>
-                </div>
-                <div class="sslm-form-row">
-                    <div class="sslm-form-group">
-                        <label>{$_LANG.email_address} {if $requiresOrganization}<span class="sslm-required">*</span>{/if}</label>
-                        <input type="email" name="adminEmail" class="sslm-input" 
-                               value="{$client.email|escape:'html'}" {if $requiresOrganization}required{/if}>
-                    </div>
-                    <div class="sslm-form-group">
-                        <label>{$_LANG.phone} {if $requiresOrganization}<span class="sslm-required">*</span>{/if}</label>
-                        <input type="text" name="adminPhone" class="sslm-input" 
-                               value="{$client.phone|escape:'html'}" {if $requiresOrganization}required{/if}>
-                    </div>
-                </div>
-                {if $requiresOrganization}
-                <div class="sslm-form-row">
-                    <div class="sslm-form-group">
-                        <label>{$_LANG.organization_name} <span class="sslm-required">*</span></label>
-                        <input type="text" name="adminOrganizationName" class="sslm-input" 
-                               value="{$client.companyName|escape:'html'}" required>
-                    </div>
-                    <div class="sslm-form-group">
-                        <label>{$_LANG.title}</label>
-                        <input type="text" name="adminTitle" class="sslm-input" 
-                               placeholder="IT Manager">
-                    </div>
+                    <span class="sslm-text-muted sslm-domain-count">
+                        {$_LANG.max_domains|default:'Maximum'}: <strong id="maxDomainCount">{$maxdomain|default:1}</strong> {$_LANG.domains|default:'domains'}
+                    </span>
                 </div>
                 {/if}
             </div>
         </div>
 
-        <!-- Organization Information (for OV/EV) -->
-        {if $requiresOrganization}
+        {* Section 4: Contacts *}
         <div class="sslm-card">
-            <div class="sslm-card__header">
-                <h3>{$_LANG.organization_info}</h3>
+            <div class="sslm-card-header">
+                <span class="sslm-step-number">4</span>
+                <span class="sslm-step-title">{$_LANG.contacts|default:'Contacts'}</span>
             </div>
-            <div class="sslm-card__body">
-                <div class="sslm-form-row">
+            <div class="sslm-card-body">
+                <div class="sslm-form-grid">
                     <div class="sslm-form-group">
-                        <label>{$_LANG.org_name} <span class="sslm-required">*</span></label>
-                        <input type="text" name="orgName" class="sslm-input" 
-                               value="{$client.companyName|escape:'html'}" required>
+                        <label class="sslm-label">{$_LANG.organization|default:'Org'}</label>
+                        <input type="text" name="adminOrganizationName" class="sslm-input" value="{if !empty($cfgData.Administrator.organation)}{$cfgData.Administrator.organation}{elseif !empty($clientsdetails.companyname)}{$clientsdetails.companyname}{/if}">
                     </div>
                     <div class="sslm-form-group">
-                        <label>{$_LANG.org_division}</label>
-                        <input type="text" name="orgDivision" class="sslm-input">
-                    </div>
-                </div>
-                <div class="sslm-form-row">
-                    <div class="sslm-form-group">
-                        <label>{$_LANG.org_address} <span class="sslm-required">*</span></label>
-                        <input type="text" name="orgAddress" class="sslm-input" 
-                               value="{$client.address|escape:'html'}" required>
+                        <label class="sslm-label">{$_LANG.title|default:'Title'}</label>
+                        <input type="text" name="adminTitle" class="sslm-input" value="{if !empty($cfgData.Administrator.job)}{$cfgData.Administrator.job}{else}IT Manager{/if}">
                     </div>
                 </div>
-                <div class="sslm-form-row">
+                
+                <div class="sslm-form-grid">
                     <div class="sslm-form-group">
-                        <label>{$_LANG.org_city} <span class="sslm-required">*</span></label>
-                        <input type="text" name="orgCity" class="sslm-input" 
-                               value="{$client.city|escape:'html'}" required>
+                        <label class="sslm-label">{$_LANG.first_name|default:'First Name'}</label>
+                        <input type="text" name="adminFirstName" class="sslm-input" value="{if !empty($cfgData.Administrator.firstName)}{$cfgData.Administrator.firstName}{elseif !empty($clientsdetails.firstname)}{$clientsdetails.firstname}{/if}">
                     </div>
                     <div class="sslm-form-group">
-                        <label>{$_LANG.org_state} <span class="sslm-required">*</span></label>
-                        <input type="text" name="orgState" class="sslm-input" 
-                               value="{$client.state|escape:'html'}" required>
+                        <label class="sslm-label">{$_LANG.last_name|default:'Last Name'}</label>
+                        <input type="text" name="adminLastName" class="sslm-input" value="{if !empty($cfgData.Administrator.lastName)}{$cfgData.Administrator.lastName}{elseif !empty($clientsdetails.lastname)}{$clientsdetails.lastname}{/if}">
                     </div>
                 </div>
-                <div class="sslm-form-row">
+                
+                <div class="sslm-form-grid">
                     <div class="sslm-form-group">
-                        <label>{$_LANG.org_country} <span class="sslm-required">*</span></label>
-                        <select name="orgCountry" class="sslm-select" required>
-                            <option value="">{$_LANG.please_choose}</option>
-                            {foreach $countries as $code => $name}
-                            <option value="{$code}" {if $client.country == $code}selected{/if}>{$name}</option>
+                        <label class="sslm-label">{$_LANG.email|default:'Email'}</label>
+                        <input type="email" name="adminEmail" class="sslm-input" value="{if !empty($cfgData.Administrator.email)}{$cfgData.Administrator.email}{elseif !empty($clientsdetails.email)}{$clientsdetails.email}{/if}">
+                    </div>
+                    <div class="sslm-form-group">
+                        <label class="sslm-label">{$_LANG.phone|default:'Phone'}</label>
+                        <input type="text" name="adminPhone" class="sslm-input" value="{if !empty($cfgData.Administrator.mobile)}{$cfgData.Administrator.mobile}{elseif !empty($clientsdetails.phonenumber)}{$clientsdetails.phonenumber}{/if}">
+                    </div>
+                </div>
+                
+                <div class="sslm-form-grid">
+                    <div class="sslm-form-group">
+                        <label class="sslm-label">{$_LANG.country|default:'Country'}</label>
+                        <select name="adminCountry" class="sslm-select" id="adminCountry">
+                            {foreach from=$countryList item=country}
+                                <option value="{$country.code}" {if $country.code == $selectedCountry}selected{/if}>{$country.name}</option>
                             {/foreach}
                         </select>
                     </div>
                     <div class="sslm-form-group">
-                        <label>{$_LANG.org_postal}</label>
-                        <input type="text" name="orgPostCode" class="sslm-input" 
-                               value="{$client.postCode|escape:'html'}">
+                        <label class="sslm-label">{$_LANG.address|default:'Address'}</label>
+                        <input type="text" name="adminAddress" class="sslm-input" value="{if !empty($cfgData.Administrator.address)}{$cfgData.Administrator.address}{elseif !empty($clientsdetails.address1)}{$clientsdetails.address1}{/if}">
                     </div>
                 </div>
-                <div class="sslm-form-row">
+                
+                <div class="sslm-form-grid sslm-form-grid-3">
                     <div class="sslm-form-group">
-                        <label>{$_LANG.org_phone} <span class="sslm-required">*</span></label>
-                        <input type="text" name="orgPhone" class="sslm-input" 
-                               value="{$client.phone|escape:'html'}" required>
+                        <label class="sslm-label">{$_LANG.city|default:'City'}</label>
+                        <input type="text" name="adminCity" class="sslm-input" value="{if !empty($cfgData.Administrator.city)}{$cfgData.Administrator.city}{elseif !empty($clientsdetails.city)}{$clientsdetails.city}{/if}">
                     </div>
                     <div class="sslm-form-group">
-                        <label>{$_LANG.idType}</label>
-                        <select name="idType" class="sslm-select">
-                            <option value="TYDMZ">{$_LANG.organizationCode}</option>
-                            <option value="OTHERS">{$_LANG.other}</option>
+                        <label class="sslm-label">{$_LANG.province|default:'Province'}</label>
+                        <input type="text" name="adminProvince" class="sslm-input" value="{if !empty($cfgData.Administrator.state)}{$cfgData.Administrator.state}{elseif !empty($clientsdetails.state)}{$clientsdetails.state}{/if}">
+                    </div>
+                    <div class="sslm-form-group">
+                        <label class="sslm-label">{$_LANG.postcode|default:'Postcode'}</label>
+                        <input type="text" name="adminPostcode" class="sslm-input" value="{if !empty($cfgData.Administrator.postCode)}{$cfgData.Administrator.postCode}{elseif !empty($clientsdetails.postcode)}{$clientsdetails.postcode}{/if}">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {* OV/EV Additional Organization Info *}
+        {if $validationType == 'ov' || $validationType == 'ev'}
+        <div class="sslm-card" id="organizationSection">
+            <div class="sslm-card-header">
+                <span class="sslm-step-number">5</span>
+                <span class="sslm-step-title">{$_LANG.organization_info|default:'Organization Information'}</span>
+            </div>
+            <div class="sslm-card-body">
+                <div class="sslm-form-grid">
+                    <div class="sslm-form-group">
+                        <label class="sslm-label">{$_LANG.organization_name|default:'Organization Name'}</label>
+                        <input type="text" name="organizationName" class="sslm-input" value="{if !empty($cfgData.organizationInfo.organizationName)}{$cfgData.organizationInfo.organizationName}{elseif !empty($clientsdetails.companyname)}{$clientsdetails.companyname}{/if}">
+                    </div>
+                    <div class="sslm-form-group">
+                        <label class="sslm-label">{$_LANG.division|default:'Division'}</label>
+                        <input type="text" name="division" class="sslm-input" value="{if !empty($cfgData.organizationInfo.division)}{$cfgData.organizationInfo.division}{else}IT Department{/if}">
+                    </div>
+                </div>
+                
+                <div class="sslm-form-grid">
+                    <div class="sslm-form-group">
+                        <label class="sslm-label">{$_LANG.duns|default:'DUNS'}</label>
+                        <input type="text" name="duns" class="sslm-input" value="{$cfgData.organizationInfo.duns|default:''}">
+                    </div>
+                    <div class="sslm-form-group">
+                        <label class="sslm-label">{$_LANG.organization_phone|default:'Organization Phone'}</label>
+                        <input type="text" name="organizationPhone" class="sslm-input" value="{if !empty($cfgData.organizationInfo.organizationPhone)}{$cfgData.organizationInfo.organizationPhone}{elseif !empty($clientsdetails.phonenumber)}{$clientsdetails.phonenumber}{/if}">
+                    </div>
+                </div>
+                
+                <div class="sslm-form-grid sslm-form-grid-3">
+                    <div class="sslm-form-group">
+                        <label class="sslm-label">{$_LANG.organization_city|default:'City'}</label>
+                        <input type="text" name="organizationCity" class="sslm-input" value="{if !empty($cfgData.organizationInfo.organizationCity)}{$cfgData.organizationInfo.organizationCity}{elseif !empty($clientsdetails.city)}{$clientsdetails.city}{/if}">
+                    </div>
+                    <div class="sslm-form-group">
+                        <label class="sslm-label">{$_LANG.organization_region|default:'Region'}</label>
+                        <input type="text" name="organizationRegion" class="sslm-input" value="{if !empty($cfgData.organizationInfo.organizationRegion)}{$cfgData.organizationInfo.organizationRegion}{elseif !empty($clientsdetails.state)}{$clientsdetails.state}{/if}">
+                    </div>
+                    <div class="sslm-form-group">
+                        <label class="sslm-label">{$_LANG.organization_country|default:'Country'}</label>
+                        <select name="organizationCountry" class="sslm-select">
+                            {foreach from=$countryList item=country}
+                                <option value="{$country.code}" {if $country.code == $selectedCountry}selected{/if}>{$country.name}</option>
+                            {/foreach}
                         </select>
                     </div>
                 </div>
-                <div class="sslm-form-row">
+                
+                <div class="sslm-form-grid">
                     <div class="sslm-form-group">
-                        <label>{$_LANG.organizationRegNumber}</label>
-                        <input type="text" name="organizationRegNumber" class="sslm-input">
+                        <label class="sslm-label">{$_LANG.organization_address|default:'Address'}</label>
+                        <input type="text" name="organizationAddress" class="sslm-input" value="{if !empty($cfgData.organizationInfo.organizationAddress)}{$cfgData.organizationInfo.organizationAddress}{elseif !empty($clientsdetails.address1)}{$clientsdetails.address1}{/if}">
+                    </div>
+                    <div class="sslm-form-group">
+                        <label class="sslm-label">{$_LANG.organization_postcode|default:'Postcode'}</label>
+                        <input type="text" name="organizationPostalCode" class="sslm-input" value="{if !empty($cfgData.organizationInfo.organizationPostalCode)}{$cfgData.organizationInfo.organizationPostalCode}{elseif !empty($clientsdetails.postcode)}{$clientsdetails.postcode}{/if}">
                     </div>
                 </div>
             </div>
         </div>
         {/if}
 
-        <!-- Server Type -->
-        <div class="sslm-card">
-            <div class="sslm-card__header">
-                <h3>{$_LANG.server_type}</h3>
-            </div>
-            <div class="sslm-card__body">
-                <div class="sslm-form-group">
-                    <select name="server" class="sslm-select" style="max-width: 300px;">
-                        {foreach $serverTypes as $code => $name}
-                        <option value="{$code}">{$name}</option>
-                        {/foreach}
-                    </select>
-                    <span class="sslm-help-text">Select your web server type for proper certificate format</span>
-                </div>
-            </div>
-        </div>
-
-        <!-- Action Buttons -->
-        <div class="sslm-action-bar">
-            <button type="button" class="sslm-btn sslm-btn--secondary" data-action="saveDraft">
-                {$_LANG.save_draft}
+        {* Submit Buttons *}
+        <div class="sslm-card sslm-card-actions">
+            <button type="submit" class="sslm-btn sslm-btn-primary" id="submitBtn">
+                <i class="fas fa-paper-plane"></i> {$_LANG.submit|default:'Submit'}
             </button>
-            <button type="button" class="sslm-btn sslm-btn--primary sslm-btn--lg" data-action="submitApply">
-                {$_LANG.submit_request}
+            <button type="button" class="sslm-btn sslm-btn-secondary" id="saveBtn" onclick="saveDraft()">
+                <i class="fas fa-save"></i> {$_LANG.save|default:'Save'}
             </button>
         </div>
     </form>
 </div>
 
-<script src="{$WEB_ROOT}/{$MODULE_PATH}/assets/js/ssl-manager.js"></script>
+{* Hidden Config Data for JavaScript *}
+<script>
+    var sslmConfig = {
+        serviceid: '{$serviceid}',
+        maxDomain: {$maxdomain|default:1},
+        isWildcard: {if $iswildcard}true{else}false{/if},
+        isMultiDomain: {if $ismultidomain}true{else}false{/if},
+        validationType: '{$validationType|default:"dv"}',
+        sslType: '{$sslType|default:"ssl"}',
+        productCode: '{$productCode|escape:"javascript"}',
+        configData: {if is_array($cfgData)}{$cfgData|@json_encode nofilter}{else}{ldelim}{rdelim}{/if},
+        lang: {if is_array($_LANG)}{$_LANG|@json_encode nofilter}{else}{ldelim}{rdelim}{/if},
+        other: {if is_string($other)}{$other nofilter}{elseif is_array($other)}{$other|@json_encode nofilter}{else}{ldelim}{rdelim}{/if},
+        ajaxUrl: '{$systemurl}clientarea.php?action=productdetails&id={$serviceid}'
+    };
+</script>
+<script src="{$WEB_ROOT}/modules/servers/nicsrs_ssl/view/assets/js/ssl-manager.js"></script>

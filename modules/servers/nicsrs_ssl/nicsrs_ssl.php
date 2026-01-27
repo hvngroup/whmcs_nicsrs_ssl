@@ -42,6 +42,7 @@ use nicsrsSSL\CertificateFunc;
 use nicsrsSSL\OrderRepository;
 use nicsrsSSL\PageDispatcher;
 use nicsrsSSL\ActionDispatcher;
+use nicsrsSSL\ActionController;
 use nicsrsSSL\TemplateHelper;
 
 /**
@@ -335,16 +336,106 @@ function nicsrs_ssl_ClientArea(array $params)
     // Ensure database table exists
     OrderRepository::ensureTableExists();
     
-    // Get requested action
-    $requestedAction = isset($_REQUEST['step']) ? $_REQUEST['step'] : 'index';
+    // =====================================================
+    // AJAX ACTION HANDLING - Must be checked FIRST
+    // =====================================================
+    $postAction = $_POST['action'] ?? '';
+    $isXhr = !empty($_SERVER['HTTP_X_REQUESTED_WITH']) && 
+             strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest';
     
-    // Also check for 'a' parameter (AJAX actions)
+    // List of AJAX actions that should return JSON
+    $ajaxActions = [
+        'submitApply',
+        'saveDraft', 
+        'refreshStatus',
+        'downCert',
+        'batchUpdateDCV',
+        'resendDCVEmail',
+        'cancelOrder',
+        'revoke',
+        'submitReissue',
+        'renew',
+        'generateCSR',
+        'decodeCsr',
+    ];
+    
+    // Check if this is an AJAX action request
+    if ($isXhr || in_array($postAction, $ajaxActions)) {
+        // Clear ALL output buffers to prevent HTML contamination
+        while (ob_get_level()) {
+            ob_end_clean();
+        }
+        
+        // Set JSON headers
+        header('Content-Type: application/json; charset=utf-8');
+        header('Cache-Control: no-cache, must-revalidate');
+        header('X-Content-Type-Options: nosniff');
+        
+        try {
+            $action = $postAction ?: ($_GET['action'] ?? '');
+            
+            // Log for debugging
+            logModuleCall('nicsrs_ssl', 'AJAX_Request', [
+                'action' => $action,
+                'POST' => $_POST,
+                'isXhr' => $isXhr,
+            ], 'Processing AJAX request');
+            
+            if (empty($action)) {
+                echo json_encode([
+                    'success' => false, 
+                    'message' => 'No action specified'
+                ]);
+                exit;
+            }
+            
+            // Check if action method exists
+            if (!method_exists(ActionController::class, $action)) {
+                echo json_encode([
+                    'success' => false, 
+                    'message' => 'Unknown action: ' . $action
+                ]);
+                exit;
+            }
+            
+            // Call the action controller method
+            // Note: ActionController methods will call jsonResponse() and exit
+            $result = ActionController::$action($params);
+            
+            // If we get here, the method didn't exit (fallback)
+            if (is_array($result)) {
+                echo json_encode($result);
+            }
+            
+        } catch (Exception $e) {
+            logModuleCall('nicsrs_ssl', 'AJAX_Error', [
+                'action' => $postAction,
+                'error' => $e->getMessage(),
+            ], $e->getTraceAsString());
+            
+            echo json_encode([
+                'success' => false, 
+                'message' => $e->getMessage()
+            ]);
+        }
+        
+        exit;
+    }
+    
+    // =====================================================
+    // PAGE VIEW HANDLING
+    // =====================================================
+    
+    // Get requested page/step
+    $requestedAction = $_REQUEST['step'] ?? 'index';
+    
+    // Also check for 'a' parameter (custom actions)
     if (isset($_REQUEST['modop']) && $_REQUEST['modop'] === 'custom' && isset($_REQUEST['a'])) {
         $requestedAction = $_REQUEST['a'];
     }
     
-    // Handle page views (index)
-    if ($requestedAction === 'index') {
+    // Handle page views
+    if ($requestedAction === 'index' || empty($requestedAction)) {
         try {
             $result = PageDispatcher::dispatchByStatus($params);
             
@@ -371,20 +462,8 @@ function nicsrs_ssl_ClientArea(array $params)
         }
     }
     
-    // Handle AJAX actions
+    // Handle other page views (reissue, manage, etc.)
     try {
-        // Check if this is an AJAX request
-        $isAjax = !empty($_SERVER['HTTP_X_REQUESTED_WITH']) && 
-                  strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest';
-        
-        if ($isAjax) {
-            header('Content-Type: application/json');
-            $result = ActionDispatcher::dispatch($requestedAction, $params);
-            echo json_encode($result);
-            exit;
-        }
-        
-        // Non-AJAX action - might be a page view
         $result = PageDispatcher::dispatch($requestedAction, $params);
         
         if (isset($result['templatefile'])) {
@@ -398,13 +477,6 @@ function nicsrs_ssl_ClientArea(array $params)
         
     } catch (Exception $e) {
         logModuleCall('nicsrs_ssl', __FUNCTION__, $params, $e->getMessage(), $e->getTraceAsString());
-        
-        // For AJAX requests, return JSON error
-        if (!empty($_SERVER['HTTP_X_REQUESTED_WITH'])) {
-            header('Content-Type: application/json');
-            echo json_encode(['success' => false, 'message' => $e->getMessage()]);
-            exit;
-        }
         
         return [
             'tabOverviewReplacementTemplate' => 'view/error.tpl',
