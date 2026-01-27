@@ -51,7 +51,7 @@ use nicsrsSSL\TemplateHelper;
 function nicsrs_ssl_MetaData()
 {
     return [
-        'DisplayName' => 'SSL Certificate Manager',
+        'DisplayName' => 'NicSRS SSL',
         'APIVersion' => '1.1',
         'RequiresServer' => false,
         'DefaultNonSSLPort' => '80',
@@ -62,22 +62,111 @@ function nicsrs_ssl_MetaData()
 }
 
 /**
- * Module configuration options
+ * Test API connection - returns simple success/fail
+ * 
+ * @return array ['success' => bool, 'message' => string]
+ */
+function testApiConnection(): array
+{
+    try {
+        // Get token from addon module
+        $addonToken = \WHMCS\Database\Capsule::table('tbladdonmodules')
+            ->where('module', 'nicsrs_ssl_admin')
+            ->where('setting', 'api_token')
+            ->first();
+        
+        if (!$addonToken || empty($addonToken->value)) {
+            return ['success' => false, 'message' => 'Token not configured'];
+        }
+        
+        $apiToken = $addonToken->value;
+        
+        // Quick API test
+        $curl = curl_init();
+        curl_setopt_array($curl, [
+            CURLOPT_URL => 'https://portal.nicsrs.com/ssl/productList',
+            CURLOPT_TIMEOUT => 10,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_CUSTOMREQUEST => 'POST',
+            CURLOPT_POSTFIELDS => json_encode([
+                'api_token' => $apiToken,
+                'vendor' => 'Sectigo',
+            ]),
+            CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
+        ]);
+        
+        $response = curl_exec($curl);
+        $error = curl_error($curl);
+        curl_close($curl);
+        
+        if ($error) {
+            return ['success' => false, 'message' => 'Connection failed'];
+        }
+        
+        $data = json_decode($response, true);
+        
+        if (isset($data['code']) && $data['code'] == 1) {
+            return ['success' => true, 'message' => 'Connected'];
+        }
+        
+        return ['success' => false, 'message' => 'API error'];
+        
+    } catch (\Exception $e) {
+        return ['success' => false, 'message' => 'Error'];
+    }
+}
+
+/**
+ * Get certificate types from addon cache or static fallback
+ */
+function getCertTypeOptionsForDropdown(): string
+{
+    try {
+        if (\WHMCS\Database\Capsule::schema()->hasTable('mod_nicsrs_products')) {
+            $products = \WHMCS\Database\Capsule::table('mod_nicsrs_products')
+                ->orderBy('vendor')
+                ->orderBy('product_name')
+                ->pluck('product_name')
+                ->toArray();
+            
+            if (count($products) > 0) {
+                return implode(',', $products);
+            }
+        }
+    } catch (\Exception $e) {}
+    
+    return \nicsrsSSL\CertificateFunc::getCertAttributesDropdown();
+}
+
+/**
+ * Module configuration options - REPLACE EXISTING FUNCTION
  */
 function nicsrs_ssl_ConfigOptions()
 {
+    // Test API connection
+    $apiTest = testApiConnection();
+    $apiStatus = $apiTest['success'] ? '✅ ' . $apiTest['message'] : '❌ ' . $apiTest['message'];
+    
+    // Count cached products
+    $cachedCount = 0;
+    try {
+        if (\WHMCS\Database\Capsule::schema()->hasTable('mod_nicsrs_products')) {
+            $cachedCount = \WHMCS\Database\Capsule::table('mod_nicsrs_products')->count();
+        }
+    } catch (\Exception $e) {}
+    
     return [
         'cert_type' => [
             'FriendlyName' => 'Certificate Type',
             'Type' => 'dropdown',
-            'Options' => CertificateFunc::getCertAttributesDropdown(),
-            'Description' => 'Select the SSL certificate type for this product',
+            'Options' => getCertTypeOptionsForDropdown(),
+            'Description' => "{$cachedCount} products in cache. <a href=\"addonmodules.php?module=nicsrs_ssl_admin&action=products\" target=\"_blank\">Sync Products</a>",
         ],
         'api_token' => [
-            'FriendlyName' => 'API Token (Optional)',
+            'FriendlyName' => 'API Token (Override)',
             'Type' => 'password',
             'Size' => '64',
-            'Description' => 'Leave empty to use shared API token from Admin Addon',
+            'Description' => "API Status: {$apiStatus}. Leave empty to use shared token from <a href=\"addonmodules.php?module=nicsrs_ssl_admin\" target=\"_blank\">Admin Addon</a>.",
         ],
     ];
 }
@@ -337,31 +426,36 @@ function nicsrs_ssl_ClientArea(array $params)
     OrderRepository::ensureTableExists();
     
     // =====================================================
-    // AJAX ACTION HANDLING - Must be checked FIRST
+    // AJAX ACTION HANDLING - Check 'step' parameter FIRST
     // =====================================================
-    $postAction = $_POST['action'] ?? '';
-    $isXhr = !empty($_SERVER['HTTP_X_REQUESTED_WITH']) && 
-             strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest';
     
-    // List of AJAX actions that should return JSON
-    $ajaxActions = [
-        'submitApply',
-        'saveDraft', 
-        'refreshStatus',
-        'downCert',
-        'batchUpdateDCV',
-        'resendDCVEmail',
-        'cancelOrder',
-        'revoke',
-        'submitReissue',
-        'renew',
-        'generateCSR',
-        'decodeCsr',
+    // Get step from URL (like old module)
+    $step = $_GET['step'] ?? $_REQUEST['step'] ?? '';
+    
+    // Map step names to action methods
+    $stepToAction = [
+        'applyssl'      => 'submitApply',
+        'savedraft'     => 'saveDraft',
+        'submitApply'   => 'submitApply',
+        'saveDraft'     => 'saveDraft',
+        'refreshStatus' => 'refreshStatus',
+        'refresh'       => 'refreshStatus',
+        'downCert'      => 'downCert',
+        'download'      => 'downCert',
+        'batchUpdateDCV'=> 'batchUpdateDCV',
+        'resendDCVEmail'=> 'resendDCVEmail',
+        'cancelOrder'   => 'cancelOrder',
+        'revoke'        => 'revoke',
+        'submitReissue' => 'submitReissue',
+        'reissue'       => 'submitReissue',
+        'renew'         => 'renew',
+        'generateCSR'   => 'generateCSR',
+        'decodeCsr'     => 'decodeCsr',
     ];
     
     // Check if this is an AJAX action request
-    if ($isXhr || in_array($postAction, $ajaxActions)) {
-        // Clear ALL output buffers to prevent HTML contamination
+    if (!empty($step) && isset($stepToAction[$step])) {
+        // Clear ALL output buffers
         while (ob_get_level()) {
             ob_end_clean();
         }
@@ -372,49 +466,51 @@ function nicsrs_ssl_ClientArea(array $params)
         header('X-Content-Type-Options: nosniff');
         
         try {
-            $action = $postAction ?: ($_GET['action'] ?? '');
+            $action = $stepToAction[$step];
             
             // Log for debugging
             logModuleCall('nicsrs_ssl', 'AJAX_Request', [
+                'step' => $step,
                 'action' => $action,
                 'POST' => $_POST,
-                'isXhr' => $isXhr,
             ], 'Processing AJAX request');
-            
-            if (empty($action)) {
-                echo json_encode([
-                    'success' => false, 
-                    'message' => 'No action specified'
-                ]);
-                exit;
-            }
             
             // Check if action method exists
             if (!method_exists(ActionController::class, $action)) {
                 echo json_encode([
-                    'success' => false, 
+                    'success' => false,
                     'message' => 'Unknown action: ' . $action
                 ]);
                 exit;
             }
             
+            // Handle old module data format: {"data": {...}}
+            if (isset($_POST['data'])) {
+                $postData = $_POST['data'];
+                if (is_string($postData)) {
+                    $postData = json_decode($postData, true);
+                }
+                if (is_array($postData)) {
+                    $_POST = array_merge($_POST, $postData);
+                }
+            }
+            
             // Call the action controller method
-            // Note: ActionController methods will call jsonResponse() and exit
             $result = ActionController::$action($params);
             
-            // If we get here, the method didn't exit (fallback)
+            // Output JSON response
             if (is_array($result)) {
                 echo json_encode($result);
             }
             
         } catch (Exception $e) {
             logModuleCall('nicsrs_ssl', 'AJAX_Error', [
-                'action' => $postAction,
+                'step' => $step,
                 'error' => $e->getMessage(),
             ], $e->getTraceAsString());
             
             echo json_encode([
-                'success' => false, 
+                'success' => false,
                 'message' => $e->getMessage()
             ]);
         }
@@ -429,7 +525,7 @@ function nicsrs_ssl_ClientArea(array $params)
     // Get requested page/step
     $requestedAction = $_REQUEST['step'] ?? 'index';
     
-    // Also check for 'a' parameter (custom actions)
+    // Also check for 'a' parameter (custom actions like reissue)
     if (isset($_REQUEST['modop']) && $_REQUEST['modop'] === 'custom' && isset($_REQUEST['a'])) {
         $requestedAction = $_REQUEST['a'];
     }

@@ -7,7 +7,7 @@
  * @version    2.0.0
  *}
 
-<link href="{$WEB_ROOT}/modules/servers/nicsrs_ssl/view/assets/css/ssl-manager.css" rel="stylesheet" type="text/css">
+<link href="{$WEB_ROOT}/modules/servers/nicsrs_ssl/assets/css/ssl-manager.css" rel="stylesheet" type="text/css">
 
 {* Parse configData if it's a JSON string *}
 {if is_string($configData) && $configData}
@@ -313,4 +313,4 @@
         ajaxUrl: '{$systemurl}clientarea.php?action=productdetails&id={$serviceid}'
     };
 </script>
-<script src="{$WEB_ROOT}/modules/servers/nicsrs_ssl/view/assets/js/ssl-manager.js"></script>
+<script src="{$WEB_ROOT}/modules/servers/nicsrs_ssl/assets/js/ssl-manager.js"></script>

@@ -295,23 +295,30 @@
         var form = document.getElementById('sslm-apply-form');
         var submitBtn = document.getElementById('submitBtn');
         var saveBtn = document.getElementById('saveBtn');
-        var formData = new FormData(form);
         
-        // Add action type
-        formData.set('action', action === 'draft' ? 'saveDraft' : 'submitApply');
-        
-        // Collect domains
+        // Collect all form data
         var domains = collectDomains();
-        formData.set('domainInfo', JSON.stringify(domains));
-        
-        // Collect contacts
         var contacts = collectContacts();
-        formData.set('Administrator', JSON.stringify(contacts));
         
-        // Check CSR mode
-        var isManualCsr = document.getElementById('isManualCsr');
-        if (isManualCsr) {
-            formData.set('originalfromOthers', isManualCsr.checked ? '1' : '0');
+        // Build data object (like old module)
+        var data = {
+            server: 'other',
+            csr: form.querySelector('[name="csr"]') ? form.querySelector('[name="csr"]').value : '',
+            domainInfo: domains,
+            Administrator: contacts,
+            originalfromOthers: document.getElementById('isManualCsr') && document.getElementById('isManualCsr').checked ? '1' : '0'
+        };
+        
+        // Add organization info if OV/EV
+        var orgName = form.querySelector('[name="organizationName"]');
+        if (orgName) {
+            data.organizationInfo = {
+                organizationName: orgName.value,
+                organizationAddress: form.querySelector('[name="organizationAddress"]')?.value || '',
+                organizationCity: form.querySelector('[name="organizationCity"]')?.value || '',
+                organizationCountry: form.querySelector('[name="organizationCountry"]')?.value || '',
+                organizationPostalCode: form.querySelector('[name="organizationPostalCode"]')?.value || ''
+            };
         }
         
         // Disable buttons
@@ -322,9 +329,14 @@
         var activeBtn = action === 'draft' ? saveBtn : submitBtn;
         if (activeBtn) activeBtn.classList.add('sslm-loading');
         
+        // Build URL with step parameter (like old module)
+        var step = action === 'draft' ? 'savedraft' : 'applyssl';
+        var ajaxUrl = config.ajaxUrl + '&step=' + step;
+        
         // Submit via AJAX
         var xhr = new XMLHttpRequest();
-        xhr.open('POST', config.ajaxUrl, true);
+        xhr.open('POST', ajaxUrl, true);
+        xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
         xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
         
         xhr.onload = function() {
@@ -334,22 +346,19 @@
             if (activeBtn) activeBtn.classList.remove('sslm-loading');
             
             var responseText = xhr.responseText.trim();
-            
-            // Debug: Log raw response
             console.log('Raw response:', responseText);
             
-            // Check if response looks like HTML (error page)
-            if (responseText.indexOf('<!DOCTYPE') === 0 || responseText.indexOf('<html') === 0 || responseText.indexOf('<br') !== -1) {
-                console.error('Server returned HTML instead of JSON:', responseText.substring(0, 500));
-                showToast('Server error occurred. Please check console for details.', 'error');
+            // Check for HTML response
+            if (responseText.indexOf('<!DOCTYPE') === 0 || responseText.indexOf('<html') === 0) {
+                console.error('Server returned HTML instead of JSON');
+                showToast('Server error occurred. Please check console.', 'error');
                 return;
             }
             
-            // Try to find JSON in response (sometimes there's extra output)
+            // Try to find JSON
             var jsonStart = responseText.indexOf('{');
             var jsonEnd = responseText.lastIndexOf('}');
-            
-            if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
+            if (jsonStart !== -1 && jsonEnd > jsonStart) {
                 responseText = responseText.substring(jsonStart, jsonEnd + 1);
             }
             
@@ -357,30 +366,16 @@
                 var response = JSON.parse(responseText);
                 
                 if (response.success) {
-                    showToast(response.message || (action === 'draft' ? 'Draft saved' : 'Certificate submitted successfully'), 'success');
-                    
+                    showToast(response.message || 'Success!', 'success');
                     if (action === 'submit') {
-                        // Reload page after successful submit
-                        setTimeout(function() {
-                            window.location.reload();
-                        }, 1500);
+                        setTimeout(function() { window.location.reload(); }, 1500);
                     }
                 } else {
-                    // Handle validation errors
-                    if (response.errors && typeof response.errors === 'object') {
-                        var errorMessages = [];
-                        for (var key in response.errors) {
-                            errorMessages.push(response.errors[key]);
-                        }
-                        showToast(errorMessages.join(', '), 'error');
-                    } else {
-                        showToast(response.message || 'An error occurred', 'error');
-                    }
+                    showToast(response.message || 'An error occurred', 'error');
                 }
             } catch (e) {
-                console.error('Response parse error:', e);
-                console.error('Response text:', responseText);
-                showToast('Server response error. Check console for details.', 'error');
+                console.error('JSON parse error:', e, responseText);
+                showToast('Server response error', 'error');
             }
         };
         
@@ -391,7 +386,8 @@
             showToast('Network error occurred', 'error');
         };
         
-        xhr.send(formData);
+        // Send data as URL-encoded (like old module with data parameter)
+        xhr.send('data=' + encodeURIComponent(JSON.stringify(data)));
     }
 
     // ========================================
