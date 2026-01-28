@@ -164,62 +164,145 @@ class ActionController
     public static function saveDraft(array $params): array
     {
         try {
+            // DEBUG: Log raw POST data
+            logModuleCall('nicsrs_ssl', 'saveDraft_RAW_POST', [
+                'POST' => $_POST,
+                'params' => $params,
+            ], 'Checking raw input');
+            
             $order = OrderRepository::getByServiceId($params['serviceid']);
             
             if (!$order) {
                 return ResponseFormatter::error('Order not found');
             }
 
-            // Parse form data using fixed function
+            // Parse form data
             $formData = self::parseApplyFormData($params);
             
+            // DEBUG: Log parsed form data
+            logModuleCall('nicsrs_ssl', 'saveDraft_PARSED', [
+                'formData' => $formData,
+                'domainCount' => count($formData['domainInfo'] ?? []),
+                'hasAdmin' => !empty($formData['Administrator']),
+            ], 'Parsed form data');
+            
             // Get existing configdata
-            $configdata = json_decode($order->configdata, true) ?: [];
-            
-            // Merge new form data - overwrite with new values if not empty
-            if (!empty($formData['csr'])) {
-                $configdata['csr'] = $formData['csr'];
-            }
-            if (!empty($formData['privateKey'])) {
-                $configdata['privateKey'] = $formData['privateKey'];
-            }
-            if (!empty($formData['domainInfo'])) {
-                $configdata['domainInfo'] = $formData['domainInfo'];
-            }
-            if (!empty($formData['Administrator'])) {
-                $configdata['Administrator'] = $formData['Administrator'];
-            }
-            if (!empty($formData['organizationInfo'])) {
-                $configdata['organizationInfo'] = $formData['organizationInfo'];
+            $existingConfig = [];
+            if (!empty($order->configdata)) {
+                $existingConfig = json_decode($order->configdata, true) ?: [];
             }
             
-            $configdata['renewOrNot'] = $formData['renewOrNot'] ?? 'purchase';
-            $configdata['originalfromOthers'] = $formData['originalfromOthers'] ?? '0';
-            $configdata['server'] = $formData['server'] ?? 'other';
-            $configdata['draftSavedAt'] = date('Y-m-d H:i:s');
+            // FIXED: Merge properly - ensure all fields are saved
+            $configdata = [
+                // Preserve existing important fields
+                'applyReturn' => $existingConfig['applyReturn'] ?? [],
+                'privateKey' => $formData['privateKey'] ?: ($existingConfig['privateKey'] ?? ''),
+                
+                // Save new form data
+                'csr' => $formData['csr'] ?? '',
+                'domainInfo' => $formData['domainInfo'] ?? [],
+                'Administrator' => $formData['Administrator'] ?? [],
+                'tech' => $formData['tech'] ?? $formData['Administrator'] ?? [],
+                'finance' => $formData['finance'] ?? $formData['Administrator'] ?? [],
+                'organizationInfo' => $formData['organizationInfo'] ?? [],
+                'server' => $formData['server'] ?? 'other',
+                'originalfromOthers' => $formData['originalfromOthers'] ?? '0',
+                
+                // Metadata
+                'lastSaved' => date('Y-m-d H:i:s'),
+                'isDraft' => true,
+            ];
             
-            // Update order
-            OrderRepository::update($order->id, [
+            // DEBUG: Log what will be saved
+            logModuleCall('nicsrs_ssl', 'saveDraft_TO_SAVE', [
+                'configdata' => $configdata,
+                'json' => json_encode($configdata),
+            ], 'Data to save');
+            
+            // Update database
+            $result = OrderRepository::update($order->id, [
                 'status' => SSL_STATUS_DRAFT,
                 'configdata' => json_encode($configdata),
             ]);
-            
-            logModuleCall('nicsrs_ssl', 'saveDraft_success', [], [
-                'domainCount' => count($configdata['domainInfo'] ?? []),
-                'hasCsr' => !empty($configdata['csr']),
-            ]);
 
-            return ResponseFormatter::success('Draft saved successfully', [
-                'savedAt' => $configdata['draftSavedAt'],
-                'hasCsr' => !empty($configdata['csr']),
-                'domainCount' => count($configdata['domainInfo'] ?? []),
-            ]);
+            // DEBUG: Verify save
+            $verifyOrder = OrderRepository::getByServiceId($params['serviceid']);
+            logModuleCall('nicsrs_ssl', 'saveDraft_VERIFY', [
+                'saved' => $result,
+                'newConfigdata' => $verifyOrder->configdata ?? 'NULL',
+            ], 'Verify save result');
+
+            if ($result) {
+                return ResponseFormatter::success('Draft saved successfully', [
+                    'savedAt' => $configdata['lastSaved'],
+                    'hasCsr' => !empty($configdata['csr']),
+                    'domainCount' => count($configdata['domainInfo']),
+                ]);
+            }
+            
+            return ResponseFormatter::error('Failed to save draft');
 
         } catch (Exception $e) {
-            logModuleCall('nicsrs_ssl', 'saveDraft_error', $params, $e->getMessage());
+            logModuleCall('nicsrs_ssl', 'saveDraft_ERROR', $params, $e->getMessage());
             return ResponseFormatter::error($e->getMessage());
         }
     }
+
+    /**
+     * Validate form data before submission
+     * @param array $data Parsed form data
+     * @param bool $isDraft If true, only validate essential fields
+     */
+    private static function validateFormData(array $data, bool $isDraft = false): array
+    {
+        $errors = [];
+
+        // For draft, we allow partial data
+        if ($isDraft) {
+            return $errors; // No validation for draft
+        }
+
+        // CSR is required for submission
+        if (empty($data['csr'])) {
+            $errors['csr'] = 'CSR is required. Please check domain and contact information.';
+        } elseif (strpos($data['csr'], '-----BEGIN CERTIFICATE REQUEST-----') === false) {
+            $errors['csr'] = 'Invalid CSR format. CSR must begin with -----BEGIN CERTIFICATE REQUEST-----';
+        }
+
+        // At least one domain required
+        if (empty($data['domainInfo'])) {
+            $errors['domain'] = 'At least one domain is required';
+        } else {
+            foreach ($data['domainInfo'] as $i => $domain) {
+                if (empty($domain['domainName'])) {
+                    $errors["domain_{$i}"] = 'Domain name is required';
+                }
+                if (empty($domain['dcvMethod'])) {
+                    $errors["dcv_{$i}"] = 'DCV method is required';
+                }
+                // If EMAIL method, dcvEmail is required
+                if ($domain['dcvMethod'] === 'EMAIL' && empty($domain['dcvEmail'])) {
+                    $errors["dcvEmail_{$i}"] = 'Email address is required for email validation';
+                }
+            }
+        }
+
+        // Validate admin contact
+        $admin = $data['Administrator'] ?? [];
+        if (empty($admin['firstName'])) {
+            $errors['adminFirstName'] = 'First name is required';
+        }
+        if (empty($admin['lastName'])) {
+            $errors['adminLastName'] = 'Last name is required';
+        }
+        if (empty($admin['email'])) {
+            $errors['adminEmail'] = 'Email is required';
+        } elseif (!filter_var($admin['email'], FILTER_VALIDATE_EMAIL)) {
+            $errors['adminEmail'] = 'Invalid email format';
+        }
+
+        return $errors;
+    }  
 
     /**
      * Refresh certificate status
@@ -596,74 +679,84 @@ class ActionController
     /**
      * Parse form data from POST - Updated for new JS format
      */
-    private static function parseApplyFormData(array $params = []): array
+    private static function parseApplyFormData(array $params): array
     {
-        $data = [];
+        $data = [
+            'csr' => '',
+            'privateKey' => '',
+            'server' => 'other',
+            'domainInfo' => [],
+            'Administrator' => [],
+            'tech' => [],
+            'finance' => [],
+            'organizationInfo' => [],
+            'originalfromOthers' => '0',
+            'renewOrNot' => 'new',
+        ];
         
-        // ==========================================
-        // CRITICAL FIX: Extract data from JSON wrapper
-        // JavaScript sends: xhr.send('data=' + encodeURIComponent(JSON.stringify(data)))
-        // So all form data is inside $_POST['data'] as JSON string
-        // ==========================================
+        // Start with POST data
         $postData = $_POST;
         
-        if (isset($_POST['data'])) {
+        // DEBUG: Log initial POST
+        logModuleCall('nicsrs_ssl', 'parseApplyFormData_START', [
+            'POST_keys' => array_keys($_POST),
+            'has_data_key' => isset($_POST['data']),
+        ], 'Starting parse');
+        
+        // Check for JSON-encoded 'data' parameter (from JavaScript)
+        if (!empty($_POST['data'])) {
             $jsonData = $_POST['data'];
             
-            if (is_string($jsonData)) {
-                $decoded = json_decode($jsonData, true);
+            // Handle URL-encoded JSON
+            if (strpos($jsonData, '%7B') !== false || strpos($jsonData, '%22') !== false) {
+                $jsonData = urldecode($jsonData);
+            }
+            
+            // DEBUG: Log JSON before parse
+            logModuleCall('nicsrs_ssl', 'parseApplyFormData_JSON', [
+                'raw_length' => strlen($jsonData),
+                'raw_preview' => substr($jsonData, 0, 500),
+            ], 'JSON data received');
+            
+            $decoded = json_decode($jsonData, true);
+            
+            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                // IMPORTANT: Merge decoded data into postData
+                $postData = array_merge($postData, $decoded);
                 
-                if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
-                    // Use decoded JSON as primary data source
-                    $postData = array_merge($postData, $decoded);
-                    
-                    logModuleCall('nicsrs_ssl', 'parseApplyFormData_decoded', 
-                        ['raw_json' => substr($jsonData, 0, 500)], 
-                        ['decoded_keys' => array_keys($decoded)]
-                    );
-                } else {
-                    logModuleCall('nicsrs_ssl', 'parseApplyFormData_json_error', 
-                        ['raw' => substr($jsonData, 0, 500)], 
-                        ['error' => json_last_error_msg()]
-                    );
-                }
+                logModuleCall('nicsrs_ssl', 'parseApplyFormData_DECODED', [
+                    'decoded_keys' => array_keys($decoded),
+                    'domainInfo_count' => count($decoded['domainInfo'] ?? []),
+                    'has_Administrator' => isset($decoded['Administrator']),
+                ], 'Decoded JSON');
+            } else {
+                logModuleCall('nicsrs_ssl', 'parseApplyFormData_JSON_ERROR', [
+                    'error' => json_last_error_msg(),
+                    'raw' => substr($jsonData, 0, 200),
+                ], 'JSON decode failed');
             }
         }
         
         // ==========================================
-        // Parse Domain Info (from decoded JSON)
+        // Parse Domain Info
         // ==========================================
-        $data['domainInfo'] = [];
-        $primaryDomain = '';
-        
-        // domainInfo is array of {domainName, dcvMethod}
-        if (isset($postData['domainInfo']) && is_array($postData['domainInfo'])) {
+        if (!empty($postData['domainInfo']) && is_array($postData['domainInfo'])) {
             foreach ($postData['domainInfo'] as $domain) {
                 if (!empty($domain['domainName'])) {
+                    $dcvMethod = $domain['dcvMethod'] ?? 'CNAME_CSR_HASH';
+                    $dcvEmail = $domain['dcvEmail'] ?? '';
+                    
+                    // Handle email-based DCV
+                    if (filter_var($dcvMethod, FILTER_VALIDATE_EMAIL)) {
+                        $dcvEmail = $dcvMethod;
+                        $dcvMethod = 'EMAIL';
+                    }
+                    
                     $data['domainInfo'][] = [
                         'domainName' => trim($domain['domainName']),
-                        'dcvMethod' => $domain['dcvMethod'] ?? 'CNAME_CSR_HASH',
-                        'dcvEmail' => $domain['dcvEmail'] ?? '',
+                        'dcvMethod' => $dcvMethod,
+                        'dcvEmail' => $dcvEmail,
                     ];
-                    if (empty($primaryDomain)) {
-                        $primaryDomain = trim($domain['domainName']);
-                    }
-                }
-            }
-        }
-        
-        // Fallback: Parse from domains[] array (HTML form format)
-        if (empty($data['domainInfo']) && isset($postData['domains']) && is_array($postData['domains'])) {
-            foreach ($postData['domains'] as $d) {
-                if (!empty($d['name'])) {
-                    $data['domainInfo'][] = [
-                        'domainName' => trim($d['name']),
-                        'dcvMethod' => $d['dcvMethod'] ?? 'CNAME_CSR_HASH',
-                        'dcvEmail' => $d['dcvEmail'] ?? '',
-                    ];
-                    if (empty($primaryDomain)) {
-                        $primaryDomain = trim($d['name']);
-                    }
                 }
             }
         }
@@ -671,109 +764,58 @@ class ActionController
         // ==========================================
         // Parse Administrator/Contact Info
         // ==========================================
-        $data['Administrator'] = [];
-        
-        // Administrator is object from JS
-        if (isset($postData['Administrator']) && is_array($postData['Administrator'])) {
-            $data['Administrator'] = $postData['Administrator'];
-        }
-        
-        // Fallback: Parse from individual form fields
-        if (empty($data['Administrator']['firstName']) && !empty($postData['adminFirstName'])) {
+        if (!empty($postData['Administrator']) && is_array($postData['Administrator'])) {
+            $admin = $postData['Administrator'];
             $data['Administrator'] = [
-                'firstName' => $postData['adminFirstName'] ?? '',
-                'lastName' => $postData['adminLastName'] ?? '',
-                'email' => $postData['adminEmail'] ?? '',
-                'mobile' => $postData['adminPhone'] ?? '',
-                'job' => $postData['adminTitle'] ?? 'IT Manager',
-                'organation' => $postData['adminOrganizationName'] ?? '',
-                'country' => $postData['adminCountry'] ?? '',
-                'address' => $postData['adminAddress'] ?? '',
-                'city' => $postData['adminCity'] ?? '',
-                'state' => $postData['adminProvince'] ?? '',
-                'postCode' => $postData['adminPostcode'] ?? '',
+                'firstName' => trim($admin['firstName'] ?? ''),
+                'lastName' => trim($admin['lastName'] ?? ''),
+                'email' => trim($admin['email'] ?? ''),
+                'mobile' => trim($admin['mobile'] ?? $admin['phone'] ?? ''),
+                'job' => trim($admin['job'] ?? 'IT Manager'),
+                'organation' => trim($admin['organation'] ?? $admin['organization'] ?? ''),
+                'country' => trim($admin['country'] ?? ''),
+                'address' => trim($admin['address'] ?? ''),
+                'city' => trim($admin['city'] ?? ''),
+                'state' => trim($admin['state'] ?? $admin['province'] ?? ''),
+                'postCode' => trim($admin['postCode'] ?? $admin['postalCode'] ?? ''),
             ];
+            
+            // Copy to tech and finance
+            $data['tech'] = $data['Administrator'];
+            $data['finance'] = $data['Administrator'];
         }
         
-        // Copy admin to tech and finance
-        $data['tech'] = $data['Administrator'];
-        $data['finance'] = $data['Administrator'];
-        
         // ==========================================
-        // Parse Organization Info (for OV/EV certs)
+        // Parse Organization Info
         // ==========================================
-        if (isset($postData['organizationInfo']) && is_array($postData['organizationInfo'])) {
-            $data['organizationInfo'] = $postData['organizationInfo'];
-        } elseif (!empty($postData['organizationName'])) {
+        if (!empty($postData['organizationInfo']) && is_array($postData['organizationInfo'])) {
+            $org = $postData['organizationInfo'];
             $data['organizationInfo'] = [
-                'organizationName' => $postData['organizationName'] ?? '',
-                'division' => $postData['division'] ?? 'IT Department',
-                'organizationCity' => $postData['organizationCity'] ?? '',
-                'organizationCountry' => $postData['organizationCountry'] ?? '',
-                'organizationAddress' => $postData['organizationAddress'] ?? '',
-                'organizationPostalCode' => $postData['organizationPostalCode'] ?? '',
+                'organizationName' => trim($org['organizationName'] ?? ''),
+                'organizationAddress' => trim($org['organizationAddress'] ?? ''),
+                'organizationCity' => trim($org['organizationCity'] ?? ''),
+                'organizationCountry' => trim($org['organizationCountry'] ?? ''),
+                'organizationState' => trim($org['organizationState'] ?? ''),
+                'organizationPostCode' => trim($org['organizationPostCode'] ?? $org['organizationPostalCode'] ?? ''),
+                'organizationMobile' => trim($org['organizationMobile'] ?? ''),
             ];
         }
         
         // ==========================================
-        // Handle CSR
+        // Parse CSR and other fields
         // ==========================================
-        $isManualCsr = false;
-        
-        // Check originalfromOthers from JS (indicates manual CSR mode)
-        if (isset($postData['originalfromOthers'])) {
-            $isManualCsr = $postData['originalfromOthers'] === '1' || $postData['originalfromOthers'] === 1;
-        }
-        
-        $data['originalfromOthers'] = $isManualCsr ? '1' : '0';
-        
-        if ($isManualCsr && !empty($postData['csr'])) {
-            // Manual CSR provided
-            $data['csr'] = trim($postData['csr']);
-            $data['privateKey'] = '';
-        } else {
-            // Auto-generate CSR from contact info + domain
-            $admin = $data['Administrator'];
-            
-            $csrParams = [
-                'cn' => $primaryDomain,
-                'org' => $admin['organation'] ?? '',
-                'ou' => 'IT Department',
-                'city' => $admin['city'] ?? '',
-                'state' => $admin['state'] ?? '',
-                'country' => $admin['country'] ?? '',
-                'email' => $admin['email'] ?? '',
-            ];
-            
-            logModuleCall('nicsrs_ssl', 'auto_csr_params', $csrParams, '');
-            
-            if (!empty($primaryDomain)) {
-                try {
-                    $generated = CertificateFunc::generateCSR($csrParams);
-                    $data['csr'] = $generated['csr'];
-                    $data['privateKey'] = $generated['privateKey'];
-                } catch (Exception $e) {
-                    logModuleCall('nicsrs_ssl', 'generateCSR_error', $csrParams, $e->getMessage());
-                    $data['csr'] = '';
-                    $data['privateKey'] = '';
-                }
-            } else {
-                $data['csr'] = '';
-                $data['privateKey'] = '';
-            }
-        }
-        
-        // Other fields
+        $data['csr'] = trim($postData['csr'] ?? '');
+        $data['privateKey'] = trim($postData['privateKey'] ?? '');
         $data['server'] = $postData['server'] ?? 'other';
+        $data['originalfromOthers'] = $postData['originalfromOthers'] ?? '0';
         $data['renewOrNot'] = $postData['renewOrNot'] ?? 'purchase';
         
-        // Log final parsed data
-        logModuleCall('nicsrs_ssl', 'parseApplyFormData_result', [], [
+        // DEBUG: Log final result
+        logModuleCall('nicsrs_ssl', 'parseApplyFormData_RESULT', [
             'domainCount' => count($data['domainInfo']),
             'hasAdmin' => !empty($data['Administrator']['firstName']),
             'hasCsr' => !empty($data['csr']),
-            'primaryDomain' => $primaryDomain,
-        ]);
+        ], 'Final parsed data');
         
         return $data;
     }

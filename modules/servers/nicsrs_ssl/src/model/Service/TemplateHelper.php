@@ -63,7 +63,7 @@ class TemplateHelper
             'templatefile' => 'applycert',
             'vars' => array_merge($baseVars, [
                 'order' => $order,
-                'configdata' => $configdata,
+                'configData' => $configdata,
                 'cert' => $cert,
                 'productCode' => $cert['name'] ?? '',
                 'sslType' => $cert['sslType'] ?? 'website_ssl',
@@ -107,7 +107,7 @@ class TemplateHelper
             'templatefile' => 'pending',
             'vars' => array_merge($baseVars, [
                 'order' => $order,
-                'configdata' => $configdata,
+                'configData' => $configdata,
                 'applyReturn' => $applyReturn,
                 'cert' => $cert,
                 'productCode' => $cert['name'] ?? '',
@@ -149,7 +149,7 @@ class TemplateHelper
             'templatefile' => 'complete',
             'vars' => array_merge($baseVars, [
                 'order' => $order,
-                'configdata' => $configdata,
+                'configData' => $configdata,
                 'applyReturn' => $applyReturn,
                 'cert' => $cert,
                 'productCode' => $cert['name'] ?? '',
@@ -189,7 +189,7 @@ class TemplateHelper
             'templatefile' => 'manage',
             'vars' => array_merge($baseVars, [
                 'order' => ResponseFormatter::formatOrderForDisplay($order),
-                'configdata' => $configdata,
+                'configData' => $configdata,
                 'cert' => $cert,
                 'productCode' => $cert['name'] ?? '',
                 'status' => $order->status,
@@ -225,7 +225,7 @@ class TemplateHelper
             'templatefile' => 'reissue',
             'vars' => array_merge($baseVars, [
                 'order' => $order,
-                'configdata' => $configdata,
+                'configData' => $configdata,
                 'existingData' => $existingData,
                 'cert' => $cert,
                 'productCode' => $cert['name'] ?? '',

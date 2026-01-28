@@ -342,7 +342,7 @@
     </form>
 </div>
 
-{* Hidden Config Data for JavaScript *}
+{* Hidden Config Data for JavaScript - FIXED *}
 <script>
     var sslmConfig = {
         serviceid: '{$serviceid}',
@@ -352,10 +352,12 @@
         validationType: '{$validationType|default:"dv"}',
         sslType: '{$sslType|default:"ssl"}',
         productCode: '{$productCode|escape:"javascript"}',
-        configData: {if is_array($cfgData)}{$cfgData|@json_encode nofilter}{else}{ldelim}{rdelim}{/if},
+        configData: {if !empty($cfgData)}{$cfgData|@json_encode nofilter}{else}null{/if},        
         lang: {if is_array($_LANG)}{$_LANG|@json_encode nofilter}{else}{ldelim}{rdelim}{/if},
         other: {if is_string($other)}{$other nofilter}{elseif is_array($other)}{$other|@json_encode nofilter}{else}{ldelim}{rdelim}{/if},
         ajaxUrl: '{$systemurl}clientarea.php?action=productdetails&id={$serviceid}'
     };
+    
+    // Debug: Log config on load
+    console.log('sslmConfig loaded:', sslmConfig);
 </script>
-<script src="{$WEB_ROOT}/modules/servers/nicsrs_ssl/assets/js/ssl-manager.js"></script>

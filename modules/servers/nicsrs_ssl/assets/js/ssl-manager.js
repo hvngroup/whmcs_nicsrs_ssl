@@ -89,6 +89,32 @@
                 addDomainRow(config.configData.domainInfo[i]);
             }
         }
+
+        // ADD: Event delegation for DCV select focus/click to populate email options
+        domainList.addEventListener('focus', function(e) {
+            if (e.target && e.target.classList.contains('sslm-dcv-select')) {
+                var row = e.target.closest('.sslm-domain-row');
+                if (row) {
+                    var domainInput = row.querySelector('.sslm-domain-input');
+                    if (domainInput && domainInput.value.trim()) {
+                        initDomainDcvOptions(e.target, domainInput.value.trim());
+                    }
+                }
+            }
+        }, true); // Use capture phase for focus event
+        
+        // ADD: Also handle click for better UX
+        domainList.addEventListener('click', function(e) {
+            if (e.target && e.target.classList.contains('sslm-dcv-select')) {
+                var row = e.target.closest('.sslm-domain-row');
+                if (row) {
+                    var domainInput = row.querySelector('.sslm-domain-input');
+                    if (domainInput && domainInput.value.trim()) {
+                        initDomainDcvOptions(e.target, domainInput.value.trim());
+                    }
+                }
+            }
+        });
         
         updateRemoveButtons();
     }
@@ -163,6 +189,94 @@
         // Hide first row's remove button always
         if (removeButtons.length > 0) {
             removeButtons[0].style.display = 'none';
+        }
+    }
+
+    function getAdminEmails(domain, emails) {
+        domain = domain || '';
+        emails = emails || [];
+        if (!domain) return emails;
+        
+        // Regex to match valid domain parts
+        var rep = /(?=.{3,255}$)[a-zA-Z0-9\u4E00-\u9FA5][-a-zA-Z0-9\u4E00-\u9FA5]{0,62}(\.[a-zA-Z0-9\u4E00-\u9FA5][-a-zA-Z0-9\u4E00-\u9FA5]{0,62})+$/u;
+        var repRes = rep.exec(domain);
+        
+        if (repRes) {
+            var addDomain = repRes[0];
+            var addEmails = [
+                'admin@' + addDomain,
+                'administrator@' + addDomain,
+                'hostmaster@' + addDomain,
+                'postmaster@' + addDomain,
+                'webmaster@' + addDomain
+            ];
+            emails = emails.concat(addEmails);
+            
+            // Recursively get parent domain emails
+            var newDomain = addDomain.substr(addDomain.indexOf('.') + 1);
+            return getAdminEmails(newDomain, emails);
+        }
+        return emails;
+    }
+
+    // ADD: Function to check if value is valid email
+    function isValidEmail(email) {
+        var rep = /^[_a-zA-Z0-9-]+(\.[_a-zA-Z0-9-]+)*@[a-zA-Z0-9-]+(\.[a-zA-Z0-9-]+)*(\.[a-zA-Z0-9]{2,})$/;
+        return rep.test(email);
+    }
+
+    // ADD: Function to check domain types
+    function checkWildcardDomain(domain) {
+        if (!domain) return false;
+        var rep = /^\*\.(?=.{3,255}$)[a-zA-Z0-9][-a-zA-Z0-9]{0,62}(\.[a-zA-Z0-9][-a-zA-Z0-9]{0,62})+$/;
+        return rep.test(domain);
+    }
+
+    function checkIpDomain(domain) {
+        if (!domain) return false;
+        var ipv4 = /^((25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(25[0-5]|2[0-4]\d|1?\d?\d)$/;
+        return ipv4.test(domain);
+    }
+
+    function initDomainDcvOptions(selectElement, domain) {
+        var originVal = selectElement.value;
+        var optionStr = '';
+        var config = window.sslmConfig || {};
+        
+        // IP domains only support HTTP/HTTPS file validation
+        if (checkIpDomain(domain)) {
+            optionStr = '<option value="HTTP_CSR_HASH">' + (lang.http_file || 'HTTP File') + '</option>' +
+                        '<option value="HTTPS_CSR_HASH">' + (lang.https_file || 'HTTPS File') + '</option>';
+        } else {
+            // DNS CNAME is default for all non-IP domains
+            optionStr = '<option value="CNAME_CSR_HASH">' + (lang.dns_cname || 'DNS CNAME') + '</option>';
+            
+            // Wildcard domains don't support HTTP file validation
+            if (!checkWildcardDomain(domain)) {
+                optionStr += '<option value="HTTP_CSR_HASH">' + (lang.http_file || 'HTTP File') + '</option>';
+                optionStr += '<option value="HTTPS_CSR_HASH">' + (lang.https_file || 'HTTPS File') + '</option>';
+            }
+            
+            // Generate email options
+            var cleanDomain = domain;
+            if (domain.indexOf('*.') === 0) {
+                cleanDomain = domain.substr(2);
+            } else if (domain.indexOf('www.') === 0) {
+                cleanDomain = domain.substr(4);
+            }
+            
+            var emails = getAdminEmails(cleanDomain, []);
+            emails.forEach(function(email) {
+                optionStr += '<option value="' + email + '">' + email + '</option>';
+            });
+        }
+        
+        // Update select options
+        selectElement.innerHTML = optionStr;
+        
+        // Restore previous value if it exists in new options
+        if (originVal && selectElement.querySelector('option[value="' + originVal + '"]')) {
+            selectElement.value = originVal;
         }
     }
 
@@ -264,54 +378,55 @@
     // Restore Form Data
     // ========================================
     function restoreFormData() {
-        if (!config.configData) return;
+        var config = window.sslmConfig || {};
+        var data = config.configData;
+        
+        console.log('Attempting to restore form data:', data);
+        
+        if (!data || typeof data !== 'object') {
+            console.log('No saved data to restore');
+            return;
+        }
         
         var form = document.getElementById('sslm-apply-form');
         if (!form) return;
         
-        var data = config.configData;
-        
-        console.log('Restoring form data:', data);
-        
-        // Restore CSR toggle and content
-        if (data.csr && data.originalfromOthers === '1') {
-            var toggle = document.getElementById('isManualCsr');
-            var csrTextarea = document.getElementById('csrTextarea');
+        // Restore CSR
+        if (data.csr) {
             var csrField = form.querySelector('[name="csr"]');
-            
-            if (toggle) toggle.checked = true;
-            if (csrTextarea) csrTextarea.style.display = 'block';
-            if (csrField) csrField.value = data.csr;
+            if (csrField) {
+                csrField.value = data.csr;
+            }
         }
         
-        // Restore admin contact
+        // Restore Administrator info
         if (data.Administrator) {
             var admin = data.Administrator;
-            var fieldMap = {
+            var adminFieldMap = {
                 'adminFirstName': admin.firstName,
                 'adminLastName': admin.lastName,
                 'adminEmail': admin.email,
-                'adminPhone': admin.mobile,
+                'adminPhone': admin.mobile || admin.phone,
                 'adminTitle': admin.job,
-                'adminOrganizationName': admin.organation,
+                'adminOrganizationName': admin.organation || admin.organization,
                 'adminCountry': admin.country,
-                'adminCity': admin.city,
                 'adminAddress': admin.address,
-                'adminProvince': admin.state,
-                'adminPostCode': admin.postCode
+                'adminCity': admin.city,
+                'adminProvince': admin.state || admin.province,
+                'adminPostCode': admin.postCode || admin.postalCode
             };
             
-            for (var fieldName in fieldMap) {
-                if (fieldMap[fieldName]) {
+            for (var fieldName in adminFieldMap) {
+                if (adminFieldMap[fieldName]) {
                     var field = form.querySelector('[name="' + fieldName + '"]');
                     if (field) {
-                        field.value = fieldMap[fieldName];
+                        field.value = adminFieldMap[fieldName];
                     }
                 }
             }
         }
         
-        // Restore organization info
+        // Restore Organization info
         if (data.organizationInfo) {
             var org = data.organizationInfo;
             var orgFieldMap = {
@@ -319,44 +434,56 @@
                 'organizationAddress': org.organizationAddress,
                 'organizationCity': org.organizationCity,
                 'organizationCountry': org.organizationCountry,
-                'organizationPostalCode': org.organizationPostalCode || org.organizationPostCode
+                'organizationProvince': org.organizationState,
+                'organizationPostalCode': org.organizationPostCode || org.organizationPostalCode
             };
             
-            for (var orgFieldName in orgFieldMap) {
-                if (orgFieldMap[orgFieldName]) {
-                    var orgField = form.querySelector('[name="' + orgFieldName + '"]');
-                    if (orgField) {
-                        orgField.value = orgFieldMap[orgFieldName];
+            for (var fieldName in orgFieldMap) {
+                if (orgFieldMap[fieldName]) {
+                    var field = form.querySelector('[name="' + fieldName + '"]');
+                    if (field) {
+                        field.value = orgFieldMap[fieldName];
                     }
                 }
             }
         }
         
-        // Restore ALL domains (not just first one)
+        // Restore Domain info
         if (data.domainInfo && data.domainInfo.length > 0) {
             var domainList = document.getElementById('domainList');
-            if (!domainList) return;
-            
-            // Restore first domain to existing row
-            var firstRow = domainList.querySelector('.sslm-domain-row');
-            if (firstRow) {
-                var firstDomain = data.domainInfo[0];
-                var domainInput = firstRow.querySelector('.sslm-domain-input');
-                var dcvSelect = firstRow.querySelector('.sslm-dcv-select');
+            if (domainList) {
+                // First, restore to existing row
+                var firstRow = domainList.querySelector('.sslm-domain-row');
+                if (firstRow && data.domainInfo[0]) {
+                    var domainInput = firstRow.querySelector('.sslm-domain-input');
+                    var dcvSelect = firstRow.querySelector('.sslm-dcv-select');
+                    
+                    if (domainInput) {
+                        domainInput.value = data.domainInfo[0].domainName || '';
+                    }
+                    if (dcvSelect) {
+                        var dcvValue = data.domainInfo[0].dcvMethod || 'CNAME_CSR_HASH';
+                        var dcvEmail = data.domainInfo[0].dcvEmail || '';
+                        
+                        // If email validation, use the email as value
+                        if (dcvValue === 'EMAIL' && dcvEmail) {
+                            // First populate options
+                            initDomainDcvOptions(dcvSelect, domainInput.value);
+                            dcvSelect.value = dcvEmail;
+                        } else {
+                            dcvSelect.value = dcvValue;
+                        }
+                    }
+                }
                 
-                if (domainInput && firstDomain.domainName) {
-                    domainInput.value = firstDomain.domainName;
+                // Add additional domain rows
+                for (var i = 1; i < data.domainInfo.length; i++) {
+                    addDomainRow(data.domainInfo[i]);
                 }
-                if (dcvSelect && firstDomain.dcvMethod) {
-                    dcvSelect.value = firstDomain.dcvMethod;
-                }
-            }
-            
-            // Add additional domain rows
-            for (var i = 1; i < data.domainInfo.length; i++) {
-                addDomainRow(data.domainInfo[i]);
             }
         }
+        
+        console.log('Form data restored successfully');
     }
 
     // ========================================
@@ -386,40 +513,51 @@
         var submitBtn = document.getElementById('submitBtn');
         var saveBtn = document.getElementById('saveBtn');
         
-        // Collect all form data
+        // Collect all form data - FIXED to match backend structure
         var domains = collectDomains();
         var contacts = collectContacts();
         
-        // Build data object (like old module)
+        // Get CSR value
+        var csrField = form.querySelector('[name="csr"]');
+        var csr = csrField ? csrField.value.trim() : '';
+        
+        // Build data object matching old module structure
         var data = {
             server: 'other',
-            csr: form.querySelector('[name="csr"]') ? form.querySelector('[name="csr"]').value : '',
+            csr: csr,
             domainInfo: domains,
             Administrator: contacts,
-            originalfromOthers: document.getElementById('isManualCsr') && document.getElementById('isManualCsr').checked ? '1' : '0'
+            originalfromOthers: document.getElementById('isManualCsr') && 
+                            document.getElementById('isManualCsr').checked ? '1' : '0'
         };
         
-        // Add organization info if OV/EV
+        // Add organization info if OV/EV certificate
         var orgName = form.querySelector('[name="organizationName"]');
-        if (orgName) {
+        if (orgName && orgName.value.trim()) {
             data.organizationInfo = {
-                organizationName: orgName.value,
-                organizationAddress: form.querySelector('[name="organizationAddress"]') ? form.querySelector('[name="organizationAddress"]').value : '',
-                organizationCity: form.querySelector('[name="organizationCity"]') ? form.querySelector('[name="organizationCity"]').value : '',
-                organizationCountry: form.querySelector('[name="organizationCountry"]') ? form.querySelector('[name="organizationCountry"]').value : '',
-                organizationPostalCode: form.querySelector('[name="organizationPostalCode"]') ? form.querySelector('[name="organizationPostalCode"]').value : ''
+                organizationName: getFieldValue(form, 'organizationName'),
+                organizationAddress: getFieldValue(form, 'organizationAddress'),
+                organizationCity: getFieldValue(form, 'organizationCity'),
+                organizationCountry: getFieldValue(form, 'organizationCountry'),
+                organizationState: getFieldValue(form, 'organizationProvince'),
+                organizationPostCode: getFieldValue(form, 'organizationPostalCode'),
+                organizationMobile: getFieldValue(form, 'organizationPhone')
             };
         }
         
-        // Disable buttons
+        // Debug logging
+        console.log('Form data to submit:', data);
+        console.log('Domains collected:', domains);
+        console.log('Contacts collected:', contacts);
+        
+        // Disable buttons and show loading
         if (submitBtn) submitBtn.disabled = true;
         if (saveBtn) saveBtn.disabled = true;
         
-        // Show loading
         var activeBtn = action === 'draft' ? saveBtn : submitBtn;
         if (activeBtn) activeBtn.classList.add('sslm-loading');
         
-        // Build URL with step parameter (like old module)
+        // Build URL with step parameter (matches backend mapping)
         var step = action === 'draft' ? 'savedraft' : 'applyssl';
         var ajaxUrl = config.ajaxUrl + '&step=' + step;
         
@@ -495,9 +633,19 @@
             var dcvSelect = row.querySelector('.sslm-dcv-select');
             
             if (domainInput && domainInput.value.trim()) {
+                var dcvMethod = dcvSelect ? dcvSelect.value : 'CNAME_CSR_HASH';
+                var dcvEmail = '';
+                
+                // If DCV method is an email address, set it as dcvEmail
+                if (isValidEmail(dcvMethod)) {
+                    dcvEmail = dcvMethod;
+                    dcvMethod = 'EMAIL'; // Set method to EMAIL constant
+                }
+                
                 domains.push({
                     domainName: domainInput.value.trim(),
-                    dcvMethod: dcvSelect ? dcvSelect.value : 'CNAME_CSR_HASH'
+                    dcvMethod: dcvMethod,
+                    dcvEmail: dcvEmail
                 });
             }
         });
