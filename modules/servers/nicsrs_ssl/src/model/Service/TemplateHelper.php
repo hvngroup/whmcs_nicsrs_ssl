@@ -1,12 +1,15 @@
 <?php
 /**
  * NicSRS SSL Module - Template Helper
- * Helper functions for template rendering
+ * Handles template rendering and variable preparation
  * 
- * FIXED: Properly handles countries array from JSON
+ * FIXED v2.0.1:
+ * - Fixed isRenew/originalfromOthers consistency
+ * - Enhanced configData handling
+ * - Improved template variable preparation
  * 
  * @package    nicsrs_ssl
- * @version    2.0.0
+ * @version    2.0.1
  * @author     HVN GROUP
  * @copyright  Copyright (c) HVN GROUP (https://hvn.vn)
  */
@@ -14,62 +17,73 @@
 namespace nicsrsSSL;
 
 use WHMCS\Database\Capsule;
+use Exception;
 
 class TemplateHelper
 {
     /**
-     * Get base template variables
+     * Get base template variables (common to all templates)
      */
     public static function getBaseVars(array $params): array
     {
-        // Get language
-        $language = CertificateFunc::loadLanguage(
-            CertificateFunc::getClientLanguage($params['userid'] ?? 0)
-        );
-
-        // Get WHMCS system URL
-        $systemUrl = '';
-        try {
-            $systemUrl = \WHMCS\Config\Setting::getValue('SystemURL');
-        } catch (\Exception $e) {
-            $systemUrl = '';
-        }
-
+        // Load language
+        $language = self::loadLanguage($params);
+        
         return [
             '_LANG' => $language,
-            '_LANG_JSON' => json_encode($language, JSON_UNESCAPED_UNICODE),
-            'WEB_ROOT' => rtrim($systemUrl, '/'),
-            'MODULE_PATH' => 'modules/servers/nicsrs_ssl',
+            '_LANG_JSON' => json_encode($language),
+            'WEB_ROOT' => $GLOBALS['CONFIG']['SystemURL'] ?? '',
             'serviceid' => $params['serviceid'] ?? 0,
             'userid' => $params['userid'] ?? 0,
-            'moduleVersion' => NICSRS_SSL_VERSION,
+            'domain' => $params['domain'] ?? '',
+            'moduleVersion' => '2.0.1',
         ];
     }
 
     /**
-     * Get client info for pre-filling forms
+     * Load language file
+     */
+    private static function loadLanguage(array $params): array
+    {
+        $lang = $_SESSION['Language'] ?? 'english';
+        $langFile = NICSRS_SSL_PATH . 'lang/' . $lang . '.php';
+        
+        if (!file_exists($langFile)) {
+            $langFile = NICSRS_SSL_PATH . 'lang/english.php';
+        }
+        
+        $_LANG = [];
+        if (file_exists($langFile)) {
+            include $langFile;
+        }
+        
+        return $_LANG;
+    }
+
+    /**
+     * Get client information for pre-filling forms
      */
     public static function getClientInfo(int $userId): array
     {
         if ($userId <= 0) {
             return [];
         }
-
+        
         try {
             $client = Capsule::table('tblclients')
                 ->where('id', $userId)
                 ->first();
-
+            
             if (!$client) {
                 return [];
             }
-
+            
             return [
                 'firstname' => $client->firstname ?? '',
                 'lastname' => $client->lastname ?? '',
+                'companyname' => $client->companyname ?? '',
                 'email' => $client->email ?? '',
                 'phonenumber' => $client->phonenumber ?? '',
-                'companyname' => $client->companyname ?? '',
                 'address1' => $client->address1 ?? '',
                 'address2' => $client->address2 ?? '',
                 'city' => $client->city ?? '',
@@ -84,7 +98,6 @@ class TemplateHelper
 
     /**
      * Load countries from JSON file
-     * Returns array of objects with 'code' and 'name' properties
      */
     public static function getCountries(): array
     {
@@ -129,6 +142,7 @@ class TemplateHelper
 
     /**
      * Render apply certificate page
+     * FIXED: Properly handles isRenew/originalfromOthers
      */
     public static function applyCert(array $params, object $order, array $cert): array
     {
@@ -143,12 +157,22 @@ class TemplateHelper
             }
         }
 
+        // FIXED: Ensure isRenew and originalfromOthers are consistent
+        if (isset($configdata['isRenew']) && !isset($configdata['originalfromOthers'])) {
+            $configdata['originalfromOthers'] = $configdata['isRenew'];
+        } elseif (isset($configdata['originalfromOthers']) && !isset($configdata['isRenew'])) {
+            $configdata['isRenew'] = $configdata['originalfromOthers'];
+        }
+
         // DEBUG: Log what we're passing
         logModuleCall('nicsrs_ssl', 'TemplateHelper_applyCert', [
             'order_id' => $order->id ?? 'N/A',
+            'order_status' => $order->status ?? 'N/A',
             'configdata_raw_length' => strlen($order->configdata ?? ''),
             'domainCount' => count($configdata['domainInfo'] ?? []),
             'hasAdmin' => !empty($configdata['Administrator']),
+            'isRenew' => $configdata['isRenew'] ?? 'not set',
+            'originalfromOthers' => $configdata['originalfromOthers'] ?? 'not set',
         ], 'Building template vars');
 
         // Load countries
@@ -156,6 +180,10 @@ class TemplateHelper
 
         // Pre-fill client info
         $client = self::getClientInfo($params['userid'] ?? 0);
+
+        // Calculate max domains
+        $domainsFromOptions = self::getDomainCountFromOptions($params['serviceid']);
+        $maxDomains = ($cert['maxDomains'] ?? 1) + $domainsFromOptions;
 
         return [
             'templatefile' => 'applycert',
@@ -168,7 +196,7 @@ class TemplateHelper
                 'sslValidationType' => $cert['sslValidationType'] ?? 'dv',
                 'isMultiDomain' => $cert['isMultiDomain'] ?? false,
                 'isWildcard' => $cert['isWildcard'] ?? false,
-                'maxDomains' => $cert['maxDomains'] ?? 1,
+                'maxDomains' => $maxDomains,
                 'requiresOrganization' => in_array($cert['sslValidationType'] ?? 'dv', ['ov', 'ev']),
                 'supportOptions' => [
                     'supportNormal' => $cert['supportNormal'] ?? true,
@@ -180,6 +208,32 @@ class TemplateHelper
                 'client' => $client,
             ]),
         ];
+    }
+
+    /**
+     * Get additional domain count from configurable options
+     */
+    private static function getDomainCountFromOptions(int $serviceId): int
+    {
+        try {
+            $option = Capsule::table('tblhostingconfigoptions as hco')
+                ->join('tblproductconfigoptions as pco', 'hco.configid', '=', 'pco.id')
+                ->join('tblproductconfigoptionssub as pcosub', 'hco.optionid', '=', 'pcosub.id')
+                ->where('hco.relid', $serviceId)
+                ->where('pco.optionname', 'LIKE', '%SAN%')
+                ->first();
+
+            if ($option && isset($option->optionname)) {
+                // Extract number from option name like "5 SANs"
+                if (preg_match('/(\d+)/', $option->optionname, $matches)) {
+                    return (int) $matches[1];
+                }
+            }
+        } catch (\Exception $e) {
+            // Ignore errors
+        }
+        
+        return 0;
     }
 
     /**
@@ -214,13 +268,34 @@ class TemplateHelper
     }
 
     /**
+     * Render pending page with DCV status (alias for message)
+     */
+    public static function pending(array $params, object $order, array $cert, array $collectData = []): array
+    {
+        $result = self::message($params, $order, $cert);
+        
+        // Merge collect data if provided
+        if (!empty($collectData)) {
+            $result['vars']['collectData'] = $collectData;
+            $result['vars']['dcvList'] = $collectData['dcvList'] ?? [];
+        }
+        
+        return $result;
+    }
+
+    /**
      * Render complete page (certificate issued)
      */
-    public static function complete(array $params, object $order, array $cert): array
+    public static function complete(array $params, object $order, array $cert, array $collectData = []): array
     {
         $baseVars = self::getBaseVars($params);
         $configdata = json_decode($order->configdata, true) ?: [];
         $applyReturn = $configdata['applyReturn'] ?? [];
+
+        // Merge collect data if provided
+        if (!empty($collectData)) {
+            $applyReturn = array_merge($applyReturn, $collectData);
+        }
 
         // Check if certificate content is available
         $hasCertificate = !empty($applyReturn['certificate']);
@@ -269,12 +344,14 @@ class TemplateHelper
                 'productCode' => $cert['name'] ?? '',
                 'status' => $order->status,
                 'certId' => $order->remoteid ?? '',
+                'canRenew' => true,
             ]),
         ];
     }
 
     /**
      * Render reissue page
+     * FIXED: Properly handles isRenew/originalfromOthers
      */
     public static function reissue(array $params, object $order, array $cert): array
     {
@@ -292,6 +369,10 @@ class TemplateHelper
             }
         }
 
+        // Calculate max domains
+        $domainsFromOptions = self::getDomainCountFromOptions($params['serviceid']);
+        $maxDomains = ($cert['maxDomains'] ?? 1) + $domainsFromOptions;
+
         return [
             'templatefile' => 'reissue',
             'vars' => array_merge($baseVars, [
@@ -302,7 +383,7 @@ class TemplateHelper
                 'sslType' => $cert['sslType'] ?? 'website_ssl',
                 'sslValidationType' => $cert['sslValidationType'] ?? 'dv',
                 'isMultiDomain' => $cert['isMultiDomain'] ?? false,
-                'maxDomains' => $cert['maxDomains'] ?? 1,
+                'maxDomains' => $maxDomains,
                 'requiresOrganization' => in_array($cert['sslValidationType'] ?? 'dv', ['ov', 'ev']),
                 'supportOptions' => [
                     'supportNormal' => $cert['supportNormal'] ?? true,
@@ -314,6 +395,31 @@ class TemplateHelper
                 // Original domains for reference
                 'originalDomains' => $originalDomains,
                 'replaceTimes' => $configdata['replaceTimes'] ?? 0,
+            ]),
+        ];
+    }
+
+    /**
+     * Render manage page
+     */
+    public static function manage(array $params, object $order, array $cert): array
+    {
+        $baseVars = self::getBaseVars($params);
+        $configdata = json_decode($order->configdata, true) ?: [];
+        $applyReturn = $configdata['applyReturn'] ?? [];
+
+        return [
+            'templatefile' => 'manage',
+            'vars' => array_merge($baseVars, [
+                'order' => $order,
+                'configData' => $configdata,
+                'cert' => $cert,
+                'productCode' => $cert['name'] ?? '',
+                'status' => $order->status,
+                'certId' => $order->remoteid ?? '',
+                'domainInfo' => $configdata['domainInfo'] ?? [],
+                'beginDate' => $applyReturn['beginDate'] ?? '',
+                'endDate' => $applyReturn['endDate'] ?? '',
             ]),
         ];
     }

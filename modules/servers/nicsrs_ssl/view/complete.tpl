@@ -1,9 +1,9 @@
 {**
- * NicSRS SSL Module - Complete/Issued Template
- * Shows certificate details and download options
+ * NicSRS SSL Module - Complete Template
+ * Displays issued certificate information and download options
  * 
  * @package    nicsrs_ssl
- * @version    2.0.0
+ * @version    2.0.1
  * @author     HVN GROUP
  * @copyright  Copyright (c) HVN GROUP (https://hvn.vn)
  *}
@@ -15,151 +15,143 @@
     {* Header *}
     <div class="sslm-header">
         <h2 class="sslm-title">
-            <i class="fas fa-shield-alt"></i>
-            {$_LANG.certificate_management|default:'Certificate Management'}
+            <i class="fas fa-certificate"></i>
+            {$_LANG.certificate_issued|default:'Certificate Issued'}
         </h2>
         <div class="sslm-header-info">
             <span class="sslm-product-name">{$productCode|escape:'html'}</span>
-            <span class="sslm-badge sslm-badge-success">{$_LANG.issued|default:'Issued'}</span>
+            <span class="sslm-status sslm-status-complete">
+                <i class="fas fa-check-circle"></i> {$_LANG.status_complete|default:'Active'}
+            </span>
         </div>
     </div>
 
-    {* Status Card *}
-    <div class="sslm-status-card">
-        <div class="sslm-status-icon success">
-            <i class="fas fa-check-circle"></i>
+    {* Success Alert *}
+    <div class="sslm-alert sslm-alert-success">
+        <i class="fas fa-check-circle"></i>
+        <div>
+            <strong>{$_LANG.certificate_ready|default:'Your SSL Certificate is Ready!'}</strong>
+            <p>{$_LANG.certificate_ready_desc|default:'Your certificate has been issued and is ready for installation. Download the certificate files below.'}</p>
         </div>
-        <div class="sslm-status-content">
-            <div class="sslm-status-title">{$_LANG.certificate_issued|default:'Certificate Issued'}</div>
-            <div class="sslm-status-desc">{$_LANG.complete_des|default:'Your SSL certificate has been issued successfully. You can download it below.'}</div>
-        </div>
-        <button type="button" id="refreshStatusBtn" class="sslm-btn sslm-btn-secondary">
-            <i class="fas fa-sync-alt"></i> {$_LANG.refresh|default:'Refresh'}
-        </button>
     </div>
 
-    {* Certificate Info *}
+    {* Certificate Details *}
     <div class="sslm-section">
         <div class="sslm-section-header">
-            <h3><i class="fas fa-info-circle"></i> {$_LANG.certificate_info|default:'Certificate Information'}</h3>
+            <h3><i class="fas fa-info-circle"></i> {$_LANG.certificate_details|default:'Certificate Details'}</h3>
         </div>
         <div class="sslm-section-body">
-            <div class="sslm-info-card">
-                <div class="sslm-info-row">
-                    <span class="sslm-info-label">{$_LANG.certificate_id|default:'Certificate ID'}:</span>
-                    <span class="sslm-info-value sslm-code">{$certId|escape:'html'}</span>
+            <div class="sslm-cert-info">
+                <div class="sslm-cert-info-item">
+                    <div class="sslm-cert-info-label">{$_LANG.primary_domain|default:'Primary Domain'}</div>
+                    <div class="sslm-cert-info-value">
+                        {if isset($domainInfo[0].domainName)}
+                            {$domainInfo[0].domainName|escape:'html'}
+                        {else}
+                            N/A
+                        {/if}
+                    </div>
                 </div>
-                {if $vendorId}
-                <div class="sslm-info-row">
-                    <span class="sslm-info-label">{$_LANG.vendor_id|default:'Vendor ID'}:</span>
-                    <span class="sslm-info-value sslm-code">{$vendorId|escape:'html'}</span>
+                <div class="sslm-cert-info-item">
+                    <div class="sslm-cert-info-label">{$_LANG.order_id|default:'Order ID'}</div>
+                    <div class="sslm-cert-info-value">{$certId|default:'N/A'}</div>
                 </div>
-                {/if}
-                <div class="sslm-info-row">
-                    <span class="sslm-info-label">{$_LANG.status|default:'Status'}:</span>
-                    <span class="sslm-info-value"><span class="sslm-badge sslm-badge-success">{$_LANG.issued|default:'Issued'}</span></span>
+                <div class="sslm-cert-info-item">
+                    <div class="sslm-cert-info-label">{$_LANG.issued_date|default:'Issued Date'}</div>
+                    <div class="sslm-cert-info-value">{$beginDate|default:'N/A'}</div>
                 </div>
-                {if $beginDate}
-                <div class="sslm-info-row">
-                    <span class="sslm-info-label">{$_LANG.cert_begin|default:'Valid From'}:</span>
-                    <span class="sslm-info-value">{$beginDate|escape:'html'}</span>
+                <div class="sslm-cert-info-item">
+                    <div class="sslm-cert-info-label">{$_LANG.expiry_date|default:'Expiry Date'}</div>
+                    <div class="sslm-cert-info-value">{$endDate|default:'N/A'}</div>
                 </div>
-                {/if}
-                {if $endDate}
-                <div class="sslm-info-row">
-                    <span class="sslm-info-label">{$_LANG.cert_end|default:'Valid Until'}:</span>
-                    <span class="sslm-info-value">{$endDate|escape:'html'}</span>
+                <div class="sslm-cert-info-item">
+                    <div class="sslm-cert-info-label">{$_LANG.validation_type|default:'Validation Type'}</div>
+                    <div class="sslm-cert-info-value">{$sslValidationType|upper|default:'DV'}</div>
                 </div>
-                {/if}
+                <div class="sslm-cert-info-item">
+                    <div class="sslm-cert-info-label">{$_LANG.domains_secured|default:'Domains Secured'}</div>
+                    <div class="sslm-cert-info-value">{$domainInfo|@count|default:0}</div>
+                </div>
             </div>
-
-            {* Domain List *}
-            {if $domainInfo}
-            <div class="sslm-info-card">
-                <div class="sslm-info-card-title">
-                    <i class="fas fa-globe"></i> {$_LANG.domain_info|default:'Protected Domains'}
-                </div>
-                {foreach $domainInfo as $domain}
-                <div class="sslm-info-row">
-                    <span class="sslm-info-label">{if $domain@first}{$_LANG.primary_domain|default:'Primary'}{else}{$_LANG.additional_domains|default:'SAN'}{/if}:</span>
-                    <span class="sslm-info-value">{$domain.domainName|escape:'html'}</span>
-                </div>
-                {/foreach}
+            
+            {* All Domains List *}
+            {if $domainInfo|@count > 1}
+            <div style="margin-top: 20px;">
+                <label class="sslm-cert-info-label">{$_LANG.all_domains|default:'All Secured Domains'}:</label>
+                <ul style="margin: 8px 0; padding-left: 20px;">
+                    {foreach from=$domainInfo item=domain}
+                    <li>{$domain.domainName|escape:'html'}</li>
+                    {/foreach}
+                </ul>
             </div>
             {/if}
         </div>
     </div>
 
     {* Download Section *}
-    {if $hasCertificate}
+    {if $canDownload}
     <div class="sslm-section">
         <div class="sslm-section-header">
             <h3><i class="fas fa-download"></i> {$_LANG.download_certificate|default:'Download Certificate'}</h3>
         </div>
         <div class="sslm-section-body">
-            <p class="sslm-help-text" style="margin-bottom: 16px;">
-                {$_LANG.select_download_format|default:'Select the format suitable for your server:'}
+            <p class="sslm-info-text">
+                <i class="fas fa-info-circle"></i>
+                {$_LANG.download_instructions|default:'Select the format that matches your web server:'}
             </p>
             
-            <div class="sslm-download-options">
-                <button type="button" class="sslm-download-option download-cert-btn" data-format="nginx">
+            <div class="sslm-download-grid">
+                {* PEM/Nginx Format *}
+                <div class="sslm-download-btn download-cert-btn" data-format="pem">
                     <i class="fas fa-file-code"></i>
-                    <span>{$_LANG.format_nginx|default:'Nginx (.pem)'}</span>
-                </button>
-                <button type="button" class="sslm-download-option download-cert-btn" data-format="apache">
-                    <i class="fas fa-file-alt"></i>
-                    <span>{$_LANG.format_apache|default:'Apache (.crt)'}</span>
-                </button>
-                <button type="button" class="sslm-download-option download-cert-btn" data-format="iis">
-                    <i class="fab fa-windows"></i>
-                    <span>{$_LANG.format_iis|default:'IIS (.pfx)'}</span>
-                </button>
-                <button type="button" class="sslm-download-option download-cert-btn" data-format="tomcat">
-                    <i class="fas fa-coffee"></i>
-                    <span>{$_LANG.format_tomcat|default:'Tomcat (.jks)'}</span>
-                </button>
-                <button type="button" class="sslm-download-option download-cert-btn" data-format="all">
-                    <i class="fas fa-file-archive"></i>
-                    <span>{$_LANG.format_all|default:'All Formats (ZIP)'}</span>
-                </button>
+                    <span>PEM / Nginx</span>
+                    <small>.pem</small>
+                </div>
+                
+                {* CRT/Apache Format *}
+                <div class="sslm-download-btn download-cert-btn" data-format="crt">
+                    <i class="fas fa-file-certificate"></i>
+                    <span>CRT / Apache</span>
+                    <small>.crt + .ca-bundle</small>
+                </div>
+                
+                {* Private Key *}
+                {if $canDownloadKey}
+                <div class="sslm-download-btn download-cert-btn" data-format="key">
+                    <i class="fas fa-key"></i>
+                    <span>{$_LANG.private_key|default:'Private Key'}</span>
+                    <small>.key</small>
+                </div>
+                {/if}
             </div>
-
-            {if $hasPrivateKey}
-            <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--sslm-border-light);">
-                <button type="button" id="downloadKeyBtn" class="sslm-btn sslm-btn-secondary">
-                    <i class="fas fa-key"></i> {$_LANG.down_key|default:'Download Private Key'}
-                </button>
-                <p class="sslm-help-text" style="margin-top: 8px;">
-                    <i class="fas fa-exclamation-triangle" style="color: var(--sslm-warning);"></i>
-                    {$_LANG.private_key_warning|default:'Keep your private key secure. Do not share it with anyone.'}
-                </p>
+            
+            {if !$canDownloadKey}
+            <div class="sslm-alert sslm-alert-warning" style="margin-top: 20px;">
+                <i class="fas fa-exclamation-triangle"></i>
+                <span>{$_LANG.no_private_key|default:'Private key is not available. If you generated the CSR elsewhere, use your original private key.'}</span>
             </div>
             {/if}
         </div>
     </div>
     {/if}
 
-    {* Certificate Content (collapsible) *}
+    {* Certificate Content (Expandable) *}
     {if $certificate}
     <div class="sslm-section">
-        <div class="sslm-section-header">
-            <h3><i class="fas fa-certificate"></i> {$_LANG.certificate|default:'Certificate Content'}</h3>
+        <div class="sslm-section-header" style="cursor: pointer;" onclick="toggleCertContent()">
+            <h3><i class="fas fa-file-alt"></i> {$_LANG.certificate_content|default:'Certificate Content'}</h3>
+            <i class="fas fa-chevron-down" id="certToggleIcon"></i>
         </div>
-        <div class="sslm-section-body">
-            <div class="sslm-code-block">
-                <button type="button" class="sslm-copy-btn" onclick="copyToClipboard(this, 'certContent')">
-                    <i class="fas fa-copy"></i> {$_LANG.copy|default:'Copy'}
-                </button>
-                <pre id="certContent">{$certificate|escape:'html'}</pre>
+        <div class="sslm-section-body" id="certContentSection" style="display: none;">
+            <div class="sslm-form-group">
+                <label>{$_LANG.certificate|default:'Certificate'}:</label>
+                <textarea class="sslm-textarea sslm-code" rows="10" readonly>{$certificate|escape:'html'}</textarea>
             </div>
             
             {if $caCertificate}
-            <h4 style="margin-top: 20px; margin-bottom: 12px;">{$_LANG.ca_certificate|default:'CA Bundle'}</h4>
-            <div class="sslm-code-block">
-                <button type="button" class="sslm-copy-btn" onclick="copyToClipboard(this, 'caContent')">
-                    <i class="fas fa-copy"></i> {$_LANG.copy|default:'Copy'}
-                </button>
-                <pre id="caContent">{$caCertificate|escape:'html'}</pre>
+            <div class="sslm-form-group">
+                <label>{$_LANG.ca_bundle|default:'CA Bundle'}:</label>
+                <textarea class="sslm-textarea sslm-code" rows="10" readonly>{$caCertificate|escape:'html'}</textarea>
             </div>
             {/if}
         </div>
@@ -169,75 +161,99 @@
     {* Actions *}
     <div class="sslm-section">
         <div class="sslm-section-header">
-            <h3><i class="fas fa-cog"></i> {$_LANG.actions|default:'Actions'}</h3>
+            <h3><i class="fas fa-cogs"></i> {$_LANG.certificate_actions|default:'Certificate Actions'}</h3>
         </div>
         <div class="sslm-section-body">
             <div style="display: flex; gap: 12px; flex-wrap: wrap;">
-                <button type="button" id="reissueBtn" class="sslm-btn sslm-btn-primary">
+                <button type="button" id="refreshStatusBtn" class="sslm-btn sslm-btn-secondary" onclick="SSLManager.refreshStatus()">
+                    <i class="fas fa-sync-alt"></i> {$_LANG.refresh_status|default:'Refresh Status'}
+                </button>
+                <a href="{$WEB_ROOT}/clientarea.php?action=productdetails&id={$serviceid}&modop=custom&a=reissue" class="sslm-btn sslm-btn-secondary">
                     <i class="fas fa-redo"></i> {$_LANG.reissue_certificate|default:'Reissue Certificate'}
-                </button>
-                <button type="button" id="revokeBtn" class="sslm-btn sslm-btn-danger">
-                    <i class="fas fa-ban"></i> {$_LANG.revoke_certificate|default:'Revoke Certificate'}
-                </button>
+                </a>
             </div>
-            <p class="sslm-help-text" style="margin-top: 12px;">
-                {$_LANG.reissue_info|default:'Reissue allows you to replace your certificate with a new one (e.g., if your private key was compromised).'}
-            </p>
         </div>
+    </div>
+
+    {* Back Button *}
+    <div class="sslm-form-actions">
+        <a href="{$WEB_ROOT}/clientarea.php?action=services" class="sslm-btn sslm-btn-secondary">
+            <i class="fas fa-arrow-left"></i> {$_LANG.back_to_services|default:'Back to Services'}
+        </a>
     </div>
 </div>
 
-{* JavaScript Configuration *}
+{* JavaScript *}
 <script>
 window.sslmConfig = {
-    ajaxUrl: "{$WEB_ROOT}/clientarea.php?action=productdetails&id={$serviceid}",
-    serviceid: "{$serviceid}",
-    configData: {$configData|json_encode nofilter},
-    lang: {$_LANG_JSON nofilter}
+    ajaxUrl: '{$WEB_ROOT}/clientarea.php?action=productdetails&id={$serviceid}',
+    serviceid: '{$serviceid}',
+    lang: {
+        downloading: '{$_LANG.downloading|default:"Downloading..."}',
+        download_error: '{$_LANG.download_error|default:"Download failed"}',
+        status_refreshed: '{$_LANG.status_refreshed|default:"Status refreshed"}'
+    }
 };
 
-function copyToClipboard(btn, elementId) {
-    var content = document.getElementById(elementId).textContent;
-    navigator.clipboard.writeText(content).then(function() {
-        var originalText = btn.innerHTML;
-        btn.innerHTML = '<i class="fas fa-check"></i> {$_LANG.copied|default:"Copied!"}';
-        setTimeout(function() {
-            btn.innerHTML = originalText;
-        }, 2000);
-    });
+function toggleCertContent() {
+    var section = document.getElementById('certContentSection');
+    var icon = document.getElementById('certToggleIcon');
+    if (section.style.display === 'none') {
+        section.style.display = 'block';
+        icon.className = 'fas fa-chevron-up';
+    } else {
+        section.style.display = 'none';
+        icon.className = 'fas fa-chevron-down';
+    }
 }
 
-// Reissue button handler
-document.getElementById('reissueBtn').addEventListener('click', function() {
-    if (confirm('{$_LANG.sure_to_replace|default:"Are you sure you want to reissue this certificate?"}')) {
-        window.location.href = window.sslmConfig.ajaxUrl + '&action=reissue';
-    }
+// Download handlers
+document.querySelectorAll('.download-cert-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+        var format = this.getAttribute('data-format');
+        downloadCertificate(format);
+    });
 });
 
-// Revoke button handler  
-document.getElementById('revokeBtn').addEventListener('click', function() {
-    if (confirm('{$_LANG.sure_to_revoke|default:"Are you sure you want to revoke this certificate? This action cannot be undone."}')) {
-        var xhr = new XMLHttpRequest();
-        xhr.open('POST', window.sslmConfig.ajaxUrl + '&step=revoke', true);
-        xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-        xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
-        xhr.onload = function() {
-            try {
-                var response = JSON.parse(xhr.responseText);
-                if (response.success) {
-                    alert('{$_LANG.revoked_success|default:"Certificate revoked successfully"}');
-                    window.location.reload();
-                } else {
-                    alert(response.message || 'Error');
+function downloadCertificate(format) {
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', window.sslmConfig.ajaxUrl + '&step=downCert', true);
+    xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+    
+    xhr.onload = function() {
+        try {
+            var response = JSON.parse(xhr.responseText);
+            if (response.success && response.data) {
+                // Trigger download
+                var content = atob(response.data.content);
+                var blob = new Blob([content], { type: response.data.mime || 'application/octet-stream' });
+                var link = document.createElement('a');
+                link.href = URL.createObjectURL(blob);
+                link.download = response.data.filename;
+                link.click();
+                
+                // If CA bundle is separate
+                if (response.data.caBundle) {
+                    var caContent = atob(response.data.caBundle);
+                    var caBlob = new Blob([caContent], { type: 'application/octet-stream' });
+                    var caLink = document.createElement('a');
+                    caLink.href = URL.createObjectURL(caBlob);
+                    caLink.download = response.data.caBundleFilename;
+                    setTimeout(function() { caLink.click(); }, 500);
                 }
-            } catch(e) {
-                alert('Error processing request');
+                
+                SSLManager.showToast('Download started', 'success');
+            } else {
+                SSLManager.showToast(response.message || 'Download failed', 'error');
             }
-        };
-        xhr.send('');
-    }
-});
+        } catch (e) {
+            SSLManager.showToast('Download error', 'error');
+        }
+    };
+    
+    xhr.send('format=' + encodeURIComponent(format));
+}
 </script>
 
-{* Load JS *}
+{* Load JavaScript *}
 <script src="{$WEB_ROOT}/modules/servers/nicsrs_ssl/assets/js/ssl-manager.js"></script>

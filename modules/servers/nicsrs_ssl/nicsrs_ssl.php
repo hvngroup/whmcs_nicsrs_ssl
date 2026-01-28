@@ -2,8 +2,12 @@
 /**
  * NicSRS SSL WHMCS Server Provisioning Module
  * 
+ * FIXED v2.0.1:
+ * - Added getDcvEmails action for DCV email auto-populate
+ * - Improved POST data handling for isRenew consistency
+ * 
  * @package    nicsrs_ssl
- * @version    2.0.0
+ * @version    2.0.1
  * @author     HVN GROUP
  * @copyright  Copyright (c) HVN GROUP (https://hvn.vn)
  */
@@ -15,7 +19,7 @@ if (!defined("WHMCS")) {
 // Define constants
 if (!defined('DS')) define('DS', DIRECTORY_SEPARATOR);
 if (!defined('NICSRS_SSL_PATH')) define('NICSRS_SSL_PATH', __DIR__ . DS);
-if (!defined('NICSRS_SSL_VERSION')) define('NICSRS_SSL_VERSION', '2.0.0');
+if (!defined('NICSRS_SSL_VERSION')) define('NICSRS_SSL_VERSION', '2.0.1');
 
 // Load configuration
 require_once NICSRS_SSL_PATH . "src/config/const.php";
@@ -139,7 +143,7 @@ function getCertTypeOptionsForDropdown(): string
 }
 
 /**
- * Module configuration options - REPLACE EXISTING FUNCTION
+ * Module configuration options
  */
 function nicsrs_ssl_ConfigOptions()
 {
@@ -434,6 +438,7 @@ function nicsrs_ssl_ClientArea(array $params)
     
     // Map step names to action methods
     // Includes backward compatibility with old module step names
+    // FIXED v2.0.1: Added getDcvEmails action
     $stepToAction = [
         // Certificate application
         'applyssl'      => 'submitApply',
@@ -454,6 +459,7 @@ function nicsrs_ssl_ClientArea(array $params)
         // DCV actions
         'batchUpdateDCV'=> 'batchUpdateDCV',
         'resendDCVEmail'=> 'resendDCVEmail',
+        'getDcvEmails'  => 'getDcvEmails',  // NEW v2.0.1: Get DCV email options for domain
         
         // Order management
         'cancelOrder'   => 'cancelOrder',
@@ -493,7 +499,8 @@ function nicsrs_ssl_ClientArea(array $params)
             logModuleCall('nicsrs_ssl', 'AJAX_Request', [
                 'step' => $step,
                 'action' => $action,
-                'POST' => $_POST,
+                'POST_keys' => array_keys($_POST),
+                'has_data' => isset($_POST['data']),
             ], 'Processing AJAX request');
             
             // Check if action method exists
@@ -505,19 +512,18 @@ function nicsrs_ssl_ClientArea(array $params)
                 exit;
             }
             
-            // Handle old module data format: {"data": {...}}
-            if (isset($_POST['data'])) {
-                $postData = $_POST['data'];
-                if (is_string($postData)) {
-                    $postData = json_decode($postData, true);
-                }
-                if (is_array($postData)) {
-                    $_POST = array_merge($_POST, $postData);
-                }
-            }
+            // FIXED v2.0.1: Improved POST data handling
+            // Handle old module data format: {"data": {...}} or data[key]=value
+            // DO NOT merge into $_POST to avoid conflicts - let ActionController handle it
             
             // Call the action controller method
             $result = ActionController::$action($params);
+            
+            // Log result
+            logModuleCall('nicsrs_ssl', 'AJAX_Response', [
+                'action' => $action,
+                'success' => $result['success'] ?? false,
+            ], $result);
             
             // Output JSON response
             if (is_array($result)) {
@@ -615,13 +621,15 @@ function nicsrs_ssl_Renew(array $params)
         $existingOrder = OrderRepository::getByServiceId($params['serviceid']);
         
         if ($existingOrder) {
-            // Reset status for new certificate application
+            // FIXED v2.0.1: Store both isRenew and originalfromOthers for compatibility
             OrderRepository::update($existingOrder->id, [
                 'remoteid' => '',
                 'status' => 'Awaiting Configuration',
                 'configdata' => json_encode([
                     'previousCertId' => $existingOrder->remoteid,
                     'isRenewal' => true,
+                    'isRenew' => '1',
+                    'originalfromOthers' => '1',
                 ]),
                 'completiondate' => '0000-00-00 00:00:00',
             ]);

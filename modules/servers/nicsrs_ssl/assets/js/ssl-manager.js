@@ -1,12 +1,14 @@
 /**
- * NicSRS SSL Manager - Client Area JavaScript
+ * NicSRS SSL Module - Client Area JavaScript
+ * Handles form interactions, AJAX requests, and UI updates
  * 
- * FIXED: Now uses same data format as OLD MODULE
- * - Sends data as {"data": {...}} like jQuery $.ajax
- * - Uses PHP's native array serialization format
+ * FIXED v2.0.2:
+ * - DCV Email options now appear directly in dcvMethod dropdown
+ * - No separate email dropdown needed
+ * - Email options auto-update when domain changes
  * 
  * @package    nicsrs_ssl
- * @version    2.0.0
+ * @version    2.0.2
  * @author     HVN GROUP
  * @copyright  Copyright (c) HVN GROUP (https://hvn.vn)
  */
@@ -14,242 +16,263 @@
 (function() {
     'use strict';
 
-    // Global config
-    var config = window.sslmConfig || {};
-    var lang = config.lang || {};
+    // Wait for DOM ready
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
 
-    // ========================================
-    // Initialization
-    // ========================================
-    document.addEventListener('DOMContentLoaded', function() {
-        initTabs();
-        initDomainManagement();
-        initCSRToggle();
+    function init() {
+        var config = window.sslmConfig || {};
+        var lang = config.lang || {};
+        
+        console.log('SSL Manager v2.0.2 initializing...', config);
+        
+        // Initialize components
+        initDomainHandlers();
+        initCSRHandlers();
         initFormSubmit();
-        initDCVManagement();
-        initDownloadHandlers();
-        initActionButtons();
-        
-        // Restore saved form data
         restoreFormData();
-    });
-
-    // ========================================
-    // Tab Navigation
-    // ========================================
-    function initTabs() {
-        var tabs = document.querySelectorAll('.sslm-tab');
-        var panels = document.querySelectorAll('.sslm-tab-panel');
         
-        tabs.forEach(function(tab) {
-            tab.addEventListener('click', function() {
-                var targetId = this.getAttribute('data-tab');
-                
-                // Update active states
-                tabs.forEach(function(t) { t.classList.remove('active'); });
-                panels.forEach(function(p) { p.classList.remove('active'); });
-                
-                this.classList.add('active');
-                var targetPanel = document.getElementById(targetId);
-                if (targetPanel) {
-                    targetPanel.classList.add('active');
-                }
-            });
-        });
+        // Initialize email options for existing domains
+        initDCVEmailOptions();
+        
+        console.log('SSL Manager initialized');
     }
 
     // ========================================
     // Domain Management
     // ========================================
-    function initDomainManagement() {
+    function initDomainHandlers() {
+        var config = window.sslmConfig || {};
+        
+        // Add domain button
         var addBtn = document.getElementById('addDomainBtn');
         if (addBtn) {
             addBtn.addEventListener('click', function() {
+                var domainList = document.getElementById('domainList');
+                var currentCount = domainList.querySelectorAll('.sslm-domain-row').length;
+                
+                if (currentCount >= config.maxDomains) {
+                    showToast(config.lang.max_domains_reached || 'Maximum domains reached', 'warning');
+                    return;
+                }
+                
                 addDomainRow();
             });
         }
         
-        // Initialize DCV options for existing rows
-        var domainRows = document.querySelectorAll('.sslm-domain-row');
-        domainRows.forEach(function(row) {
-            var domainInput = row.querySelector('.sslm-domain-input');
-            var dcvSelect = row.querySelector('.sslm-dcv-select');
-            if (domainInput && dcvSelect) {
-                initDomainDcvOptions(dcvSelect, domainInput.value);
+        // Remove domain handlers (delegated)
+        document.addEventListener('click', function(e) {
+            if (e.target.closest('.sslm-remove-domain')) {
+                var row = e.target.closest('.sslm-domain-row');
+                if (row) {
+                    removeDomainRow(row);
+                }
             }
         });
         
-        // Add event delegation for domain inputs
-        var domainList = document.getElementById('domainList');
-        if (domainList) {
-            domainList.addEventListener('change', function(e) {
-                if (e.target.classList.contains('sslm-domain-input')) {
+        // Domain input change handlers - update DCV email options when domain changes
+        document.addEventListener('input', function(e) {
+            if (e.target.classList.contains('sslm-domain-input')) {
+                // Debounce the update
+                clearTimeout(e.target._dcvTimeout);
+                e.target._dcvTimeout = setTimeout(function() {
                     var row = e.target.closest('.sslm-domain-row');
-                    var dcvSelect = row.querySelector('.sslm-dcv-select');
-                    if (dcvSelect) {
-                        initDomainDcvOptions(dcvSelect, e.target.value);
+                    if (row) {
+                        updateDCVEmailOptions(row, e.target.value);
                     }
+                }, 300);
+            }
+        });
+        
+        // Also update on blur for immediate feedback
+        document.addEventListener('blur', function(e) {
+            if (e.target.classList.contains('sslm-domain-input')) {
+                var row = e.target.closest('.sslm-domain-row');
+                if (row && e.target.value) {
+                    updateDCVEmailOptions(row, e.target.value);
+                }
+            }
+        }, true);
+    }
+
+    /**
+     * Initialize DCV email options for all existing domain rows
+     */
+    function initDCVEmailOptions() {
+        var rows = document.querySelectorAll('#domainList .sslm-domain-row');
+        rows.forEach(function(row) {
+            var domainInput = row.querySelector('.sslm-domain-input');
+            if (domainInput && domainInput.value) {
+                var dcvSelect = row.querySelector('.sslm-dcv-select');
+                var currentValue = dcvSelect ? dcvSelect.value : '';
+                updateDCVEmailOptions(row, domainInput.value, currentValue);
+            }
+        });
+    }
+
+    /**
+     * Update DCV email options in the dcvMethod dropdown
+     * 
+     * @param {HTMLElement} row - The domain row element
+     * @param {string} domain - The domain name
+     * @param {string} selectedValue - Currently selected value to preserve
+     */
+    function updateDCVEmailOptions(row, domain, selectedValue) {
+        var dcvSelect = row.querySelector('.sslm-dcv-select');
+        if (!dcvSelect || !domain) return;
+        
+        // Get current selected value if not provided
+        if (selectedValue === undefined) {
+            selectedValue = dcvSelect.value;
+        }
+        
+        // Clean domain (remove wildcard prefix)
+        var cleanDomain = domain.replace(/^\*\./, '').trim();
+        if (!cleanDomain) return;
+        
+        // Find or create email optgroup
+        var emailOptgroup = dcvSelect.querySelector('optgroup.dcv-email-options');
+        if (!emailOptgroup) {
+            emailOptgroup = document.createElement('optgroup');
+            emailOptgroup.label = 'Email Validation';
+            emailOptgroup.className = 'dcv-email-options';
+            dcvSelect.appendChild(emailOptgroup);
+        }
+        
+        // Clear existing email options
+        emailOptgroup.innerHTML = '';
+        
+        // Generate standard DCV email addresses
+        var prefixes = ['admin', 'administrator', 'webmaster', 'hostmaster', 'postmaster'];
+        var emails = [];
+        
+        prefixes.forEach(function(prefix) {
+            emails.push(prefix + '@' + cleanDomain);
+        });
+        
+        // If subdomain, also add parent domain emails
+        var parts = cleanDomain.split('.');
+        if (parts.length > 2) {
+            var parentDomain = parts.slice(1).join('.');
+            prefixes.forEach(function(prefix) {
+                var email = prefix + '@' + parentDomain;
+                if (emails.indexOf(email) === -1) {
+                    emails.push(email);
                 }
             });
-            
-            // Remove domain button
-            domainList.addEventListener('click', function(e) {
-                if (e.target.classList.contains('sslm-remove-domain') || 
-                    e.target.closest('.sslm-remove-domain')) {
-                    var row = e.target.closest('.sslm-domain-row');
-                    var rows = domainList.querySelectorAll('.sslm-domain-row');
-                    if (rows.length > 1) {
-                        row.remove();
-                    } else {
-                        showToast(lang.min_one_domain || 'At least one domain is required', 'warning');
-                    }
-                }
-            });
+        }
+        
+        // Add email options to optgroup
+        emails.forEach(function(email) {
+            var option = document.createElement('option');
+            option.value = email;
+            option.text = email;
+            if (selectedValue === email) {
+                option.selected = true;
+            }
+            emailOptgroup.appendChild(option);
+        });
+        
+        // If selected value is an email not in our list, add it
+        if (selectedValue && selectedValue.indexOf('@') !== -1 && emails.indexOf(selectedValue) === -1) {
+            var customOption = document.createElement('option');
+            customOption.value = selectedValue;
+            customOption.text = selectedValue;
+            customOption.selected = true;
+            emailOptgroup.insertBefore(customOption, emailOptgroup.firstChild);
         }
     }
 
     function addDomainRow(data) {
-        var domainList = document.getElementById('domainList');
-        if (!domainList) return;
-        
-        var maxDomains = config.maxDomain || 1;
-        var currentRows = domainList.querySelectorAll('.sslm-domain-row');
-        
-        if (currentRows.length >= maxDomains) {
-            showToast((lang.max_domain_reached || 'Maximum domains reached') + ': ' + maxDomains, 'warning');
-            return;
-        }
-        
         var template = document.getElementById('domainRowTemplate');
-        if (!template) {
-            // Fallback: clone existing row
-            var existingRow = domainList.querySelector('.sslm-domain-row');
-            if (existingRow) {
-                var newRow = existingRow.cloneNode(true);
-                var inputs = newRow.querySelectorAll('input, select');
-                inputs.forEach(function(input) {
-                    if (input.type !== 'hidden') {
-                        input.value = '';
-                    }
-                });
-                domainList.appendChild(newRow);
-                
-                // Initialize DCV options
-                var dcvSelect = newRow.querySelector('.sslm-dcv-select');
-                if (dcvSelect) {
-                    initDomainDcvOptions(dcvSelect, '');
-                }
-            }
-        } else {
-            var clone = template.content.cloneNode(true);
-            domainList.appendChild(clone);
-            
-            // Initialize the new row
-            var newRow = domainList.lastElementChild;
-            var dcvSelect = newRow.querySelector('.sslm-dcv-select');
-            if (dcvSelect) {
-                initDomainDcvOptions(dcvSelect, '');
-            }
+        var domainList = document.getElementById('domainList');
+        
+        if (!template || !domainList) return;
+        
+        var clone = template.content.cloneNode(true);
+        var row = clone.querySelector('.sslm-domain-row');
+        
+        // Set domain number
+        var currentCount = domainList.querySelectorAll('.sslm-domain-row').length;
+        var numberSpan = row.querySelector('.sslm-domain-number');
+        if (numberSpan) {
+            numberSpan.textContent = currentCount + 1;
         }
         
-        // If data provided, fill it
+        // Set data index
+        row.setAttribute('data-index', currentCount);
+        
+        // Pre-fill data if provided
         if (data) {
-            var newRow = domainList.lastElementChild;
-            var domainInput = newRow.querySelector('.sslm-domain-input');
-            var dcvSelect = newRow.querySelector('.sslm-dcv-select');
+            var domainInput = row.querySelector('.sslm-domain-input');
+            var dcvSelect = row.querySelector('.sslm-dcv-select');
             
             if (domainInput && data.domainName) {
                 domainInput.value = data.domainName;
             }
-            if (dcvSelect) {
-                initDomainDcvOptions(dcvSelect, data.domainName || '');
-                if (data.dcvMethod) {
-                    // Check if it's EMAIL method
-                    if (data.dcvMethod === 'EMAIL' && data.dcvEmail) {
-                        dcvSelect.value = data.dcvEmail;
-                    } else {
-                        dcvSelect.value = data.dcvMethod;
-                    }
-                }
+            
+            // After adding to DOM, update email options and set value
+            domainList.appendChild(clone);
+            
+            // Update email options for this domain
+            var addedRow = domainList.querySelector('.sslm-domain-row[data-index="' + currentCount + '"]');
+            if (addedRow && data.domainName) {
+                updateDCVEmailOptions(addedRow, data.domainName, data.dcvMethod);
             }
+            
+            updateDomainNumbers();
+            return;
         }
+        
+        domainList.appendChild(clone);
+        updateDomainNumbers();
     }
 
-    function initDomainDcvOptions(select, domain) {
-        if (!select) return;
+    function removeDomainRow(row) {
+        var domainList = document.getElementById('domainList');
+        var rows = domainList.querySelectorAll('.sslm-domain-row');
         
-        var currentValue = select.value;
-        var other = config.other || {};
-        
-        // Clear existing options
-        select.innerHTML = '';
-        
-        // DCV methods
-        var methods = [
-            { value: 'CNAME_CSR_HASH', label: lang.cname_csr_hash || 'DNS CNAME' },
-            { value: 'HTTP_CSR_HASH', label: lang.http_csr_hash || 'HTTP File' }
-        ];
-        
-        // Add HTTPS if supported
-        if (other.supportHttps) {
-            methods.push({ value: 'HTTPS_CSR_HASH', label: lang.https_csr_hash || 'HTTPS File' });
+        // Don't remove if it's the only row
+        if (rows.length <= 1) {
+            showToast('At least one domain is required', 'warning');
+            return;
         }
         
-        // Add DNS TXT
-        methods.push({ value: 'DNS_CSR_HASH', label: lang.dns_csr_hash || 'DNS TXT' });
-        
-        // Add email options if domain provided
-        if (domain && domain.trim()) {
-            var baseDomain = getBaseDomain(domain);
-            var emailPrefixes = ['admin', 'administrator', 'webmaster', 'hostmaster', 'postmaster'];
-            
-            methods.push({ value: '', label: '--- ' + (lang.email_validation || 'Email Validation') + ' ---', disabled: true });
-            
-            emailPrefixes.forEach(function(prefix) {
-                methods.push({
-                    value: prefix + '@' + baseDomain,
-                    label: prefix + '@' + baseDomain,
-                    isEmail: true
-                });
-            });
-        }
-        
-        // Build options
-        methods.forEach(function(method) {
-            var option = document.createElement('option');
-            option.value = method.value;
-            option.textContent = method.label;
-            if (method.disabled) {
-                option.disabled = true;
+        row.remove();
+        updateDomainNumbers();
+    }
+
+    function updateDomainNumbers() {
+        var rows = document.querySelectorAll('#domainList .sslm-domain-row');
+        rows.forEach(function(row, index) {
+            var numberSpan = row.querySelector('.sslm-domain-number');
+            if (numberSpan) {
+                numberSpan.textContent = index + 1;
             }
-            select.appendChild(option);
+            row.setAttribute('data-index', index);
+            
+            // First row can't be removed
+            var removeBtn = row.querySelector('.sslm-remove-domain');
+            if (removeBtn) {
+                removeBtn.style.visibility = index === 0 ? 'hidden' : 'visible';
+            }
         });
-        
-        // Restore value if exists
-        if (currentValue) {
-            select.value = currentValue;
-        }
-    }
-
-    function getBaseDomain(domain) {
-        // Remove wildcard prefix
-        domain = domain.replace(/^\*\./, '');
-        
-        // Simple extraction - just return domain as-is for now
-        // In production, you might want more sophisticated logic
-        return domain;
     }
 
     // ========================================
-    // CSR Toggle & Generation
+    // CSR Handlers
     // ========================================
-    function initCSRToggle() {
-        var toggle = document.getElementById('isManualCsr');
-        var csrSection = document.getElementById('csrSection');
-        var autoSection = document.getElementById('autoGenSection');
-        
-        if (toggle) {
-            toggle.addEventListener('change', function() {
+    function initCSRHandlers() {
+        // CSR toggle
+        var csrToggle = document.getElementById('isManualCsr');
+        if (csrToggle) {
+            csrToggle.addEventListener('change', function() {
+                var csrSection = document.getElementById('csrSection');
+                var autoSection = document.getElementById('autoGenSection');
+                
                 if (csrSection) {
                     csrSection.style.display = this.checked ? 'block' : 'none';
                 }
@@ -274,6 +297,9 @@
 
     function generateCSR() {
         var form = document.getElementById('sslm-apply-form');
+        var config = window.sslmConfig || {};
+        var lang = config.lang || {};
+        
         if (!form) return;
         
         var domain = form.querySelector('.sslm-domain-input');
@@ -335,36 +361,326 @@
     }
 
     function decodeCSR() {
+        var config = window.sslmConfig || {};
+        var lang = config.lang || {};
+        
         var csrField = document.querySelector('[name="csr"]');
         if (!csrField || !csrField.value.trim()) {
             showToast(lang.enter_csr || 'Please enter a CSR', 'error');
             return;
         }
         
-        // Send CSR directly, not wrapped in data
+        var btn = document.getElementById('decodeCsrBtn');
+        if (btn) {
+            btn.disabled = true;
+            btn.classList.add('sslm-loading');
+        }
+        
+        // Send CSR directly
         var xhr = new XMLHttpRequest();
         xhr.open('POST', config.ajaxUrl + '&step=decodeCsr', true);
         xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
         xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
         
         xhr.onload = function() {
+            if (btn) {
+                btn.disabled = false;
+                btn.classList.remove('sslm-loading');
+            }
+            
             try {
                 var response = JSON.parse(xhr.responseText);
                 if (response.success && response.data) {
-                    var msg = (lang.csr_decoded || 'CSR Decoded') + ':\n';
-                    msg += 'CN: ' + (response.data.CN || 'N/A') + '\n';
-                    msg += 'O: ' + (response.data.O || 'N/A') + '\n';
-                    msg += 'C: ' + (response.data.C || 'N/A');
-                    alert(msg);
+                    displayCSRInfo(response.data);
+                    showToast(lang.csr_decoded || 'CSR decoded successfully', 'success');
                 } else {
-                    showToast(response.message || 'Invalid CSR', 'error');
+                    showToast(response.message || lang.invalid_csr || 'Invalid CSR', 'error');
                 }
             } catch (e) {
+                console.error('JSON parse error:', e);
                 showToast('Error decoding response', 'error');
             }
         };
         
+        xhr.onerror = function() {
+            if (btn) {
+                btn.disabled = false;
+                btn.classList.remove('sslm-loading');
+            }
+            showToast(lang.network_error || 'Network error', 'error');
+        };
+        
         xhr.send('csr=' + encodeURIComponent(csrField.value));
+    }
+
+    function displayCSRInfo(data) {
+        var resultDiv = document.getElementById('csrDecodeResult');
+        if (!resultDiv) return;
+        
+        // Update individual fields
+        var fields = {
+            'csrCN': data.CN || data.commonName || '-',
+            'csrO': data.O || data.organization || '-',
+            'csrC': data.C || data.country || '-',
+            'csrST': data.ST || data.state || '-',
+            'csrL': data.L || data.locality || '-',
+            'csrKeySize': data.keySize ? data.keySize + ' bits' : '-',
+            'csrKeyType': data.keyType || '-'
+        };
+        
+        for (var id in fields) {
+            var el = document.getElementById(id);
+            if (el) {
+                el.textContent = fields[id];
+            }
+        }
+        
+        // Show the result div
+        resultDiv.style.display = 'block';
+        
+        // Auto-fill first domain if empty
+        var firstDomainInput = document.querySelector('#domainList .sslm-domain-input');
+        if (firstDomainInput && !firstDomainInput.value && (data.CN || data.commonName)) {
+            var cn = data.CN || data.commonName;
+            firstDomainInput.value = cn;
+            // Update email options for this domain
+            var row = firstDomainInput.closest('.sslm-domain-row');
+            if (row) {
+                updateDCVEmailOptions(row, cn);
+            }
+        }
+    }
+
+    // ========================================
+    // Form Submit
+    // ========================================
+    function initFormSubmit() {
+        var form = document.getElementById('sslm-apply-form');
+        if (!form) return;
+        
+        form.addEventListener('submit', function(e) {
+            e.preventDefault();
+            submitForm('submit');
+        });
+    }
+
+    window.saveDraft = function() {
+        submitForm('draft');
+    };
+
+    function submitForm(action) {
+        var config = window.sslmConfig || {};
+        var lang = config.lang || {};
+        
+        if (action === 'submit' && !validateForm()) {
+            showToast(lang.validation_error || 'Please fill in all required fields correctly', 'error');
+            return;
+        }
+        
+        var form = document.getElementById('sslm-apply-form');
+        var submitBtn = document.getElementById('submitBtn');
+        var saveBtn = document.getElementById('saveBtn');
+        
+        // Collect all form data
+        var domains = collectDomains();
+        var contacts = collectContacts();
+        
+        // Get CSR value
+        var csrField = form.querySelector('[name="csr"]');
+        var csr = csrField ? csrField.value.trim() : '';
+        
+        // Get private key
+        var keyField = form.querySelector('[name="privateKey"]');
+        var privateKey = keyField ? keyField.value.trim() : '';
+        
+        // Get isRenew value
+        var isRenewValue = '0';
+        var isRenewChecked = form.querySelector('input[name="isRenew"]:checked');
+        if (isRenewChecked) {
+            isRenewValue = isRenewChecked.value;
+        }
+        
+        // Build data object - SAME FORMAT AS OLD MODULE
+        var data = {
+            "server": 'other',
+            "csr": csr,
+            "privateKey": privateKey,
+            "domainInfo": domains,
+            "organizationInfo": collectOrganization(),
+            "originalfromOthers": isRenewValue,
+            "isRenew": isRenewValue,
+            "Administrator": contacts
+        };
+        
+        console.log('Form data to submit:', data);
+        
+        // Disable buttons and show loading
+        if (submitBtn) submitBtn.disabled = true;
+        if (saveBtn) saveBtn.disabled = true;
+        
+        var activeBtn = action === 'draft' ? saveBtn : submitBtn;
+        if (activeBtn) activeBtn.classList.add('sslm-loading');
+        
+        // Build URL with step parameter
+        var step = action === 'draft' ? 'savedraft' : 'applyssl';
+        var ajaxUrl = config.ajaxUrl + '&step=' + step;
+        
+        // Send data as "data" key
+        var postData = serializeObjectForPHP(data, 'data');
+        
+        // Submit via AJAX
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', ajaxUrl, true);
+        xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+        xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+        
+        xhr.onload = function() {
+            if (submitBtn) submitBtn.disabled = false;
+            if (saveBtn) saveBtn.disabled = false;
+            if (activeBtn) activeBtn.classList.remove('sslm-loading');
+            
+            var responseText = xhr.responseText.trim();
+            console.log('Raw response:', responseText);
+            
+            if (responseText.indexOf('<!DOCTYPE') === 0 || responseText.indexOf('<html') === 0) {
+                console.error('Server returned HTML instead of JSON');
+                showToast('Server error occurred. Please check console.', 'error');
+                return;
+            }
+            
+            try {
+                var response = JSON.parse(responseText);
+                
+                if (response.success) {
+                    showToast(response.message || (action === 'draft' ? 
+                        (lang.draft_saved || 'Draft saved') : 
+                        (lang.submit_success || 'Request submitted')), 'success');
+                    
+                    if (action === 'submit') {
+                        setTimeout(function() {
+                            window.location.reload();
+                        }, 1500);
+                    }
+                } else {
+                    showToast(response.message || lang.error || 'An error occurred', 'error');
+                }
+            } catch (e) {
+                console.error('JSON parse error:', e);
+                showToast('Invalid server response', 'error');
+            }
+        };
+        
+        xhr.onerror = function() {
+            if (submitBtn) submitBtn.disabled = false;
+            if (saveBtn) saveBtn.disabled = false;
+            if (activeBtn) activeBtn.classList.remove('sslm-loading');
+            showToast(lang.network_error || 'Network error', 'error');
+        };
+        
+        xhr.send(postData);
+    }
+
+    /**
+     * Collect domains - dcvMethod contains the email directly if email validation
+     */
+    function collectDomains() {
+        var domains = [];
+        var rows = document.querySelectorAll('#domainList .sslm-domain-row');
+        
+        rows.forEach(function(row) {
+            var domainInput = row.querySelector('.sslm-domain-input');
+            var dcvSelect = row.querySelector('.sslm-dcv-select');
+            
+            if (domainInput && domainInput.value.trim()) {
+                var dcvValue = dcvSelect ? dcvSelect.value : 'CNAME_CSR_HASH';
+                
+                var domainData = {
+                    domainName: domainInput.value.trim(),
+                    dcvMethod: dcvValue
+                };
+                
+                // Note: If dcvMethod contains '@', it's an email
+                // The old module and API handle this - email in dcvMethod field means EMAIL validation
+                
+                domains.push(domainData);
+            }
+        });
+        
+        return domains;
+    }
+
+    function collectContacts() {
+        var form = document.getElementById('sslm-apply-form');
+        if (!form) return {};
+        
+        return {
+            organation: getValue(form, 'adminOrganizationName'),
+            job: getValue(form, 'adminTitle'),
+            firstName: getValue(form, 'adminFirstName'),
+            lastName: getValue(form, 'adminLastName'),
+            email: getValue(form, 'adminEmail'),
+            mobile: getValue(form, 'adminPhone'),
+            country: getValue(form, 'adminCountry'),
+            address: getValue(form, 'adminAddress'),
+            city: getValue(form, 'adminCity'),
+            state: getValue(form, 'adminProvince'),
+            postCode: getValue(form, 'adminPostCode')
+        };
+    }
+
+    function collectOrganization() {
+        var form = document.getElementById('sslm-apply-form');
+        var orgPart = document.getElementById('organizationPart');
+        
+        if (!form || !orgPart) return {};
+        
+        return {
+            organizationName: getValue(form, 'organizationName'),
+            organizationAddress: getValue(form, 'organizationAddress'),
+            organizationCity: getValue(form, 'organizationCity'),
+            organizationState: getValue(form, 'organizationState'),
+            organizationCountry: getValue(form, 'organizationCountry'),
+            organizationPostCode: getValue(form, 'organizationPostCode'),
+            organizationMobile: getValue(form, 'organizationMobile'),
+            organizationRegNumber: getValue(form, 'organizationRegNumber')
+        };
+    }
+
+    function getValue(form, name) {
+        var el = form.querySelector('[name="' + name + '"]');
+        return el ? el.value.trim() : '';
+    }
+
+    function serializeObjectForPHP(obj, prefix) {
+        var pairs = [];
+        
+        function buildPairs(obj, currentPrefix) {
+            for (var key in obj) {
+                if (!obj.hasOwnProperty(key)) continue;
+                
+                var value = obj[key];
+                var newPrefix = currentPrefix ? currentPrefix + '[' + key + ']' : key;
+                
+                if (value === null || value === undefined) {
+                    pairs.push(encodeURIComponent(newPrefix) + '=');
+                } else if (Array.isArray(value)) {
+                    value.forEach(function(item, index) {
+                        if (typeof item === 'object' && item !== null) {
+                            buildPairs(item, newPrefix + '[' + index + ']');
+                        } else {
+                            pairs.push(encodeURIComponent(newPrefix + '[' + index + ']') + '=' + encodeURIComponent(item));
+                        }
+                    });
+                } else if (typeof value === 'object') {
+                    buildPairs(value, newPrefix);
+                } else {
+                    pairs.push(encodeURIComponent(newPrefix) + '=' + encodeURIComponent(value));
+                }
+            }
+        }
+        
+        buildPairs(obj, prefix);
+        return pairs.join('&');
     }
 
     // ========================================
@@ -387,7 +703,6 @@
         domainInputs.forEach(function(input) {
             if (input.value.trim()) {
                 hasDomain = true;
-                // Basic domain validation
                 var domainRegex = /^(\*\.)?([a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$/;
                 if (!domainRegex.test(input.value.trim())) {
                     input.classList.add('sslm-error');
@@ -397,9 +712,21 @@
         });
         
         if (!hasDomain) {
-            showToast(lang.domain_required || 'At least one domain is required', 'error');
+            var config = window.sslmConfig || {};
+            showToast(config.lang.domain_required || 'At least one domain is required', 'error');
             isValid = false;
         }
+        
+        // Validate DCV method selected
+        var dcvSelects = form.querySelectorAll('.sslm-dcv-select');
+        dcvSelects.forEach(function(select) {
+            var row = select.closest('.sslm-domain-row');
+            var domainInput = row ? row.querySelector('.sslm-domain-input') : null;
+            if (domainInput && domainInput.value.trim() && !select.value) {
+                select.classList.add('sslm-error');
+                isValid = false;
+            }
+        });
         
         // Validate required contact fields
         var requiredFields = ['adminFirstName', 'adminLastName', 'adminEmail'];
@@ -432,8 +759,6 @@
         var data = config.configData;
         
         console.log('Attempting to restore form data:', data);
-        console.log('configData type:', typeof data);
-        console.log('configData value:', data);
         
         if (!data || typeof data !== 'object') {
             console.log('No saved data to restore');
@@ -443,12 +768,18 @@
         var form = document.getElementById('sslm-apply-form');
         if (!form) return;
         
+        // Restore isRenew
+        var isRenewValue = data.originalfromOthers || data.isRenew || '0';
+        var isRenewRadio = form.querySelector('input[name="isRenew"][value="' + isRenewValue + '"]');
+        if (isRenewRadio) {
+            isRenewRadio.checked = true;
+        }
+        
         // Restore CSR
         if (data.csr) {
             var csrField = form.querySelector('[name="csr"]');
             if (csrField) {
                 csrField.value = data.csr;
-                // Show CSR section
                 var toggle = document.getElementById('isManualCsr');
                 if (toggle) {
                     toggle.checked = true;
@@ -468,617 +799,52 @@
         // Restore Administrator info
         if (data.Administrator && Object.keys(data.Administrator).length > 0) {
             var admin = data.Administrator;
-            var adminFieldMap = {
-                'adminFirstName': admin.firstName,
-                'adminLastName': admin.lastName,
-                'adminEmail': admin.email,
-                'adminPhone': admin.mobile || admin.phone,
-                'adminTitle': admin.job || admin.title,
-                'adminOrganizationName': admin.organation || admin.organization,
-                'adminCountry': admin.country,
-                'adminAddress': admin.address,
-                'adminCity': admin.city,
-                'adminProvince': admin.state || admin.province,
-                'adminPostCode': admin.postCode || admin.postalCode
+            var fieldMap = {
+                'adminOrganizationName': admin.organation || '',
+                'adminTitle': admin.job || '',
+                'adminFirstName': admin.firstName || '',
+                'adminLastName': admin.lastName || '',
+                'adminEmail': admin.email || '',
+                'adminPhone': admin.mobile || '',
+                'adminCountry': admin.country || '',
+                'adminAddress': admin.address || '',
+                'adminCity': admin.city || '',
+                'adminProvince': admin.state || '',
+                'adminPostCode': admin.postCode || ''
             };
             
-            for (var fieldName in adminFieldMap) {
-                if (adminFieldMap[fieldName]) {
-                    var field = form.querySelector('[name="' + fieldName + '"]');
-                    if (field) {
-                        field.value = adminFieldMap[fieldName];
-                    }
+            for (var fieldName in fieldMap) {
+                var field = form.querySelector('[name="' + fieldName + '"]');
+                if (field && fieldMap[fieldName]) {
+                    field.value = fieldMap[fieldName];
                 }
             }
-            
-            console.log('Administrator info restored');
         }
         
         // Restore Organization info
         if (data.organizationInfo && Object.keys(data.organizationInfo).length > 0) {
             var org = data.organizationInfo;
-            var orgFieldMap = {
-                'organizationName': org.organizationName,
-                'organizationAddress': org.organizationAddress,
-                'organizationCity': org.organizationCity,
-                'organizationCountry': org.organizationCountry,
-                'organizationProvince': org.organizationState,
-                'organizationPostalCode': org.organizationPostCode || org.organizationPostalCode,
-                'organizationPhone': org.organizationMobile
-            };
+            var orgFields = ['organizationName', 'organizationAddress', 'organizationCity', 
+                           'organizationState', 'organizationCountry', 'organizationPostCode', 
+                           'organizationMobile', 'organizationRegNumber'];
             
-            for (var fieldName in orgFieldMap) {
-                if (orgFieldMap[fieldName]) {
-                    var field = form.querySelector('[name="' + fieldName + '"]');
-                    if (field) {
-                        field.value = orgFieldMap[fieldName];
-                    }
+            orgFields.forEach(function(fieldName) {
+                var field = form.querySelector('[name="' + fieldName + '"]');
+                if (field && org[fieldName]) {
+                    field.value = org[fieldName];
                 }
-            }
-            
-            console.log('Organization info restored');
-        }
-        
-        // Restore Domain info
-        if (data.domainInfo && Array.isArray(data.domainInfo) && data.domainInfo.length > 0) {
-            var domainList = document.getElementById('domainList');
-            if (domainList) {
-                // First, restore to existing row
-                var firstRow = domainList.querySelector('.sslm-domain-row');
-                if (firstRow && data.domainInfo[0]) {
-                    var domainInput = firstRow.querySelector('.sslm-domain-input');
-                    var dcvSelect = firstRow.querySelector('.sslm-dcv-select');
-                    
-                    if (domainInput) {
-                        domainInput.value = data.domainInfo[0].domainName || '';
-                    }
-                    if (dcvSelect) {
-                        // Initialize options first
-                        initDomainDcvOptions(dcvSelect, data.domainInfo[0].domainName || '');
-                        
-                        var dcvValue = data.domainInfo[0].dcvMethod || 'CNAME_CSR_HASH';
-                        var dcvEmail = data.domainInfo[0].dcvEmail || '';
-                        
-                        // If email validation, use the email as value
-                        if (dcvValue === 'EMAIL' && dcvEmail) {
-                            dcvSelect.value = dcvEmail;
-                        } else {
-                            dcvSelect.value = dcvValue;
-                        }
-                    }
-                }
-                
-                // Add additional domain rows
-                for (var i = 1; i < data.domainInfo.length; i++) {
-                    addDomainRow(data.domainInfo[i]);
-                }
-                
-                console.log('Domain info restored:', data.domainInfo.length, 'domains');
-            }
+            });
         }
         
         console.log('Form data restored successfully');
     }
 
     // ========================================
-    // Form Submit (Apply/Save Draft)
-    // FIXED: Uses OLD MODULE data format
-    // ========================================
-    function initFormSubmit() {
-        var form = document.getElementById('sslm-apply-form');
-        if (!form) return;
-        
-        form.addEventListener('submit', function(e) {
-            e.preventDefault();
-            submitForm('submit');
-        });
-    }
-
-    window.saveDraft = function() {
-        submitForm('draft');
-    };
-
-    function submitForm(action) {
-        if (action === 'submit' && !validateForm()) {
-            showToast(lang.validation_error || 'Please fill in all required fields correctly', 'error');
-            return;
-        }
-        
-        var form = document.getElementById('sslm-apply-form');
-        var submitBtn = document.getElementById('submitBtn');
-        var saveBtn = document.getElementById('saveBtn');
-        
-        // Collect all form data - MATCHING OLD MODULE STRUCTURE
-        var domains = collectDomains();
-        var contacts = collectContacts();
-        
-        // Get CSR value
-        var csrField = form.querySelector('[name="csr"]');
-        var csr = csrField ? csrField.value.trim() : '';
-        
-        // Get private key
-        var keyField = form.querySelector('[name="privateKey"]');
-        var privateKey = keyField ? keyField.value.trim() : '';
-        
-        // Build data object EXACTLY like OLD MODULE
-        var data = {
-            "server": 'other',
-            "csr": csr,
-            "privateKey": privateKey,
-            "domainInfo": domains,
-            "organizationInfo": collectOrganization(),
-            "originalfromOthers": document.getElementById('isManualCsr') && 
-                            document.getElementById('isManualCsr').checked ? '1' : '0',
-            "Administrator": contacts
-        };
-        
-        // Debug logging
-        console.log('Form data to submit:', data);
-        console.log('Domains collected:', domains);
-        console.log('Contacts collected:', contacts);
-        
-        // Disable buttons and show loading
-        if (submitBtn) submitBtn.disabled = true;
-        if (saveBtn) saveBtn.disabled = true;
-        
-        var activeBtn = action === 'draft' ? saveBtn : submitBtn;
-        if (activeBtn) activeBtn.classList.add('sslm-loading');
-        
-        // Build URL with step parameter
-        var step = action === 'draft' ? 'savedraft' : 'applyssl';
-        var ajaxUrl = config.ajaxUrl + '&step=' + step;
-        
-        // FIXED: Send data as "data" key - SAME AS OLD MODULE
-        // Uses serializeObject to convert nested object to PHP array format
-        var postData = serializeObjectForPHP(data, 'data');
-        
-        console.log('Serialized POST data:', postData);
-        
-        // Submit via AJAX
-        var xhr = new XMLHttpRequest();
-        xhr.open('POST', ajaxUrl, true);
-        xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-        xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
-        
-        xhr.onload = function() {
-            // Re-enable buttons
-            if (submitBtn) submitBtn.disabled = false;
-            if (saveBtn) saveBtn.disabled = false;
-            if (activeBtn) activeBtn.classList.remove('sslm-loading');
-            
-            var responseText = xhr.responseText.trim();
-            console.log('Raw response:', responseText);
-            
-            // Check for HTML response (error)
-            if (responseText.indexOf('<!DOCTYPE') === 0 || responseText.indexOf('<html') === 0) {
-                console.error('Server returned HTML instead of JSON');
-                showToast('Server error occurred. Please check console.', 'error');
-                return;
-            }
-            
-            try {
-                var response = JSON.parse(responseText);
-                
-                if (response.success) {
-                    showToast(response.message || (action === 'draft' ? 
-                        (lang.draft_saved || 'Draft saved') : 
-                        (lang.submit_success || 'Request submitted')), 'success');
-                    
-                    // Reload page for submit action
-                    if (action === 'submit') {
-                        setTimeout(function() {
-                            window.location.reload();
-                        }, 1500);
-                    }
-                } else {
-                    showToast(response.message || lang.error || 'An error occurred', 'error');
-                }
-            } catch (e) {
-                console.error('JSON parse error:', e);
-                console.error('Response was:', responseText);
-                showToast('Invalid server response', 'error');
-            }
-        };
-        
-        xhr.onerror = function() {
-            if (submitBtn) submitBtn.disabled = false;
-            if (saveBtn) saveBtn.disabled = false;
-            if (activeBtn) activeBtn.classList.remove('sslm-loading');
-            showToast(lang.network_error || 'Network error', 'error');
-        };
-        
-        xhr.send(postData);
-    }
-
-    /**
-     * Serialize object for PHP - converts nested object to PHP array notation
-     * This mimics how jQuery $.ajax serializes nested objects
-     * 
-     * Example: {data: {name: "test"}} becomes "data[name]=test"
-     */
-    function serializeObjectForPHP(obj, prefix) {
-        var pairs = [];
-        
-        function buildPairs(obj, currentPrefix) {
-            for (var key in obj) {
-                if (!obj.hasOwnProperty(key)) continue;
-                
-                var value = obj[key];
-                var newPrefix = currentPrefix ? currentPrefix + '[' + key + ']' : key;
-                
-                if (value === null || value === undefined) {
-                    pairs.push(encodeURIComponent(newPrefix) + '=');
-                } else if (Array.isArray(value)) {
-                    // Handle arrays
-                    for (var i = 0; i < value.length; i++) {
-                        var arrayPrefix = newPrefix + '[' + i + ']';
-                        if (typeof value[i] === 'object' && value[i] !== null) {
-                            buildPairs(value[i], arrayPrefix);
-                        } else {
-                            pairs.push(encodeURIComponent(arrayPrefix) + '=' + encodeURIComponent(value[i]));
-                        }
-                    }
-                } else if (typeof value === 'object') {
-                    buildPairs(value, newPrefix);
-                } else {
-                    pairs.push(encodeURIComponent(newPrefix) + '=' + encodeURIComponent(value));
-                }
-            }
-        }
-        
-        // Wrap in the prefix key (e.g., "data")
-        var wrapper = {};
-        wrapper[prefix] = obj;
-        buildPairs(wrapper, '');
-        
-        return pairs.join('&');
-    }
-
-    function collectDomains() {
-        var domains = [];
-        var rows = document.querySelectorAll('.sslm-domain-row');
-        
-        rows.forEach(function(row) {
-            var domainInput = row.querySelector('.sslm-domain-input');
-            var dcvSelect = row.querySelector('.sslm-dcv-select');
-            
-            if (domainInput && domainInput.value.trim()) {
-                var dcvValue = dcvSelect ? dcvSelect.value : 'CNAME_CSR_HASH';
-                var dcvMethod = dcvValue;
-                var dcvEmail = '';
-                
-                // Check if it's an email value
-                if (dcvValue && dcvValue.indexOf('@') !== -1) {
-                    dcvMethod = 'EMAIL';
-                    dcvEmail = dcvValue;
-                }
-                
-                domains.push({
-                    "domainName": domainInput.value.trim(),
-                    "dcvMethod": dcvMethod,
-                    "dcvEmail": dcvEmail
-                });
-            }
-        });
-        
-        return domains;
-    }
-
-    function collectContacts() {
-        var form = document.getElementById('sslm-apply-form');
-        if (!form) return {};
-        
-        return {
-            "job": getFieldValue(form, 'adminTitle') || 'IT Manager',
-            "firstName": getFieldValue(form, 'adminFirstName'),
-            "lastName": getFieldValue(form, 'adminLastName'),
-            "email": getFieldValue(form, 'adminEmail'),
-            "mobile": getFieldValue(form, 'adminPhone'),
-            "organation": getFieldValue(form, 'adminOrganizationName'),
-            "country": getFieldValue(form, 'adminCountry'),
-            "address": getFieldValue(form, 'adminAddress'),
-            "city": getFieldValue(form, 'adminCity'),
-            "state": getFieldValue(form, 'adminProvince'),
-            "postCode": getFieldValue(form, 'adminPostCode')
-        };
-    }
-
-    function collectOrganization() {
-        var form = document.getElementById('sslm-apply-form');
-        if (!form) return {};
-        
-        var orgName = form.querySelector('[name="organizationName"]');
-        if (!orgName || !orgName.value.trim()) {
-            return {};
-        }
-        
-        return {
-            "organizationName": getFieldValue(form, 'organizationName'),
-            "organizationAddress": getFieldValue(form, 'organizationAddress'),
-            "organizationCity": getFieldValue(form, 'organizationCity'),
-            "organizationCountry": getFieldValue(form, 'organizationCountry'),
-            "organizationState": getFieldValue(form, 'organizationProvince'),
-            "organizationPostCode": getFieldValue(form, 'organizationPostalCode'),
-            "organizationMobile": getFieldValue(form, 'organizationPhone')
-        };
-    }
-
-    function getFieldValue(form, name) {
-        var field = form.querySelector('[name="' + name + '"]');
-        return field ? field.value.trim() : '';
-    }
-
-    // ========================================
-    // DCV Management
-    // ========================================
-    function initDCVManagement() {
-        // Batch DCV update
-        var batchDcvBtn = document.getElementById('batchDcvBtn');
-        if (batchDcvBtn) {
-            batchDcvBtn.addEventListener('click', batchUpdateDCV);
-        }
-        
-        // Resend DCV email buttons
-        document.querySelectorAll('.resend-dcv-btn').forEach(function(btn) {
-            btn.addEventListener('click', function() {
-                var domain = this.getAttribute('data-domain');
-                resendDCVEmail(domain);
-            });
-        });
-    }
-
-    function batchUpdateDCV() {
-        var dcvData = [];
-        document.querySelectorAll('.dcv-update-row').forEach(function(row) {
-            var domain = row.getAttribute('data-domain');
-            var select = row.querySelector('.dcv-method-select');
-            if (domain && select) {
-                dcvData.push({
-                    domainName: domain,
-                    dcvMethod: select.value
-                });
-            }
-        });
-        
-        if (dcvData.length === 0) {
-            showToast('No DCV changes to update', 'warning');
-            return;
-        }
-        
-        ajaxRequest('batchUpdateDCV', dcvData, function(response) {
-            if (response.success) {
-                showToast(lang.dcv_updated || 'DCV methods updated', 'success');
-                setTimeout(function() {
-                    window.location.reload();
-                }, 1500);
-            } else {
-                showToast(response.message || 'Update failed', 'error');
-            }
-        });
-    }
-
-    function resendDCVEmail(domain) {
-        if (!domain) return;
-        
-        // Send directly without data wrapper
-        var xhr = new XMLHttpRequest();
-        xhr.open('POST', config.ajaxUrl + '&step=resendDCVEmail', true);
-        xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-        xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
-        
-        xhr.onload = function() {
-            try {
-                var response = JSON.parse(xhr.responseText);
-                if (response.success) {
-                    showToast(lang.dcv_email_sent || 'DCV email sent', 'success');
-                } else {
-                    showToast(response.message || 'Failed to send email', 'error');
-                }
-            } catch (e) {
-                showToast('Invalid response', 'error');
-            }
-        };
-        
-        xhr.send('domain=' + encodeURIComponent(domain));
-    }
-
-    // ========================================
-    // Download Handlers
-    // ========================================
-    function initDownloadHandlers() {
-        document.querySelectorAll('.download-cert-btn').forEach(function(btn) {
-            btn.addEventListener('click', function() {
-                var format = this.getAttribute('data-format') || 'pem';
-                downloadCertificate(format);
-            });
-        });
-        
-        // Download private key
-        var downloadKeyBtn = document.getElementById('downloadKeyBtn');
-        if (downloadKeyBtn) {
-            downloadKeyBtn.addEventListener('click', function() {
-                downloadCertificate('key');
-            });
-        }
-    }
-
-    function downloadCertificate(format) {
-        var xhr = new XMLHttpRequest();
-        xhr.open('POST', config.ajaxUrl + '&step=downCert', true);
-        xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-        xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
-        
-        xhr.onload = function() {
-            try {
-                var response = JSON.parse(xhr.responseText);
-                
-                if (response.success && response.data) {
-                    // Decode base64 and trigger download
-                    var content = atob(response.data.content);
-                    var filename = response.data.filename;
-                    var mime = response.data.mime || 'application/octet-stream';
-                    
-                    triggerDownload(content, filename, mime);
-                    
-                    // Download CA bundle if available
-                    if (response.data.caBundle) {
-                        setTimeout(function() {
-                            var caContent = atob(response.data.caBundle);
-                            triggerDownload(caContent, response.data.caBundleFilename, mime);
-                        }, 500);
-                    }
-                } else {
-                    showToast(response.message || 'Download failed', 'error');
-                }
-            } catch (e) {
-                showToast('Invalid response', 'error');
-            }
-        };
-        
-        xhr.send('format=' + encodeURIComponent(format));
-    }
-
-    function triggerDownload(content, filename, mime) {
-        var blob = new Blob([content], { type: mime });
-        var url = URL.createObjectURL(blob);
-        
-        var a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        
-        setTimeout(function() {
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-        }, 100);
-    }
-
-    // ========================================
-    // Action Buttons (Cancel, Revoke, etc.)
-    // ========================================
-    function initActionButtons() {
-        // Refresh status
-        var refreshBtn = document.getElementById('refreshStatusBtn');
-        if (refreshBtn) {
-            refreshBtn.addEventListener('click', function() {
-                refreshStatus(this);
-            });
-        }
-        
-        // Cancel order
-        var cancelBtn = document.getElementById('cancelOrderBtn');
-        if (cancelBtn) {
-            cancelBtn.addEventListener('click', function() {
-                if (confirm(lang.sure_to_cancel || 'Are you sure you want to cancel this order?')) {
-                    cancelOrder();
-                }
-            });
-        }
-        
-        // Revoke certificate
-        var revokeBtn = document.getElementById('revokeBtn');
-        if (revokeBtn) {
-            revokeBtn.addEventListener('click', function() {
-                if (confirm(lang.sure_to_revoke || 'Are you sure you want to revoke this certificate? This action cannot be undone.')) {
-                    revokeCertificate();
-                }
-            });
-        }
-    }
-
-    function refreshStatus(btn) {
-        if (btn) {
-            btn.disabled = true;
-            btn.classList.add('sslm-loading');
-        }
-        
-        var xhr = new XMLHttpRequest();
-        xhr.open('POST', config.ajaxUrl + '&step=refreshStatus', true);
-        xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-        xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
-        
-        xhr.onload = function() {
-            if (btn) {
-                btn.disabled = false;
-                btn.classList.remove('sslm-loading');
-            }
-            
-            try {
-                var response = JSON.parse(xhr.responseText);
-                
-                if (response.success) {
-                    showToast(lang.status_refreshed || 'Status refreshed', 'success');
-                    setTimeout(function() {
-                        window.location.reload();
-                    }, 1000);
-                } else {
-                    showToast(response.message || 'Refresh failed', 'error');
-                }
-            } catch (e) {
-                showToast('Invalid response', 'error');
-            }
-        };
-        
-        xhr.send('');
-    }
-
-    function cancelOrder() {
-        var xhr = new XMLHttpRequest();
-        xhr.open('POST', config.ajaxUrl + '&step=cancelOrder', true);
-        xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-        xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
-        
-        xhr.onload = function() {
-            try {
-                var response = JSON.parse(xhr.responseText);
-                
-                if (response.success) {
-                    showToast(lang.cancelled_success || 'Order cancelled', 'success');
-                    setTimeout(function() {
-                        window.location.reload();
-                    }, 1500);
-                } else {
-                    showToast(response.message || 'Cancel failed', 'error');
-                }
-            } catch (e) {
-                showToast('Invalid response', 'error');
-            }
-        };
-        
-        xhr.send('');
-    }
-
-    function revokeCertificate() {
-        var xhr = new XMLHttpRequest();
-        xhr.open('POST', config.ajaxUrl + '&step=revoke', true);
-        xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-        xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
-        
-        xhr.onload = function() {
-            try {
-                var response = JSON.parse(xhr.responseText);
-                
-                if (response.success) {
-                    showToast(lang.revoked_success || 'Certificate revoked', 'success');
-                    setTimeout(function() {
-                        window.location.reload();
-                    }, 1500);
-                } else {
-                    showToast(response.message || 'Revoke failed', 'error');
-                }
-            } catch (e) {
-                showToast('Invalid response', 'error');
-            }
-        };
-        
-        xhr.send('');
-    }
-
-    // ========================================
-    // AJAX Helper - For actions with data wrapper
+    // AJAX Helper
     // ========================================
     function ajaxRequest(action, data, callback) {
+        var config = window.sslmConfig || {};
+        
         var xhr = new XMLHttpRequest();
         xhr.open('POST', config.ajaxUrl + '&step=' + action, true);
         xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
@@ -1104,9 +870,37 @@
             }
         };
         
-        // Serialize data using PHP array notation
         var postData = serializeObjectForPHP(data, 'data');
         xhr.send(postData);
+    }
+
+    // ========================================
+    // Status Refresh
+    // ========================================
+    function refreshStatus() {
+        var config = window.sslmConfig || {};
+        
+        var btn = document.getElementById('refreshStatusBtn');
+        if (btn) {
+            btn.disabled = true;
+            btn.classList.add('sslm-loading');
+        }
+        
+        ajaxRequest('refreshStatus', {}, function(response) {
+            if (btn) {
+                btn.disabled = false;
+                btn.classList.remove('sslm-loading');
+            }
+            
+            if (response.success) {
+                showToast('Status refreshed', 'success');
+                setTimeout(function() {
+                    window.location.reload();
+                }, 1000);
+            } else {
+                showToast(response.message || 'Failed to refresh status', 'error');
+            }
+        });
     }
 
     // ========================================
@@ -1115,23 +909,19 @@
     function showToast(message, type) {
         type = type || 'info';
         
-        // Remove existing toasts
         var existing = document.querySelectorAll('.sslm-toast');
         existing.forEach(function(el) { el.remove(); });
         
-        // Create toast
         var toast = document.createElement('div');
         toast.className = 'sslm-toast sslm-toast-' + type;
         toast.textContent = message;
         
         document.body.appendChild(toast);
         
-        // Trigger animation
         setTimeout(function() {
             toast.classList.add('show');
         }, 10);
         
-        // Auto remove
         setTimeout(function() {
             toast.classList.remove('show');
             setTimeout(function() {
@@ -1140,11 +930,14 @@
         }, 4000);
     }
 
+    // ========================================
     // Export for global access
+    // ========================================
     window.SSLManager = {
         showToast: showToast,
         refreshStatus: refreshStatus,
-        saveDraft: window.saveDraft
+        saveDraft: window.saveDraft,
+        updateDCVEmailOptions: updateDCVEmailOptions
     };
 
 })();

@@ -3,10 +3,14 @@
  * NicSRS SSL Module - Action Controller
  * Handles AJAX actions for SSL certificate management
  * 
- * FIXED: Uses OLD MODULE pattern for POST data handling
+ * FIXED v2.0.1:
+ * - Fixed getCertificateByCode -> getCertAttributes
+ * - Fixed isRenew/originalfromOthers consistency
+ * - Enhanced decodeCsr with more fields
+ * - Added DCV email generation
  * 
  * @package    nicsrs_ssl
- * @version    2.0.0
+ * @version    2.0.1
  * @author     HVN GROUP
  * @copyright  Copyright (c) HVN GROUP (https://hvn.vn)
  */
@@ -24,6 +28,7 @@ class ActionController
 
     /**
      * Submit certificate application
+     * FIXED: Changed getCertificateByCode to getCertAttributes
      */
     public static function submitApply(array $params): array
     {
@@ -52,8 +57,20 @@ class ActionController
                 return ResponseFormatter::error('Validation failed: ' . implode(', ', $errors));
             }
 
-            // Get certificate info
-            $cert = CertificateFunc::getCertificateByCode($order->certtype ?? '');
+            // FIXED: Use getCertAttributes instead of getCertificateByCode
+            $certCode = $order->certtype ?? $params['configoption1'] ?? '';
+            $cert = CertificateFunc::getCertAttributes($certCode);
+            
+            // If cert is null, create minimal config
+            if (empty($cert)) {
+                $cert = [
+                    'code' => $certCode,
+                    'name' => $certCode,
+                    'sslValidationType' => 'dv',
+                    'isMultiDomain' => false,
+                    'maxDomains' => 1,
+                ];
+            }
             
             // Build API request
             $apiRequest = self::buildApiRequest($formData, $cert, $params);
@@ -66,13 +83,17 @@ class ActionController
                 return ResponseFormatter::error($placeParsed['message']);
             }
 
+            // FIXED: Store isRenew as originalfromOthers for compatibility
+            $isRenew = $formData['originalfromOthers'] ?? $formData['isRenew'] ?? '0';
+
             // Build configdata
             $configdata = [
                 'csr' => $formData['csr'] ?? '',
                 'privateKey' => $formData['privateKey'] ?? '',
                 'domainInfo' => $formData['domainInfo'] ?? [],
                 'server' => $formData['server'] ?? 'other',
-                'originalfromOthers' => $formData['originalfromOthers'] ?? '0',
+                'originalfromOthers' => $isRenew,
+                'isRenew' => $isRenew, // Store both for compatibility
                 'Administrator' => $formData['Administrator'] ?? [],
                 'tech' => $formData['tech'] ?? $formData['Administrator'] ?? [],
                 'finance' => $formData['finance'] ?? $formData['Administrator'] ?? [],
@@ -114,7 +135,7 @@ class ActionController
     }
 
     /**
-     * Save draft - FIXED: Uses OLD MODULE pattern
+     * Save draft - FIXED: Properly handles isRenew field
      */
     public static function saveDraft(array $params): array
     {
@@ -140,19 +161,25 @@ class ActionController
                 'hasAdmin' => !empty($formData['Administrator']),
             ], 'Parsed form data');
             
-            // Get existing configdata
-            $existingConfig = [];
-            if (!empty($order->configdata)) {
-                $existingConfig = json_decode($order->configdata, true) ?: [];
+            if (empty($formData)) {
+                return ResponseFormatter::error('No data to save');
             }
+
+            // Get existing config to merge
+            $existingConfig = json_decode($order->configdata, true) ?: [];
             
-            // Build configdata - merge existing with new
+            // FIXED: Handle isRenew/originalfromOthers consistently
+            $isRenew = $formData['originalfromOthers'] ?? $formData['isRenew'] ?? 
+                       $existingConfig['originalfromOthers'] ?? $existingConfig['isRenew'] ?? '0';
+
+            // Build configdata - merge with existing
             $configdata = array_merge($existingConfig, [
                 'csr' => $formData['csr'] ?? ($existingConfig['csr'] ?? ''),
                 'privateKey' => $formData['privateKey'] ?? ($existingConfig['privateKey'] ?? ''),
                 'domainInfo' => $formData['domainInfo'] ?? ($existingConfig['domainInfo'] ?? []),
-                'server' => $formData['server'] ?? 'other',
-                'originalfromOthers' => $formData['originalfromOthers'] ?? '0',
+                'server' => $formData['server'] ?? ($existingConfig['server'] ?? 'other'),
+                'originalfromOthers' => $isRenew,
+                'isRenew' => $isRenew, // Store both for compatibility
                 'Administrator' => $formData['Administrator'] ?? ($existingConfig['Administrator'] ?? []),
                 'tech' => $formData['tech'] ?? $formData['Administrator'] ?? ($existingConfig['tech'] ?? []),
                 'finance' => $formData['finance'] ?? $formData['Administrator'] ?? ($existingConfig['finance'] ?? []),
@@ -165,6 +192,8 @@ class ActionController
             logModuleCall('nicsrs_ssl', 'saveDraft_TO_SAVE', [
                 'configdata_keys' => array_keys($configdata),
                 'domainCount' => count($configdata['domainInfo']),
+                'isRenew' => $configdata['isRenew'],
+                'originalfromOthers' => $configdata['originalfromOthers'],
                 'json_length' => strlen(json_encode($configdata)),
             ], 'Data to save');
             
@@ -180,6 +209,7 @@ class ActionController
                     'hasCsr' => !empty($configdata['csr']),
                     'domainCount' => count($configdata['domainInfo']),
                     'hasAdmin' => !empty($configdata['Administrator']),
+                    'isRenew' => $configdata['isRenew'],
                 ]);
             }
             
@@ -187,6 +217,342 @@ class ActionController
 
         } catch (Exception $e) {
             logModuleCall('nicsrs_ssl', 'saveDraft_ERROR', $params, $e->getMessage());
+            return ResponseFormatter::error($e->getMessage());
+        }
+    }
+
+    // ==========================================
+    // CSR Actions - ENHANCED
+    // ==========================================
+
+    /**
+     * Decode CSR - ENHANCED with more fields
+     */
+    public static function decodeCsr(array $params): array
+    {
+        try {
+            // Get CSR from POST (sent directly, not in data wrapper)
+            $csr = $_POST['csr'] ?? '';
+            
+            if (empty($csr)) {
+                return ResponseFormatter::error('CSR is required');
+            }
+            
+            $csr = trim($csr);
+            
+            // Validate CSR format
+            if (strpos($csr, '-----BEGIN CERTIFICATE REQUEST-----') === false) {
+                return ResponseFormatter::error('Invalid CSR format');
+            }
+            
+            // Decode CSR using OpenSSL
+            $csrResource = openssl_csr_get_subject($csr);
+            
+            if (!$csrResource) {
+                return ResponseFormatter::error('Failed to decode CSR: ' . openssl_error_string());
+            }
+            
+            // Get public key info for additional details
+            $pubKeyResource = openssl_csr_get_public_key($csr);
+            $pubKeyDetails = $pubKeyResource ? openssl_pkey_get_details($pubKeyResource) : [];
+            
+            // ENHANCED: Build comprehensive response
+            $result = [
+                // Standard fields (backward compatible)
+                'CN' => $csrResource['CN'] ?? '',
+                'O' => $csrResource['O'] ?? '',
+                'OU' => $csrResource['OU'] ?? '',
+                'L' => $csrResource['L'] ?? '',
+                'ST' => $csrResource['ST'] ?? '',
+                'C' => $csrResource['C'] ?? '',
+                'emailAddress' => $csrResource['emailAddress'] ?? '',
+                
+                // NEW: Additional fields for enhanced display
+                'commonName' => $csrResource['CN'] ?? '',
+                'organization' => $csrResource['O'] ?? '',
+                'organizationalUnit' => $csrResource['OU'] ?? '',
+                'locality' => $csrResource['L'] ?? '',
+                'state' => $csrResource['ST'] ?? '',
+                'country' => $csrResource['C'] ?? '',
+                'email' => $csrResource['emailAddress'] ?? '',
+                
+                // NEW: Key information
+                'keySize' => $pubKeyDetails['bits'] ?? 0,
+                'keyType' => self::getKeyTypeName($pubKeyDetails['type'] ?? 0),
+                
+                // NEW: Domain extraction
+                'domain' => $csrResource['CN'] ?? '',
+                'isWildcard' => strpos($csrResource['CN'] ?? '', '*.') === 0,
+                
+                // NEW: Validation status
+                'valid' => true,
+            ];
+            
+            return ResponseFormatter::success('CSR decoded successfully', $result);
+            
+        } catch (Exception $e) {
+            logModuleCall('nicsrs_ssl', 'decodeCsr', $_POST, $e->getMessage());
+            return ResponseFormatter::error($e->getMessage());
+        }
+    }
+
+    /**
+     * Generate CSR and Private Key
+     */
+    public static function generateCSR(array $params): array
+    {
+        try {
+            $data = self::getPostData('data');
+            
+            if (empty($data)) {
+                return ResponseFormatter::error('Data is required');
+            }
+            
+            // Build DN (Distinguished Name)
+            $dn = [];
+            
+            // Common Name (required)
+            if (!empty($data['domain'])) {
+                $dn['commonName'] = $data['domain'];
+            } elseif (!empty($data['cn'])) {
+                $dn['commonName'] = $data['cn'];
+            } else {
+                return ResponseFormatter::error('Domain/Common Name is required');
+            }
+            
+            // Organization
+            if (!empty($data['organization'])) {
+                $dn['organizationName'] = $data['organization'];
+            }
+            
+            // Country
+            if (!empty($data['country'])) {
+                $dn['countryName'] = $data['country'];
+            }
+            
+            // State
+            if (!empty($data['state'])) {
+                $dn['stateOrProvinceName'] = $data['state'];
+            }
+            
+            // City
+            if (!empty($data['city'])) {
+                $dn['localityName'] = $data['city'];
+            }
+            
+            // Email
+            if (!empty($data['email'])) {
+                $dn['emailAddress'] = $data['email'];
+            }
+            
+            // Generate private key
+            $privateKey = openssl_pkey_new([
+                'private_key_bits' => 2048,
+                'private_key_type' => OPENSSL_KEYTYPE_RSA,
+            ]);
+            
+            if (!$privateKey) {
+                return ResponseFormatter::error('Failed to generate private key: ' . openssl_error_string());
+            }
+            
+            // Generate CSR
+            $csr = openssl_csr_new($dn, $privateKey, [
+                'digest_alg' => 'sha256',
+            ]);
+            
+            if (!$csr) {
+                return ResponseFormatter::error('Failed to generate CSR: ' . openssl_error_string());
+            }
+            
+            // Export to PEM format
+            openssl_csr_export($csr, $csrPem);
+            openssl_pkey_export($privateKey, $privateKeyPem);
+            
+            return ResponseFormatter::success('CSR generated successfully', [
+                'csr' => $csrPem,
+                'privateKey' => $privateKeyPem,
+                'dn' => $dn,
+            ]);
+            
+        } catch (Exception $e) {
+            logModuleCall('nicsrs_ssl', 'generateCSR', $params, $e->getMessage());
+            return ResponseFormatter::error($e->getMessage());
+        }
+    }
+
+    /**
+     * Get key type name from OpenSSL constant
+     */
+    private static function getKeyTypeName(int $type): string
+    {
+        $types = [
+            OPENSSL_KEYTYPE_RSA => 'RSA',
+            OPENSSL_KEYTYPE_DSA => 'DSA',
+            OPENSSL_KEYTYPE_DH => 'DH',
+            OPENSSL_KEYTYPE_EC => 'EC',
+        ];
+        
+        return $types[$type] ?? 'Unknown';
+    }
+
+    // ==========================================
+    // DCV Actions - ENHANCED
+    // ==========================================
+
+    /**
+     * Get DCV email options for domain
+     * NEW: Helper method for generating email dropdown options
+     */
+    public static function getDcvEmails(array $params): array
+    {
+        try {
+            $domain = $_POST['domain'] ?? '';
+            
+            if (empty($domain)) {
+                return ResponseFormatter::error('Domain is required');
+            }
+            
+            // Remove wildcard prefix if present
+            $cleanDomain = preg_replace('/^\*\./', '', $domain);
+            
+            // Generate standard validation email addresses
+            $emails = self::generateDcvEmails($cleanDomain);
+            
+            return ResponseFormatter::success('DCV emails generated', [
+                'emails' => $emails,
+                'domain' => $cleanDomain,
+            ]);
+            
+        } catch (Exception $e) {
+            return ResponseFormatter::error($e->getMessage());
+        }
+    }
+
+    /**
+     * Generate standard DCV email addresses for a domain
+     * 
+     * @param string $domain Domain name
+     * @return array List of validation emails
+     */
+    public static function generateDcvEmails(string $domain): array
+    {
+        // Standard DCV email prefixes (as per CA/Browser Forum)
+        $prefixes = ['admin', 'administrator', 'webmaster', 'hostmaster', 'postmaster'];
+        
+        $emails = [];
+        foreach ($prefixes as $prefix) {
+            $emails[] = $prefix . '@' . $domain;
+        }
+        
+        // If subdomain, also add parent domain emails
+        $parts = explode('.', $domain);
+        if (count($parts) > 2) {
+            $parentDomain = implode('.', array_slice($parts, 1));
+            foreach ($prefixes as $prefix) {
+                $emails[] = $prefix . '@' . $parentDomain;
+            }
+        }
+        
+        return array_unique($emails);
+    }
+
+    /**
+     * Batch update DCV method
+     */
+    public static function batchUpdateDCV(array $params): array
+    {
+        try {
+            $data = self::getPostData('data');
+            
+            if (empty($data) || empty($data['domains'])) {
+                return ResponseFormatter::error('Domains data is required');
+            }
+            
+            $order = OrderRepository::getByServiceId($params['serviceid']);
+            
+            if (!$order || empty($order->remoteid)) {
+                return ResponseFormatter::error('Order not found or not submitted');
+            }
+            
+            // Build DCV info for API
+            $dcvInfo = [];
+            foreach ($data['domains'] as $domainData) {
+                $item = [
+                    'domainName' => $domainData['domainName'] ?? '',
+                    'dcvMethod' => $domainData['dcvMethod'] ?? 'CNAME_CSR_HASH',
+                ];
+                
+                // If email method, add email
+                if (strtoupper($item['dcvMethod']) === 'EMAIL' && !empty($domainData['dcvEmail'])) {
+                    $item['dcvEmail'] = $domainData['dcvEmail'];
+                }
+                
+                $dcvInfo[] = $item;
+            }
+            
+            // Call API to update DCV
+            $apiResponse = ApiService::updateDCV($params, $order->remoteid, $dcvInfo);
+            $parsed = ApiService::parseResponse($apiResponse);
+            
+            if (!$parsed['success']) {
+                return ResponseFormatter::error($parsed['message']);
+            }
+            
+            // Update local configdata
+            $configdata = json_decode($order->configdata, true) ?: [];
+            $configdata['domainInfo'] = array_map(function($domain) use ($dcvInfo) {
+                foreach ($dcvInfo as $dcv) {
+                    if ($dcv['domainName'] === $domain['domainName']) {
+                        $domain['dcvMethod'] = $dcv['dcvMethod'];
+                        if (isset($dcv['dcvEmail'])) {
+                            $domain['dcvEmail'] = $dcv['dcvEmail'];
+                        }
+                        break;
+                    }
+                }
+                return $domain;
+            }, $configdata['domainInfo'] ?? []);
+            
+            OrderRepository::updateConfigData($order->id, $configdata);
+            
+            return ResponseFormatter::success('DCV method updated successfully');
+            
+        } catch (Exception $e) {
+            logModuleCall('nicsrs_ssl', 'batchUpdateDCV', $params, $e->getMessage());
+            return ResponseFormatter::error($e->getMessage());
+        }
+    }
+
+    /**
+     * Resend DCV email
+     */
+    public static function resendDCVEmail(array $params): array
+    {
+        try {
+            $domain = $_POST['domain'] ?? '';
+            
+            if (empty($domain)) {
+                return ResponseFormatter::error('Domain is required');
+            }
+            
+            $order = OrderRepository::getByServiceId($params['serviceid']);
+            
+            if (!$order || empty($order->remoteid)) {
+                return ResponseFormatter::error('Order not found or not submitted');
+            }
+            
+            // Call API
+            $apiResponse = ApiService::resendDCVEmail($params, $order->remoteid, $domain);
+            $parsed = ApiService::parseResponse($apiResponse);
+            
+            if (!$parsed['success']) {
+                return ResponseFormatter::error($parsed['message']);
+            }
+            
+            return ResponseFormatter::success('DCV email sent successfully');
+            
+        } catch (Exception $e) {
+            logModuleCall('nicsrs_ssl', 'resendDCVEmail', $params, $e->getMessage());
             return ResponseFormatter::error($e->getMessage());
         }
     }
@@ -331,88 +697,7 @@ class ActionController
             }
 
         } catch (Exception $e) {
-            return ResponseFormatter::error($e->getMessage());
-        }
-    }
-
-    // ==========================================
-    // DCV Actions
-    // ==========================================
-
-    public static function batchUpdateDCV(array $params): array
-    {
-        try {
-            $order = OrderRepository::getByServiceId($params['serviceid']);
-            
-            if (!$order || empty($order->remoteid)) {
-                return ResponseFormatter::error('Order not found');
-            }
-
-            $dcvData = self::getPostData('data');
-            
-            if (empty($dcvData) || !is_array($dcvData)) {
-                return ResponseFormatter::error('Invalid DCV data');
-            }
-
-            $apiResponse = ApiService::batchUpdateDCV($params, $order->remoteid, $dcvData);
-            $parsed = ApiService::parseResponse($apiResponse);
-
-            if (!$parsed['success']) {
-                return ResponseFormatter::error($parsed['message']);
-            }
-
-            $configdata = json_decode($order->configdata, true) ?: [];
-            $domainInfos = $configdata['domainInfo'] ?? [];
-            
-            foreach ($dcvData as $item) {
-                $domainName = $item['domainName'] ?? '';
-                $dcvMethod = $item['dcvMethod'] ?? '';
-                
-                foreach ($domainInfos as &$domain) {
-                    if ($domain['domainName'] === $domainName) {
-                        $domain['dcvMethod'] = $dcvMethod;
-                        break;
-                    }
-                }
-            }
-            
-            $configdata['domainInfo'] = $domainInfos;
-            OrderRepository::update($order->id, [
-                'configdata' => json_encode($configdata),
-            ]);
-
-            return ResponseFormatter::success('DCV methods updated');
-
-        } catch (Exception $e) {
-            return ResponseFormatter::error($e->getMessage());
-        }
-    }
-
-    public static function resendDCVEmail(array $params): array
-    {
-        try {
-            $order = OrderRepository::getByServiceId($params['serviceid']);
-            
-            if (!$order || empty($order->remoteid)) {
-                return ResponseFormatter::error('Order not found');
-            }
-
-            $domain = $_POST['domain'] ?? '';
-            
-            if (empty($domain)) {
-                return ResponseFormatter::error('Domain is required');
-            }
-
-            $apiResponse = ApiService::resendDCVEmail($params, $order->remoteid, $domain);
-            $parsed = ApiService::parseResponse($apiResponse);
-
-            if (!$parsed['success']) {
-                return ResponseFormatter::error($parsed['message']);
-            }
-
-            return ResponseFormatter::success('DCV email resent');
-
-        } catch (Exception $e) {
+            logModuleCall('nicsrs_ssl', 'downCert', $params, $e->getMessage());
             return ResponseFormatter::error($e->getMessage());
         }
     }
@@ -421,22 +706,23 @@ class ActionController
     // Order Management Actions
     // ==========================================
 
+    /**
+     * Cancel order
+     */
     public static function cancelOrder(array $params): array
     {
         try {
             $order = OrderRepository::getByServiceId($params['serviceid']);
             
-            if (!$order || empty($order->remoteid)) {
+            if (!$order) {
                 return ResponseFormatter::error('Order not found');
             }
-
-            if (!in_array($order->status, [SSL_STATUS_PENDING, SSL_STATUS_DRAFT])) {
-                return ResponseFormatter::error('Only pending orders can be cancelled');
+            
+            if (empty($order->remoteid)) {
+                return ResponseFormatter::error('Order not submitted yet');
             }
 
-            $reason = $_POST['reason'] ?? 'Customer requested cancellation';
-
-            $apiResponse = ApiService::cancel($params, $order->remoteid, $reason);
+            $apiResponse = ApiService::cancelOrder($params, $order->remoteid);
             $parsed = ApiService::parseResponse($apiResponse);
 
             if (!$parsed['success']) {
@@ -447,29 +733,29 @@ class ActionController
                 'status' => SSL_STATUS_CANCELLED,
             ]);
 
-            return ResponseFormatter::success('Order cancelled');
+            return ResponseFormatter::success('Order cancelled successfully');
 
         } catch (Exception $e) {
+            logModuleCall('nicsrs_ssl', 'cancelOrder', $params, $e->getMessage());
             return ResponseFormatter::error($e->getMessage());
         }
     }
 
+    /**
+     * Revoke certificate
+     */
     public static function revoke(array $params): array
     {
         try {
             $order = OrderRepository::getByServiceId($params['serviceid']);
             
             if (!$order || empty($order->remoteid)) {
-                return ResponseFormatter::error('Order not found');
-            }
-
-            if ($order->status !== SSL_STATUS_COMPLETE) {
-                return ResponseFormatter::error('Only issued certificates can be revoked');
+                return ResponseFormatter::error('Order not found or not submitted');
             }
 
             $reason = $_POST['reason'] ?? 'unspecified';
-
-            $apiResponse = ApiService::revoke($params, $order->remoteid, $reason);
+            
+            $apiResponse = ApiService::revokeCertificate($params, $order->remoteid, $reason);
             $parsed = ApiService::parseResponse($apiResponse);
 
             if (!$parsed['success']) {
@@ -480,28 +766,24 @@ class ActionController
                 'status' => SSL_STATUS_REVOKED,
             ]);
 
-            return ResponseFormatter::success('Certificate revoked');
+            return ResponseFormatter::success('Certificate revoked successfully');
 
         } catch (Exception $e) {
+            logModuleCall('nicsrs_ssl', 'revoke', $params, $e->getMessage());
             return ResponseFormatter::error($e->getMessage());
         }
     }
 
-    // ==========================================
-    // Reissue/Replace Actions
-    // ==========================================
-
+    /**
+     * Submit reissue request
+     */
     public static function submitReissue(array $params): array
     {
         try {
             $order = OrderRepository::getByServiceId($params['serviceid']);
             
-            if (!$order || empty($order->remoteid)) {
+            if (!$order) {
                 return ResponseFormatter::error('Order not found');
-            }
-
-            if ($order->status !== SSL_STATUS_COMPLETE) {
-                return ResponseFormatter::error('Only issued certificates can be reissued');
             }
 
             $formData = self::getPostData('data');
@@ -510,13 +792,18 @@ class ActionController
                 return ResponseFormatter::error('Missing form data');
             }
 
-            $requestData = [
-                'csr' => $formData['csr'] ?? '',
-                'domainInfo' => $formData['domainInfo'] ?? [],
-                'organizationInfo' => $formData['organizationInfo'] ?? [],
-            ];
+            // FIXED: Use getCertAttributes
+            $certCode = $order->certtype ?? $params['configoption1'] ?? '';
+            $cert = CertificateFunc::getCertAttributes($certCode);
+            
+            if (empty($cert)) {
+                $cert = ['code' => $certCode, 'name' => $certCode];
+            }
 
-            $apiResponse = ApiService::replace($params, $order->remoteid, $requestData);
+            $apiRequest = self::buildApiRequest($formData, $cert, $params);
+            $apiRequest['certId'] = $order->remoteid;
+
+            $apiResponse = ApiService::reissueCertificate($params, $apiRequest);
             $parsed = ApiService::parseResponse($apiResponse);
 
             if (!$parsed['success']) {
@@ -524,30 +811,19 @@ class ActionController
             }
 
             $configdata = json_decode($order->configdata, true) ?: [];
-            
-            if (!empty($formData['csr'])) {
-                $configdata['csr'] = $formData['csr'];
-            }
-            if (!empty($formData['privateKey'])) {
-                $configdata['privateKey'] = $formData['privateKey'];
-            }
-            if (!empty($formData['domainInfo'])) {
-                $configdata['domainInfo'] = $formData['domainInfo'];
-            }
-            
+            $configdata['csr'] = $formData['csr'] ?? '';
+            $configdata['privateKey'] = $formData['privateKey'] ?? '';
+            $configdata['domainInfo'] = $formData['domainInfo'] ?? [];
             $configdata['replaceTimes'] = ($configdata['replaceTimes'] ?? 0) + 1;
-            $configdata['reissueReturn'] = (array) ($parsed['data'] ?? []);
+            $configdata['applyReturn'] = (array) ($parsed['data'] ?? []);
             $configdata['lastRefresh'] = date('Y-m-d H:i:s');
 
-            $newCertId = $parsed['data']->certId ?? $order->remoteid;
-
             OrderRepository::update($order->id, [
-                'remoteid' => $newCertId,
                 'status' => SSL_STATUS_PENDING,
                 'configdata' => json_encode($configdata),
             ]);
 
-            return ResponseFormatter::success('Reissue request submitted', $parsed['data']);
+            return ResponseFormatter::success('Reissue request submitted successfully');
 
         } catch (Exception $e) {
             logModuleCall('nicsrs_ssl', 'submitReissue', $params, $e->getMessage());
@@ -555,6 +831,9 @@ class ActionController
         }
     }
 
+    /**
+     * Renew certificate
+     */
     public static function renew(array $params): array
     {
         try {
@@ -564,242 +843,83 @@ class ActionController
                 return ResponseFormatter::error('Order not found');
             }
 
-            $apiResponse = ApiService::renew($params, $order->remoteid);
-            $parsed = ApiService::parseResponse($apiResponse);
-
-            if (!$parsed['success']) {
-                return ResponseFormatter::error($parsed['message']);
-            }
-
-            return ResponseFormatter::success('Renewal initiated', $parsed['data']);
-
-        } catch (Exception $e) {
-            return ResponseFormatter::error($e->getMessage());
-        }
-    }
-
-    // ==========================================
-    // CSR Tools
-    // ==========================================
-
-    public static function generateCSR(array $params): array
-    {
-        try {
-            $data = self::getPostData('data');
+            $configdata = json_decode($order->configdata, true) ?: [];
             
-            if (empty($data)) {
-                return ResponseFormatter::error('Missing CSR data');
-            }
-
-            $domain = $data['domain'] ?? '';
-            $organization = $data['organization'] ?? '';
-            $country = $data['country'] ?? 'VN';
-            $state = $data['state'] ?? '';
-            $city = $data['city'] ?? '';
-            $email = $data['email'] ?? '';
-
-            if (empty($domain)) {
-                return ResponseFormatter::error('Domain is required');
-            }
-
-            $privateKey = openssl_pkey_new([
-                'private_key_bits' => 2048,
-                'private_key_type' => OPENSSL_KEYTYPE_RSA,
+            // Mark for renewal
+            $configdata['originalfromOthers'] = '1';
+            $configdata['isRenew'] = '1';
+            $configdata['renewFrom'] = $order->remoteid;
+            
+            // Reset status for new application
+            OrderRepository::update($order->id, [
+                'status' => SSL_STATUS_AWAITING,
+                'remoteid' => '',
+                'configdata' => json_encode($configdata),
             ]);
 
-            if (!$privateKey) {
-                return ResponseFormatter::error('Failed to generate private key');
-            }
-
-            $dn = [
-                'commonName' => $domain,
-                'countryName' => $country,
-            ];
-            
-            if (!empty($state)) $dn['stateOrProvinceName'] = $state;
-            if (!empty($city)) $dn['localityName'] = $city;
-            if (!empty($organization)) $dn['organizationName'] = $organization;
-            if (!empty($email)) $dn['emailAddress'] = $email;
-
-            $csr = openssl_csr_new($dn, $privateKey, ['digest_alg' => 'sha256']);
-
-            if (!$csr) {
-                return ResponseFormatter::error('Failed to generate CSR');
-            }
-
-            openssl_csr_export($csr, $csrOut);
-            openssl_pkey_export($privateKey, $privateKeyOut);
-
-            return ResponseFormatter::success('CSR generated', [
-                'csr' => $csrOut,
-                'privateKey' => $privateKeyOut,
-            ]);
+            return ResponseFormatter::success('Ready for renewal. Please submit new certificate request.');
 
         } catch (Exception $e) {
-            return ResponseFormatter::error($e->getMessage());
-        }
-    }
-
-    public static function decodeCsr(array $params): array
-    {
-        try {
-            $csr = $_POST['csr'] ?? '';
-            
-            if (empty($csr)) {
-                return ResponseFormatter::error('CSR is required');
-            }
-
-            $decoded = openssl_csr_get_subject($csr);
-            
-            if (!$decoded) {
-                return ResponseFormatter::error('Invalid CSR format');
-            }
-
-            return ResponseFormatter::success('CSR decoded', $decoded);
-
-        } catch (Exception $e) {
+            logModuleCall('nicsrs_ssl', 'renew', $params, $e->getMessage());
             return ResponseFormatter::error($e->getMessage());
         }
     }
 
     // ==========================================
-    // Helper Methods - OLD MODULE PATTERN
+    // Helper Methods
     // ==========================================
 
     /**
-     * Get POST data - SAME PATTERN AS OLD MODULE checkData()
+     * Get POST data using OLD MODULE pattern
+     * Handles both array and string JSON inputs
      */
     private static function getPostData(string $key): array
     {
-        logModuleCall('nicsrs_ssl', 'getPostData_START', [
-            'key' => $key,
-            'POST_keys' => array_keys($_POST),
-            'has_key' => isset($_POST[$key]),
-        ], 'Looking for POST data');
-
         if (!isset($_POST[$key])) {
-            logModuleCall('nicsrs_ssl', 'getPostData_FALLBACK', [], 'Key not found, trying fallback');
-            return self::parseApplyFormDataFallback();
-        }
-
-        $rawData = $_POST[$key];
-        
-        // Already an array (jQuery auto-serialized)
-        if (is_array($rawData)) {
-            logModuleCall('nicsrs_ssl', 'getPostData_ARRAY', [
-                'keys' => array_keys($rawData),
-            ], 'Data is already an array');
-            return $rawData;
+            return [];
         }
         
-        // JSON string
-        if (is_string($rawData)) {
-            $decoded = json_decode($rawData, true);
-            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
-                logModuleCall('nicsrs_ssl', 'getPostData_JSON', [], 'Data was JSON string');
+        $data = $_POST[$key];
+        
+        // If already an array (from PHP's form handling)
+        if (is_array($data)) {
+            return $data;
+        }
+        
+        // If JSON string
+        if (is_string($data)) {
+            $decoded = json_decode($data, true);
+            if (is_array($decoded)) {
                 return $decoded;
             }
         }
-
-        logModuleCall('nicsrs_ssl', 'getPostData_EMPTY', [
-            'rawData_type' => gettype($rawData),
-        ], 'Could not parse data');
         
         return [];
     }
 
     /**
-     * Fallback parser for flat form fields
+     * Validate form data
      */
-    private static function parseApplyFormDataFallback(): array
-    {
-        $data = [
-            'csr' => '',
-            'privateKey' => '',
-            'server' => 'other',
-            'domainInfo' => [],
-            'Administrator' => [],
-            'organizationInfo' => [],
-            'originalfromOthers' => '0',
-        ];
-        
-        $data['csr'] = trim($_POST['csr'] ?? '');
-        $data['privateKey'] = trim($_POST['privateKey'] ?? '');
-        $data['server'] = $_POST['server'] ?? 'other';
-        $data['originalfromOthers'] = $_POST['originalfromOthers'] ?? '0';
-        
-        // Parse domain info from indexed fields
-        $domainIndex = 0;
-        while (isset($_POST["domainInfo[$domainIndex][domainName]"]) || 
-               isset($_POST["domainInfo[{$domainIndex}][domainName]"])) {
-            $domainName = $_POST["domainInfo[$domainIndex][domainName]"] ?? 
-                         $_POST["domainInfo[{$domainIndex}][domainName]"] ?? '';
-            $dcvMethod = $_POST["domainInfo[$domainIndex][dcvMethod]"] ?? 
-                        $_POST["domainInfo[{$domainIndex}][dcvMethod]"] ?? 'CNAME_CSR_HASH';
-            $dcvEmail = $_POST["domainInfo[$domainIndex][dcvEmail]"] ?? 
-                       $_POST["domainInfo[{$domainIndex}][dcvEmail]"] ?? '';
-            
-            if (!empty($domainName)) {
-                $data['domainInfo'][] = [
-                    'domainName' => $domainName,
-                    'dcvMethod' => $dcvMethod,
-                    'dcvEmail' => $dcvEmail,
-                ];
-            }
-            $domainIndex++;
-        }
-        
-        // Parse Administrator from indexed fields
-        if (isset($_POST['Administrator']) && is_array($_POST['Administrator'])) {
-            $data['Administrator'] = $_POST['Administrator'];
-        }
-        
-        // Parse Organization info
-        if (isset($_POST['organizationInfo']) && is_array($_POST['organizationInfo'])) {
-            $data['organizationInfo'] = $_POST['organizationInfo'];
-        }
-        
-        logModuleCall('nicsrs_ssl', 'parseApplyFormDataFallback', [
-            'domainCount' => count($data['domainInfo']),
-        ], 'Fallback result');
-        
-        return $data;
-    }
-
-    /**
-     * Validate form data before submission
-     */
-    private static function validateFormData(array $data, bool $isDraft = false): array
+    private static function validateFormData(array $formData, bool $isDraft = false): array
     {
         $errors = [];
 
-        if ($isDraft) {
-            return $errors;
+        // Domain validation
+        $domains = $formData['domainInfo'] ?? [];
+        if (empty($domains) && !$isDraft) {
+            $errors['domainInfo'] = 'At least one domain is required';
         }
 
-        if (empty($data['csr'])) {
+        // CSR validation (only for submit, not draft)
+        if (!$isDraft && empty($formData['csr'])) {
             $errors['csr'] = 'CSR is required';
-        } elseif (strpos($data['csr'], '-----BEGIN CERTIFICATE REQUEST-----') === false) {
-            $errors['csr'] = 'Invalid CSR format';
         }
 
-        if (empty($data['domainInfo'])) {
-            $errors['domain'] = 'At least one domain is required';
-        } else {
-            foreach ($data['domainInfo'] as $i => $domain) {
-                if (empty($domain['domainName'])) {
-                    $errors["domain_{$i}"] = 'Domain name is required';
-                }
-                if (empty($domain['dcvMethod'])) {
-                    $errors["dcv_{$i}"] = 'DCV method is required';
-                }
-            }
-        }
-
-        $admin = $data['Administrator'] ?? [];
+        // Administrator contact validation
+        $admin = $formData['Administrator'] ?? [];
         $requiredAdminFields = ['firstName', 'lastName', 'email'];
         foreach ($requiredAdminFields as $field) {
-            if (empty($admin[$field])) {
+            if (empty($admin[$field]) && !$isDraft) {
                 $errors["admin_{$field}"] = "Administrator {$field} is required";
             }
         }
@@ -814,28 +934,37 @@ class ActionController
     {
         $domainInfos = $formData['domainInfo'] ?? [];
         
+        // Process domain info for API
+        $processedDomains = [];
+        foreach ($domainInfos as $domain) {
+            $item = [
+                'domainName' => $domain['domainName'] ?? '',
+                'dcvMethod' => $domain['dcvMethod'] ?? 'CNAME_CSR_HASH',
+            ];
+            
+            // Check if dcvMethod is an email
+            $dcvMethod = $item['dcvMethod'];
+            if (filter_var($dcvMethod, FILTER_VALIDATE_EMAIL)) {
+                $item['dcvMethod'] = 'EMAIL';
+                $item['dcvEmail'] = $dcvMethod;
+            } elseif (!empty($domain['dcvEmail'])) {
+                $item['dcvEmail'] = $domain['dcvEmail'];
+            }
+            
+            $processedDomains[] = $item;
+        }
+        
         $request = [
             'productCode' => $cert['code'] ?? $params['configoption1'] ?? '',
             'period' => self::getPeriodFromBillingCycle($params),
-            'csr' => $formData['csr'],
-            'dcvMethod' => $domainInfos[0]['dcvMethod'] ?? 'CNAME_CSR_HASH',
-            'adminContact' => $formData['Administrator'],
-            'techContact' => $formData['tech'] ?? $formData['Administrator'],
+            'csr' => $formData['csr'] ?? '',
+            'domainInfo' => $processedDomains,
+            'adminContact' => $formData['Administrator'] ?? [],
+            'techContact' => $formData['tech'] ?? $formData['Administrator'] ?? [],
         ];
 
         if (!empty($formData['organizationInfo'])) {
             $request['organization'] = $formData['organizationInfo'];
-        }
-
-        if (count($domainInfos) > 1) {
-            $sanDomains = [];
-            for ($i = 1; $i < count($domainInfos); $i++) {
-                $sanDomains[] = [
-                    'domainName' => $domainInfos[$i]['domainName'],
-                    'dcvMethod' => $domainInfos[$i]['dcvMethod'] ?? 'CNAME_CSR_HASH',
-                ];
-            }
-            $request['sanDomains'] = $sanDomains;
         }
 
         return $request;
@@ -850,13 +979,13 @@ class ActionController
         
         $cycleMap = [
             'monthly' => 1,
-            'quarterly' => 3,
-            'semi-annually' => 6,
-            'annually' => 12,
-            'biennially' => 24,
-            'triennially' => 36,
+            'quarterly' => 1,
+            'semi-annually' => 1,
+            'annually' => 1,
+            'biennially' => 2,
+            'triennially' => 3,
         ];
         
-        return $cycleMap[$cycle] ?? 12;
+        return $cycleMap[$cycle] ?? 1;
     }
 }
