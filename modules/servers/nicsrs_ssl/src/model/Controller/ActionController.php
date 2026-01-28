@@ -170,31 +170,53 @@ class ActionController
                 return ResponseFormatter::error('Order not found');
             }
 
+            // Parse form data using fixed function
             $formData = self::parseApplyFormData($params);
-
+            
+            // Get existing configdata
             $configdata = json_decode($order->configdata, true) ?: [];
             
-            // Merge form data into configdata
-            $configdata = array_merge($configdata, [
-                'csr' => $formData['csr'] ?? '',
-                'privateKey' => $formData['privateKey'] ?? '',
-                'domainInfo' => $formData['domainInfo'] ?? [],
-                'Administrator' => $formData['Administrator'] ?? [],
-                'organizationInfo' => $formData['organizationInfo'] ?? [],
-                'renewOrNot' => $formData['renewOrNot'] ?? 'purchase',
-                'originalfromOthers' => $formData['originalfromOthers'] ?? '0',
-                'draftSavedAt' => date('Y-m-d H:i:s'),
-            ]);
-
+            // Merge new form data - overwrite with new values if not empty
+            if (!empty($formData['csr'])) {
+                $configdata['csr'] = $formData['csr'];
+            }
+            if (!empty($formData['privateKey'])) {
+                $configdata['privateKey'] = $formData['privateKey'];
+            }
+            if (!empty($formData['domainInfo'])) {
+                $configdata['domainInfo'] = $formData['domainInfo'];
+            }
+            if (!empty($formData['Administrator'])) {
+                $configdata['Administrator'] = $formData['Administrator'];
+            }
+            if (!empty($formData['organizationInfo'])) {
+                $configdata['organizationInfo'] = $formData['organizationInfo'];
+            }
+            
+            $configdata['renewOrNot'] = $formData['renewOrNot'] ?? 'purchase';
+            $configdata['originalfromOthers'] = $formData['originalfromOthers'] ?? '0';
+            $configdata['server'] = $formData['server'] ?? 'other';
+            $configdata['draftSavedAt'] = date('Y-m-d H:i:s');
+            
+            // Update order
             OrderRepository::update($order->id, [
                 'status' => SSL_STATUS_DRAFT,
                 'configdata' => json_encode($configdata),
             ]);
+            
+            logModuleCall('nicsrs_ssl', 'saveDraft_success', [], [
+                'domainCount' => count($configdata['domainInfo'] ?? []),
+                'hasCsr' => !empty($configdata['csr']),
+            ]);
 
-            return ResponseFormatter::success('Draft saved successfully');
+            return ResponseFormatter::success('Draft saved successfully', [
+                'savedAt' => $configdata['draftSavedAt'],
+                'hasCsr' => !empty($configdata['csr']),
+                'domainCount' => count($configdata['domainInfo'] ?? []),
+            ]);
 
         } catch (Exception $e) {
-            logModuleCall('nicsrs_ssl', 'saveDraft', $params, $e->getMessage());
+            logModuleCall('nicsrs_ssl', 'saveDraft_error', $params, $e->getMessage());
             return ResponseFormatter::error($e->getMessage());
         }
     }
@@ -577,148 +599,182 @@ class ActionController
     private static function parseApplyFormData(array $params = []): array
     {
         $data = [];
-
-        // Renew or Purchase
-        $data['renewOrNot'] = $_POST['renewOrNot'] ?? 'purchase';
-
-        // CSR Mode - Check if manual CSR is provided
-        $isManualCsr = isset($_POST['isManualCsr']) && 
-                       ($_POST['isManualCsr'] === 'on' || $_POST['isManualCsr'] === '1' || $_POST['isManualCsr'] === 'true');
-        $data['originalfromOthers'] = $_POST['originalfromOthers'] ?? ($isManualCsr ? '1' : '0');
         
-        // Get domain first (needed for auto CSR generation)
-        $domain = '';
+        // ==========================================
+        // CRITICAL FIX: Extract data from JSON wrapper
+        // JavaScript sends: xhr.send('data=' + encodeURIComponent(JSON.stringify(data)))
+        // So all form data is inside $_POST['data'] as JSON string
+        // ==========================================
+        $postData = $_POST;
         
-        // Get domain from domains array (new format from JS)
-        if (isset($_POST['domains']) && is_array($_POST['domains'])) {
-            foreach ($_POST['domains'] as $d) {
-                if (!empty($d['name'])) {
-                    $domain = trim($d['name']);
-                    break;
+        if (isset($_POST['data'])) {
+            $jsonData = $_POST['data'];
+            
+            if (is_string($jsonData)) {
+                $decoded = json_decode($jsonData, true);
+                
+                if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                    // Use decoded JSON as primary data source
+                    $postData = array_merge($postData, $decoded);
+                    
+                    logModuleCall('nicsrs_ssl', 'parseApplyFormData_decoded', 
+                        ['raw_json' => substr($jsonData, 0, 500)], 
+                        ['decoded_keys' => array_keys($decoded)]
+                    );
+                } else {
+                    logModuleCall('nicsrs_ssl', 'parseApplyFormData_json_error', 
+                        ['raw' => substr($jsonData, 0, 500)], 
+                        ['error' => json_last_error_msg()]
+                    );
                 }
             }
         }
         
-        // Fallback to domainInfo (JSON string from JS)
-        if (empty($domain) && isset($_POST['domainInfo'])) {
-            $domainInfo = $_POST['domainInfo'];
-            if (is_string($domainInfo)) {
-                $domainInfo = json_decode($domainInfo, true);
-            }
-            if (is_array($domainInfo) && !empty($domainInfo[0]['domainName'])) {
-                $domain = $domainInfo[0]['domainName'];
+        // ==========================================
+        // Parse Domain Info (from decoded JSON)
+        // ==========================================
+        $data['domainInfo'] = [];
+        $primaryDomain = '';
+        
+        // domainInfo is array of {domainName, dcvMethod}
+        if (isset($postData['domainInfo']) && is_array($postData['domainInfo'])) {
+            foreach ($postData['domainInfo'] as $domain) {
+                if (!empty($domain['domainName'])) {
+                    $data['domainInfo'][] = [
+                        'domainName' => trim($domain['domainName']),
+                        'dcvMethod' => $domain['dcvMethod'] ?? 'CNAME_CSR_HASH',
+                        'dcvEmail' => $domain['dcvEmail'] ?? '',
+                    ];
+                    if (empty($primaryDomain)) {
+                        $primaryDomain = trim($domain['domainName']);
+                    }
+                }
             }
         }
         
+        // Fallback: Parse from domains[] array (HTML form format)
+        if (empty($data['domainInfo']) && isset($postData['domains']) && is_array($postData['domains'])) {
+            foreach ($postData['domains'] as $d) {
+                if (!empty($d['name'])) {
+                    $data['domainInfo'][] = [
+                        'domainName' => trim($d['name']),
+                        'dcvMethod' => $d['dcvMethod'] ?? 'CNAME_CSR_HASH',
+                        'dcvEmail' => $d['dcvEmail'] ?? '',
+                    ];
+                    if (empty($primaryDomain)) {
+                        $primaryDomain = trim($d['name']);
+                    }
+                }
+            }
+        }
+        
+        // ==========================================
+        // Parse Administrator/Contact Info
+        // ==========================================
+        $data['Administrator'] = [];
+        
+        // Administrator is object from JS
+        if (isset($postData['Administrator']) && is_array($postData['Administrator'])) {
+            $data['Administrator'] = $postData['Administrator'];
+        }
+        
+        // Fallback: Parse from individual form fields
+        if (empty($data['Administrator']['firstName']) && !empty($postData['adminFirstName'])) {
+            $data['Administrator'] = [
+                'firstName' => $postData['adminFirstName'] ?? '',
+                'lastName' => $postData['adminLastName'] ?? '',
+                'email' => $postData['adminEmail'] ?? '',
+                'mobile' => $postData['adminPhone'] ?? '',
+                'job' => $postData['adminTitle'] ?? 'IT Manager',
+                'organation' => $postData['adminOrganizationName'] ?? '',
+                'country' => $postData['adminCountry'] ?? '',
+                'address' => $postData['adminAddress'] ?? '',
+                'city' => $postData['adminCity'] ?? '',
+                'state' => $postData['adminProvince'] ?? '',
+                'postCode' => $postData['adminPostcode'] ?? '',
+            ];
+        }
+        
+        // Copy admin to tech and finance
+        $data['tech'] = $data['Administrator'];
+        $data['finance'] = $data['Administrator'];
+        
+        // ==========================================
+        // Parse Organization Info (for OV/EV certs)
+        // ==========================================
+        if (isset($postData['organizationInfo']) && is_array($postData['organizationInfo'])) {
+            $data['organizationInfo'] = $postData['organizationInfo'];
+        } elseif (!empty($postData['organizationName'])) {
+            $data['organizationInfo'] = [
+                'organizationName' => $postData['organizationName'] ?? '',
+                'division' => $postData['division'] ?? 'IT Department',
+                'organizationCity' => $postData['organizationCity'] ?? '',
+                'organizationCountry' => $postData['organizationCountry'] ?? '',
+                'organizationAddress' => $postData['organizationAddress'] ?? '',
+                'organizationPostalCode' => $postData['organizationPostalCode'] ?? '',
+            ];
+        }
+        
+        // ==========================================
         // Handle CSR
-        if ($isManualCsr && !empty($_POST['csr'])) {
+        // ==========================================
+        $isManualCsr = false;
+        
+        // Check originalfromOthers from JS (indicates manual CSR mode)
+        if (isset($postData['originalfromOthers'])) {
+            $isManualCsr = $postData['originalfromOthers'] === '1' || $postData['originalfromOthers'] === 1;
+        }
+        
+        $data['originalfromOthers'] = $isManualCsr ? '1' : '0';
+        
+        if ($isManualCsr && !empty($postData['csr'])) {
             // Manual CSR provided
-            $data['csr'] = trim($_POST['csr']);
-            $data['privateKey'] = ''; // No private key when using manual CSR
+            $data['csr'] = trim($postData['csr']);
+            $data['privateKey'] = '';
         } else {
-            // Auto-generate CSR from contact info
+            // Auto-generate CSR from contact info + domain
+            $admin = $data['Administrator'];
+            
             $csrParams = [
-                'cn' => $domain,
-                'org' => $_POST['adminOrganizationName'] ?? '',
-                'ou' => $_POST['division'] ?? 'IT Department',
-                'city' => $_POST['adminCity'] ?? '',
-                'state' => $_POST['adminProvince'] ?? '',
-                'country' => $_POST['adminCountry'] ?? '',
-                'email' => $_POST['adminEmail'] ?? '',
+                'cn' => $primaryDomain,
+                'org' => $admin['organation'] ?? '',
+                'ou' => 'IT Department',
+                'city' => $admin['city'] ?? '',
+                'state' => $admin['state'] ?? '',
+                'country' => $admin['country'] ?? '',
+                'email' => $admin['email'] ?? '',
             ];
             
-            try {
-                $generated = CertificateFunc::generateCSR($csrParams);
-                $data['csr'] = $generated['csr'];
-                $data['privateKey'] = $generated['privateKey'];
-            } catch (Exception $e) {
-                logModuleCall('nicsrs_ssl', 'generateCSR_error', $csrParams, $e->getMessage());
+            logModuleCall('nicsrs_ssl', 'auto_csr_params', $csrParams, '');
+            
+            if (!empty($primaryDomain)) {
+                try {
+                    $generated = CertificateFunc::generateCSR($csrParams);
+                    $data['csr'] = $generated['csr'];
+                    $data['privateKey'] = $generated['privateKey'];
+                } catch (Exception $e) {
+                    logModuleCall('nicsrs_ssl', 'generateCSR_error', $csrParams, $e->getMessage());
+                    $data['csr'] = '';
+                    $data['privateKey'] = '';
+                }
+            } else {
                 $data['csr'] = '';
                 $data['privateKey'] = '';
             }
         }
-
-        // Domain Info - Parse from new JS format
-        $data['domainInfo'] = [];
         
-        // Check for JSON-encoded domainInfo from JS
-        if (isset($_POST['domainInfo'])) {
-            $domainInfo = $_POST['domainInfo'];
-            if (is_string($domainInfo)) {
-                $decoded = json_decode($domainInfo, true);
-                if (is_array($decoded)) {
-                    $data['domainInfo'] = $decoded;
-                }
-            } elseif (is_array($domainInfo)) {
-                $data['domainInfo'] = $domainInfo;
-            }
-        }
+        // Other fields
+        $data['server'] = $postData['server'] ?? 'other';
+        $data['renewOrNot'] = $postData['renewOrNot'] ?? 'purchase';
         
-        // Parse from domains[] array format (from HTML form)
-        if (empty($data['domainInfo']) && isset($_POST['domains']) && is_array($_POST['domains'])) {
-            foreach ($_POST['domains'] as $d) {
-                if (!empty($d['name'])) {
-                    $data['domainInfo'][] = [
-                        'domainName' => trim($d['name']),
-                        'dcvMethod' => $d['dcvMethod'] ?? 'HTTP_CSR_HASH',
-                        'dcvEmail' => $d['dcvEmail'] ?? '',
-                    ];
-                }
-            }
-        }
-
-        // Server type
-        $data['server'] = $_POST['server'] ?? 'other';
-
-        // Administrator contact - Check for JSON-encoded or form fields
-        if (isset($_POST['Administrator'])) {
-            $admin = $_POST['Administrator'];
-            if (is_string($admin)) {
-                $decoded = json_decode($admin, true);
-                if (is_array($decoded)) {
-                    $data['Administrator'] = $decoded;
-                }
-            } elseif (is_array($admin)) {
-                $data['Administrator'] = $admin;
-            }
-        }
+        // Log final parsed data
+        logModuleCall('nicsrs_ssl', 'parseApplyFormData_result', [], [
+            'domainCount' => count($data['domainInfo']),
+            'hasAdmin' => !empty($data['Administrator']['firstName']),
+            'hasCsr' => !empty($data['csr']),
+            'primaryDomain' => $primaryDomain,
+        ]);
         
-        // Parse from individual form fields
-        if (empty($data['Administrator']) && !empty($_POST['adminFirstName'])) {
-            $data['Administrator'] = [
-                'firstName' => $_POST['adminFirstName'] ?? '',
-                'lastName' => $_POST['adminLastName'] ?? '',
-                'email' => $_POST['adminEmail'] ?? '',
-                'mobile' => $_POST['adminPhone'] ?? '',
-                'job' => $_POST['adminTitle'] ?? 'IT Manager',
-                'organation' => $_POST['adminOrganizationName'] ?? '',
-                'country' => $_POST['adminCountry'] ?? '',
-                'address' => $_POST['adminAddress'] ?? '',
-                'city' => $_POST['adminCity'] ?? '',
-                'state' => $_POST['adminProvince'] ?? '',
-                'postCode' => $_POST['adminPostcode'] ?? '',
-            ];
-        }
-
-        // Technical contact (copy from admin)
-        $data['tech'] = $data['Administrator'] ?? [];
-        $data['finance'] = $data['Administrator'] ?? [];
-
-        // Organization info (for OV/EV)
-        if (!empty($_POST['organizationName'])) {
-            $data['organizationInfo'] = [
-                'organizationName' => $_POST['organizationName'] ?? '',
-                'division' => $_POST['division'] ?? 'IT Department',
-                'duns' => $_POST['duns'] ?? '',
-                'organizationPhone' => $_POST['organizationPhone'] ?? '',
-                'organizationCity' => $_POST['organizationCity'] ?? '',
-                'organizationRegion' => $_POST['organizationRegion'] ?? '',
-                'organizationCountry' => $_POST['organizationCountry'] ?? '',
-                'organizationAddress' => $_POST['organizationAddress'] ?? '',
-                'organizationPostalCode' => $_POST['organizationPostalCode'] ?? '',
-            ];
-        }
-
         return $data;
     }
 

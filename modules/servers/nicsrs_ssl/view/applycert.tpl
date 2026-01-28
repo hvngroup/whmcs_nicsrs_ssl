@@ -105,8 +105,9 @@
                 </div>
                 
                 <div id="domainList">
+                    {* Get saved domain values *}
                     {assign var="domainValue" value=""}
-                    {assign var="dcvValue" value=""}
+                    {assign var="dcvValue" value="CNAME_CSR_HASH"}
                     {if !empty($cfgData.domainInfo[0].domainName)}
                         {assign var="domainValue" value=$cfgData.domainInfo[0].domainName}
                     {/if}
@@ -116,34 +117,78 @@
                     
                     <div class="sslm-domain-row" data-index="0">
                         <div class="sslm-domain-col">
-                            <input type="text" name="domains[0][name]" class="sslm-input sslm-domain-input" placeholder="{$_LANG.domain_placeholder|default:'example.com'}" value="{$domainValue}">
+                            <input type="text" 
+                                name="domains[0][name]" 
+                                class="sslm-input sslm-domain-input" 
+                                placeholder="{$_LANG.domain_placeholder|default:'example.com'}"
+                                value="{$domainValue}">
                         </div>
                         <div class="sslm-dcv-col">
                             <select name="domains[0][dcvMethod]" class="sslm-select sslm-dcv-select">
-                                <option value="">{$_LANG.choose|default:'Choose'}</option>
-                                <option value="CNAME_CSR_HASH" {if $dcvValue == 'CNAME_CSR_HASH'}selected{/if}>{$_LANG.dns_cname|default:'DNS CNAME'}</option>
-                                <option value="HTTP_CSR_HASH" {if $dcvValue == 'HTTP_CSR_HASH'}selected{/if}>{$_LANG.http_file|default:'HTTP File'}</option>
-                                <option value="HTTPS_CSR_HASH" {if $dcvValue == 'HTTPS_CSR_HASH'}selected{/if}>{$_LANG.https_file|default:'HTTPS File'}</option>
-                                <option value="EMAIL" {if $dcvValue == 'EMAIL'}selected{/if}>{$_LANG.email|default:'Email'}</option>
+                                <option value="CNAME_CSR_HASH" {if $dcvValue == 'CNAME_CSR_HASH'}selected{/if}>
+                                    {$_LANG.dns_cname|default:'DNS CNAME'}
+                                </option>
+                                <option value="HTTP_CSR_HASH" {if $dcvValue == 'HTTP_CSR_HASH'}selected{/if}>
+                                    {$_LANG.http_file|default:'HTTP File'}
+                                </option>
+                                <option value="HTTPS_CSR_HASH" {if $dcvValue == 'HTTPS_CSR_HASH'}selected{/if}>
+                                    {$_LANG.https_file|default:'HTTPS File'}
+                                </option>
+                                <option value="EMAIL" {if $dcvValue == 'EMAIL'}selected{/if}>
+                                    {$_LANG.email_validation|default:'Email'}
+                                </option>
                             </select>
                         </div>
-                        {if $ismultidomain || $maxdomain > 1}
                         <div class="sslm-action-col">
-                            <button type="button" class="sslm-btn-icon sslm-btn-remove" onclick="removeDomain(this)" style="display:none;">
-                                <i class="fas fa-times"></i>
-                            </button>
+                            <button type="button" class="sslm-btn-icon sslm-btn-remove" onclick="removeDomain(this)" style="display:none;">×</button>
                         </div>
-                        {/if}
                     </div>
+                    
+                    {* Render additional saved domains *}
+                    {if !empty($cfgData.domainInfo) && count($cfgData.domainInfo) > 1}
+                        {foreach from=$cfgData.domainInfo item=domain key=idx}
+                            {if $idx > 0}
+                            <div class="sslm-domain-row" data-index="{$idx}">
+                                <div class="sslm-domain-col">
+                                    <input type="text" 
+                                        name="domains[{$idx}][name]" 
+                                        class="sslm-input sslm-domain-input" 
+                                        placeholder="{$_LANG.domain_placeholder|default:'example.com'}"
+                                        value="{$domain.domainName}">
+                                </div>
+                                <div class="sslm-dcv-col">
+                                    <select name="domains[{$idx}][dcvMethod]" class="sslm-select sslm-dcv-select">
+                                        <option value="CNAME_CSR_HASH" {if $domain.dcvMethod == 'CNAME_CSR_HASH'}selected{/if}>
+                                            {$_LANG.dns_cname|default:'DNS CNAME'}
+                                        </option>
+                                        <option value="HTTP_CSR_HASH" {if $domain.dcvMethod == 'HTTP_CSR_HASH'}selected{/if}>
+                                            {$_LANG.http_file|default:'HTTP File'}
+                                        </option>
+                                        <option value="HTTPS_CSR_HASH" {if $domain.dcvMethod == 'HTTPS_CSR_HASH'}selected{/if}>
+                                            {$_LANG.https_file|default:'HTTPS File'}
+                                        </option>
+                                        <option value="EMAIL" {if $domain.dcvMethod == 'EMAIL'}selected{/if}>
+                                            {$_LANG.email_validation|default:'Email'}
+                                        </option>
+                                    </select>
+                                </div>
+                                <div class="sslm-action-col">
+                                    <button type="button" class="sslm-btn-icon sslm-btn-remove" onclick="removeDomain(this)">×</button>
+                                </div>
+                            </div>
+                            {/if}
+                        {/foreach}
+                    {/if}
                 </div>
                 
-                {if $ismultidomain || $maxdomain > 1}
+                {* Add domain button (for multi-domain certs) *}
+                {if $ismultidomain && $maxdomain > 1}
                 <div class="sslm-domain-actions">
-                    <button type="button" class="sslm-btn sslm-btn-outline" onclick="addDomain()">
+                    <button type="button" class="sslm-btn sslm-btn-link" onclick="addDomain()">
                         <i class="fas fa-plus"></i> {$_LANG.add_domain|default:'Add Domain'}
                     </button>
-                    <span class="sslm-text-muted sslm-domain-count">
-                        {$_LANG.max_domains|default:'Maximum'}: <strong id="maxDomainCount">{$maxdomain|default:1}</strong> {$_LANG.domains|default:'domains'}
+                    <span class="sslm-help-text">
+                        {$_LANG.max_domains|default:'Maximum'}: {$maxdomain} {$_LANG.domains|default:'domains'}
                     </span>
                 </div>
                 {/if}

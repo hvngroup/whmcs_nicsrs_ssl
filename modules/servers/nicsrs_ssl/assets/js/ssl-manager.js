@@ -104,25 +104,34 @@
         domainIndex++;
         data = data || {};
         
+        // Default DCV method to CNAME_CSR_HASH if not specified
+        var dcvMethod = data.dcvMethod || 'CNAME_CSR_HASH';
+        
         var row = document.createElement('div');
         row.className = 'sslm-domain-row';
+        row.setAttribute('data-index', domainIndex);
+        
         row.innerHTML = 
             '<div class="sslm-domain-col">' +
                 '<input type="text" name="domains[' + domainIndex + '][name]" ' +
-                       'class="sslm-input sslm-domain-input" ' +
-                       'placeholder="' + (lang.enter_domain || 'Enter domain') + '" ' +
-                       'value="' + (data.domainName || '') + '">' +
+                    'class="sslm-input sslm-domain-input" ' +
+                    'placeholder="' + (lang.enter_domain || 'example.com') + '" ' +
+                    'value="' + (data.domainName || '') + '">' +
             '</div>' +
             '<div class="sslm-dcv-col">' +
                 '<select name="domains[' + domainIndex + '][dcvMethod]" class="sslm-select sslm-dcv-select">' +
-                    '<option value="CNAME_CSR_HASH"' + (data.dcvMethod === 'CNAME_CSR_HASH' ? ' selected' : '') + '>' + (lang.dns_cname || 'DNS CNAME') + '</option>' +
-                    '<option value="HTTP_CSR_HASH"' + (data.dcvMethod === 'HTTP_CSR_HASH' ? ' selected' : '') + '>' + (lang.http_file || 'HTTP File') + '</option>' +
-                    '<option value="HTTPS_CSR_HASH"' + (data.dcvMethod === 'HTTPS_CSR_HASH' ? ' selected' : '') + '>' + (lang.https_file || 'HTTPS File') + '</option>' +
-                    '<option value="EMAIL"' + (data.dcvMethod === 'EMAIL' ? ' selected' : '') + '>' + (lang.email || 'Email') + '</option>' +
+                    '<option value="CNAME_CSR_HASH"' + (dcvMethod === 'CNAME_CSR_HASH' ? ' selected' : '') + '>' + 
+                        (lang.dns_cname || 'DNS CNAME') + '</option>' +
+                    '<option value="HTTP_CSR_HASH"' + (dcvMethod === 'HTTP_CSR_HASH' ? ' selected' : '') + '>' + 
+                        (lang.http_file || 'HTTP File') + '</option>' +
+                    '<option value="HTTPS_CSR_HASH"' + (dcvMethod === 'HTTPS_CSR_HASH' ? ' selected' : '') + '>' + 
+                        (lang.https_file || 'HTTPS File') + '</option>' +
+                    '<option value="EMAIL"' + (dcvMethod === 'EMAIL' ? ' selected' : '') + '>' + 
+                        (lang.email || 'Email') + '</option>' +
                 '</select>' +
             '</div>' +
             '<div class="sslm-action-col">' +
-                '<button type="button" class="sslm-btn-icon sslm-btn-remove" onclick="removeDomain(this)">✕</button>' +
+                '<button type="button" class="sslm-btn-icon sslm-btn-remove" onclick="removeDomain(this)" title="Remove">×</button>' +
             '</div>';
         
         domainList.appendChild(row);
@@ -262,9 +271,16 @@
         
         var data = config.configData;
         
-        // Restore CSR
-        if (data.csr) {
+        console.log('Restoring form data:', data);
+        
+        // Restore CSR toggle and content
+        if (data.csr && data.originalfromOthers === '1') {
+            var toggle = document.getElementById('isManualCsr');
+            var csrTextarea = document.getElementById('csrTextarea');
             var csrField = form.querySelector('[name="csr"]');
+            
+            if (toggle) toggle.checked = true;
+            if (csrTextarea) csrTextarea.style.display = 'block';
             if (csrField) csrField.value = data.csr;
         }
         
@@ -277,6 +293,7 @@
                 'adminEmail': admin.email,
                 'adminPhone': admin.mobile,
                 'adminTitle': admin.job,
+                'adminOrganizationName': admin.organation,
                 'adminCountry': admin.country,
                 'adminCity': admin.city,
                 'adminAddress': admin.address,
@@ -287,7 +304,9 @@
             for (var fieldName in fieldMap) {
                 if (fieldMap[fieldName]) {
                     var field = form.querySelector('[name="' + fieldName + '"]');
-                    if (field) field.value = fieldMap[fieldName];
+                    if (field) {
+                        field.value = fieldMap[fieldName];
+                    }
                 }
             }
         }
@@ -306,22 +325,36 @@
             for (var orgFieldName in orgFieldMap) {
                 if (orgFieldMap[orgFieldName]) {
                     var orgField = form.querySelector('[name="' + orgFieldName + '"]');
-                    if (orgField) orgField.value = orgFieldMap[orgFieldName];
+                    if (orgField) {
+                        orgField.value = orgFieldMap[orgFieldName];
+                    }
                 }
             }
         }
         
-        // Restore first domain
+        // Restore ALL domains (not just first one)
         if (data.domainInfo && data.domainInfo.length > 0) {
-            var firstDomain = data.domainInfo[0];
-            var domainInput = form.querySelector('.sslm-domain-input');
-            var dcvSelect = form.querySelector('.sslm-dcv-select');
+            var domainList = document.getElementById('domainList');
+            if (!domainList) return;
             
-            if (domainInput && firstDomain.domainName) {
-                domainInput.value = firstDomain.domainName;
+            // Restore first domain to existing row
+            var firstRow = domainList.querySelector('.sslm-domain-row');
+            if (firstRow) {
+                var firstDomain = data.domainInfo[0];
+                var domainInput = firstRow.querySelector('.sslm-domain-input');
+                var dcvSelect = firstRow.querySelector('.sslm-dcv-select');
+                
+                if (domainInput && firstDomain.domainName) {
+                    domainInput.value = firstDomain.domainName;
+                }
+                if (dcvSelect && firstDomain.dcvMethod) {
+                    dcvSelect.value = firstDomain.dcvMethod;
+                }
             }
-            if (dcvSelect && firstDomain.dcvMethod) {
-                dcvSelect.value = firstDomain.dcvMethod;
+            
+            // Add additional domain rows
+            for (var i = 1; i < data.domainInfo.length; i++) {
+                addDomainRow(data.domainInfo[i]);
             }
         }
     }
@@ -476,18 +509,21 @@
         var form = document.getElementById('sslm-apply-form');
         if (!form) return {};
         
-        return {
+        var contacts = {
             firstName: getFieldValue(form, 'adminFirstName'),
             lastName: getFieldValue(form, 'adminLastName'),
             email: getFieldValue(form, 'adminEmail'),
             mobile: getFieldValue(form, 'adminPhone'),
-            job: getFieldValue(form, 'adminTitle'),
+            job: getFieldValue(form, 'adminTitle') || 'IT Manager',
+            organation: getFieldValue(form, 'adminOrganizationName'),
             country: getFieldValue(form, 'adminCountry'),
-            city: getFieldValue(form, 'adminCity'),
             address: getFieldValue(form, 'adminAddress'),
+            city: getFieldValue(form, 'adminCity'),
             state: getFieldValue(form, 'adminProvince'),
             postCode: getFieldValue(form, 'adminPostCode')
         };
+        
+        return contacts;
     }
 
     function getFieldValue(form, name) {
@@ -1139,40 +1175,37 @@
         var existing = document.querySelector('.sslm-toast');
         if (existing) existing.remove();
         
-        // Create toast
+        // Create toast element with CSS classes only (no inline styles)
         var toast = document.createElement('div');
         toast.className = 'sslm-toast sslm-toast--' + type;
-        toast.innerHTML = '<span>' + message + '</span>';
         
-        // Position toast
-        toast.style.cssText = 'position:fixed;top:20px;right:20px;z-index:9999;padding:12px 20px;border-radius:6px;' +
-            'box-shadow:0 4px 12px rgba(0,0,0,0.15);font-size:14px;max-width:400px;opacity:0;transition:opacity 0.3s;';
-        
-        // Type colors
-        var colors = {
-            success: 'background:#f6ffed;border:1px solid #b7eb8f;color:#389e0d;',
-            error: 'background:#fff2f0;border:1px solid #ffccc7;color:#cf1322;',
-            warning: 'background:#fffbe6;border:1px solid #ffe58f;color:#d48806;',
-            info: 'background:#e6f7ff;border:1px solid #91d5ff;color:#1890ff;'
+        // Icon based on type
+        var icons = {
+            success: '✓',
+            error: '✕',
+            warning: '⚠',
+            info: 'ℹ'
         };
-        toast.style.cssText += colors[type] || colors.info;
         
+        toast.innerHTML = '<span class="sslm-toast-icon">' + (icons[type] || 'ℹ') + '</span>' +
+                        '<span class="sslm-toast-message">' + message + '</span>';
+        
+        // Append to body
         document.body.appendChild(toast);
         
-        // Show toast
-        setTimeout(function() {
-            toast.style.opacity = '1';
-        }, 10);
+        // Trigger animation
+        requestAnimationFrame(function() {
+            toast.classList.add('sslm-toast--visible');
+        });
         
-        // Hide toast after delay
+        // Auto-hide after 3 seconds
         setTimeout(function() {
-            toast.style.opacity = '0';
+            toast.classList.remove('sslm-toast--visible');
             setTimeout(function() {
                 if (toast.parentNode) toast.remove();
             }, 300);
         }, 3000);
     }
-
     // Expose showToast globally
     window.showToast = showToast;
 
