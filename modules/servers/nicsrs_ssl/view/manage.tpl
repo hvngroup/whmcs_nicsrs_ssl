@@ -1,249 +1,249 @@
 {**
- * NicSRS SSL Module - Manage Certificate Template
- * General certificate management page
+ * NicSRS SSL Module - Message/Pending Template
+ * Shows DCV instructions while certificate is pending validation
  * 
  * @package    nicsrs_ssl
  * @version    2.0.0
  * @author     HVN GROUP
+ * @copyright  Copyright (c) HVN GROUP (https://hvn.vn)
  *}
 
+{* Load CSS *}
 <link rel="stylesheet" href="{$WEB_ROOT}/modules/servers/nicsrs_ssl/assets/css/ssl-manager.css">
 
 <div class="sslm-container">
-    {* Configuration for JavaScript - FIXED ajaxUrl *}
-    <script type="application/json" id="sslmConfig">{literal}{{/literal}
-        "serviceId": {$serviceid},
-        "ajaxUrl": "clientarea.php?action=productdetails&id={$serviceid}",
-        "lang": {if $lang_json}{$lang_json nofilter}{else}{ldelim}{rdelim}{/if}
-    {literal}}{/literal}</script>
+    {* Header *}
+    <div class="sslm-header">
+        <h2 class="sslm-title">
+            <i class="fas fa-shield-alt"></i>
+            {$_LANG.certificate_management|default:'Certificate Management'}
+        </h2>
+        <div class="sslm-header-info">
+            <span class="sslm-product-name">{$productCode|escape:'html'}</span>
+            <span class="sslm-badge sslm-badge-warning">{$_LANG.pending|default:'Pending'}</span>
+        </div>
+    </div>
 
-    {* Page Header *}
-    <div class="sslm-page-header">
-        <h2>{$_LANG.manage_certificate|default:'Manage Certificate'}</h2>
-        <p class="sslm-help-text">{$_LANG.manage_desc|default:'View and manage your SSL certificate.'}</p>
+    {* Status Card *}
+    <div class="sslm-status-card">
+        <div class="sslm-status-icon warning">
+            <i class="fas fa-clock"></i>
+        </div>
+        <div class="sslm-status-content">
+            <div class="sslm-status-title">{$_LANG.certificate_pending|default:'Certificate Pending Validation'}</div>
+            <div class="sslm-status-desc">{$_LANG.message_des|default:'Your certificate request has been submitted. Please complete domain validation below.'}</div>
+        </div>
+        <button type="button" id="refreshStatusBtn" class="sslm-btn sslm-btn-primary">
+            <i class="fas fa-sync-alt"></i> {$_LANG.refresh_status|default:'Refresh Status'}
+        </button>
     </div>
 
     {* Certificate Info *}
-    <div class="sslm-card">
-        <div class="sslm-card__header">
-            <h3>{$_LANG.certificate_info|default:'Certificate Information'}</h3>
-            <span class="sslm-badge sslm-badge--{if $order.status == 'Complete' || $order.status == 'Issued'}success{elseif $order.status == 'Pending'}warning{else}default{/if}">
-                {$order.status|escape:'html'}
-            </span>
+    <div class="sslm-section">
+        <div class="sslm-section-header">
+            <h3><i class="fas fa-info-circle"></i> {$_LANG.certificate_info|default:'Certificate Information'}</h3>
         </div>
-        <div class="sslm-card__body">
-            <table class="sslm-table sslm-table--simple">
-                <tbody>
-                    <tr>
-                        <th style="width: 180px;">{$_LANG.certificate_id|default:'Certificate ID'}</th>
-                        <td>{$order.remoteid|default:'N/A'}</td>
-                    </tr>
-                    <tr>
-                        <th>{$_LANG.certificate_type|default:'Certificate Type'}</th>
-                        <td>{$productCode|escape:'html'}</td>
-                    </tr>
-                    <tr>
-                        <th>{$_LANG.primary_domain|default:'Primary Domain'}</th>
-                        <td><strong>{$order.primaryDomain|default:'N/A'}</strong></td>
-                    </tr>
-                    <tr>
-                        <th>{$_LANG.status|default:'Status'}</th>
-                        <td>
-                            <span class="sslm-badge sslm-badge--{if $order.status == 'Complete' || $order.status == 'Issued'}success{elseif $order.status == 'Pending'}warning{elseif $order.status == 'Cancelled' || $order.status == 'Revoked'}danger{else}default{/if}">
-                                {$order.status|escape:'html'}
-                            </span>
-                        </td>
-                    </tr>
-                    {if $order.issueDate && $order.issueDate != 'N/A'}
-                    <tr>
-                        <th>{$_LANG.cert_begin|default:'Issue Date'}</th>
-                        <td>{$order.issueDate|escape:'html'}</td>
-                    </tr>
-                    {/if}
-                    {if $order.expiryDate && $order.expiryDate != 'N/A'}
-                    <tr>
-                        <th>{$_LANG.cert_end|default:'Expiry Date'}</th>
-                        <td>
-                            {$order.expiryDate|escape:'html'}
-                            {if $order.daysLeft !== null}
-                            <span class="sslm-badge sslm-badge--{if $order.daysLeft <= 30}warning{else}info{/if}" style="margin-left: 8px;">
-                                {$order.daysLeft} {$_LANG.days_remaining|default:'days remaining'}
-                            </span>
-                            {/if}
-                        </td>
-                    </tr>
-                    {/if}
-                    {if $order.vendorId}
-                    <tr>
-                        <th>{$_LANG.vendor_id|default:'Vendor ID'}</th>
-                        <td>{$order.vendorId|escape:'html'}</td>
-                    </tr>
-                    {/if}
-                    {if $order.lastRefresh}
-                    <tr>
-                        <th>{$_LANG.last_refresh|default:'Last Refresh'}</th>
-                        <td>{$order.lastRefresh|escape:'html'}</td>
-                    </tr>
-                    {/if}
-                </tbody>
-            </table>
-        </div>
-    </div>
-
-    {* Available Actions *}
-    <div class="sslm-card">
-        <div class="sslm-card__header">
-            <h3>{$_LANG.actions|default:'Actions'}</h3>
-        </div>
-        <div class="sslm-card__body">
-            <div class="sslm-action-grid">
-                {if $actions.refresh}
-                <div class="sslm-action-item" data-action="refreshStatus">
-                    <i>🔃</i>
-                    <span>{$_LANG.refresh_status|default:'Refresh Status'}</span>
+        <div class="sslm-section-body">
+            <div class="sslm-info-card">
+                <div class="sslm-info-row">
+                    <span class="sslm-info-label">{$_LANG.certificate_id|default:'Certificate ID'}:</span>
+                    <span class="sslm-info-value sslm-code">{$certId|escape:'html'}</span>
+                </div>
+                {if $vendorId}
+                <div class="sslm-info-row">
+                    <span class="sslm-info-label">{$_LANG.vendor_id|default:'Vendor ID'}:</span>
+                    <span class="sslm-info-value sslm-code">{$vendorId|escape:'html'}</span>
                 </div>
                 {/if}
-                
-                {if $actions.download}
-                <div class="sslm-action-item" onclick="SSLManager.openModal('downloadModal')">
-                    <i>📥</i>
-                    <span>{$_LANG.download_certificate|default:'Download Certificate'}</span>
+                <div class="sslm-info-row">
+                    <span class="sslm-info-label">{$_LANG.status|default:'Status'}:</span>
+                    <span class="sslm-info-value"><span class="sslm-badge sslm-badge-warning">{$_LANG.pending|default:'Pending'}</span></span>
                 </div>
-                {/if}
-                
-                {if $actions.reissue}
-                <div class="sslm-action-item" onclick="location.href='clientarea.php?action=productdetails&id={$serviceid}&modop=custom&a=reissue'">
-                    <i>🔄</i>
-                    <span>{$_LANG.reissue_certificate|default:'Reissue Certificate'}</span>
-                </div>
-                {/if}
-                
-                {if $actions.renew}
-                <div class="sslm-action-item" onclick="SSLManager.confirmRenew()">
-                    <i>📅</i>
-                    <span>{$_LANG.renew_certificate|default:'Renew Certificate'}</span>
-                </div>
-                {/if}
-                
-                {if $actions.updateDCV}
-                <div class="sslm-action-item" onclick="location.href='clientarea.php?action=productdetails&id={$serviceid}'">
-                    <i>✅</i>
-                    <span>{$_LANG.update_dcv|default:'Update DCV'}</span>
-                </div>
-                {/if}
-                
-                {if $actions.cancel}
-                <div class="sslm-action-item sslm-action-item--danger" data-action="cancelOrder">
-                    <i>❌</i>
-                    <span>{$_LANG.cancel_order|default:'Cancel Order'}</span>
-                </div>
-                {/if}
-                
-                {if $actions.revoke}
-                <div class="sslm-action-item sslm-action-item--danger" data-action="revokeCert">
-                    <i>🚫</i>
-                    <span>{$_LANG.revoke_certificate|default:'Revoke Certificate'}</span>
+                {if $configData.applyReturn.applyTime}
+                <div class="sslm-info-row">
+                    <span class="sslm-info-label">{$_LANG.submit_time|default:'Submitted'}:</span>
+                    <span class="sslm-info-value">{$configData.applyReturn.applyTime|escape:'html'}</span>
                 </div>
                 {/if}
             </div>
         </div>
     </div>
 
-    {* All Domains (if multi-domain) *}
-    {if $order.allDomains|@count > 1}
-    <div class="sslm-card">
-        <div class="sslm-card__header">
-            <h3>{$_LANG.domain_info|default:'All Domains'}</h3>
-            <span class="sslm-badge sslm-badge--info">{$order.allDomains|@count} {$_LANG.domains|default:'domains'}</span>
+    {* Domain Validation *}
+    <div class="sslm-section">
+        <div class="sslm-section-header">
+            <h3><i class="fas fa-check-circle"></i> {$_LANG.domain_validation|default:'Domain Validation'}</h3>
         </div>
-        <div class="sslm-card__body">
-            <table class="sslm-table">
-                <thead>
-                    <tr>
-                        <th>#</th>
-                        <th>{$_LANG.domain|default:'Domain'}</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {foreach $order.allDomains as $index => $domain}
-                    <tr>
-                        <td>{$index + 1}</td>
-                        <td>{$domain|escape:'html'}</td>
-                    </tr>
-                    {/foreach}
-                </tbody>
-            </table>
+        <div class="sslm-section-body">
+            <div class="sslm-alert sslm-alert-info">
+                <i class="fas fa-info-circle"></i>
+                <span>{$_LANG.dcv_instructions|default:'Complete the domain validation using one of the methods below for each domain.'}</span>
+            </div>
+
+            {foreach $domainInfo as $index => $domain}
+            <div class="sslm-info-card">
+                <div class="sslm-info-card-title">
+                    <i class="fas fa-globe"></i>
+                    {$domain.domainName|escape:'html'}
+                    {if $domain.verified}
+                    <span class="sslm-badge sslm-badge-success">{$_LANG.verified|default:'Verified'}</span>
+                    {else}
+                    <span class="sslm-badge sslm-badge-warning">{$_LANG.un_verified|default:'Pending'}</span>
+                    {/if}
+                </div>
+
+                {* DCV Method *}
+                <div class="sslm-info-row">
+                    <span class="sslm-info-label">{$_LANG.dcv_method|default:'DCV Method'}:</span>
+                    <span class="sslm-info-value">
+                        {if $domain.dcvMethod eq 'CNAME_CSR_HASH'}
+                            {$_LANG.cname_csr_hash|default:'DNS CNAME'}
+                        {elseif $domain.dcvMethod eq 'HTTP_CSR_HASH'}
+                            {$_LANG.http_csr_hash|default:'HTTP File'}
+                        {elseif $domain.dcvMethod eq 'HTTPS_CSR_HASH'}
+                            {$_LANG.https_csr_hash|default:'HTTPS File'}
+                        {elseif $domain.dcvMethod eq 'DNS_CSR_HASH'}
+                            {$_LANG.dns_csr_hash|default:'DNS TXT'}
+                        {elseif $domain.dcvMethod eq 'EMAIL'}
+                            {$_LANG.email_validation|default:'Email'} ({$domain.dcvEmail|escape:'html'})
+                        {else}
+                            {$domain.dcvMethod|escape:'html'}
+                        {/if}
+                    </span>
+                </div>
+
+                {* DNS CNAME Instructions *}
+                {if $domain.dcvMethod eq 'CNAME_CSR_HASH' && $dcvDnsHost}
+                <div class="sslm-dcv-section">
+                    <div class="sslm-dcv-title">
+                        <i class="fas fa-server"></i> {$_LANG.dns_cname_instructions|default:'Add this CNAME record to your DNS:'}
+                    </div>
+                    <div class="sslm-dcv-content">
+                        <div class="sslm-dcv-row">
+                            <span class="sslm-dcv-label">{$_LANG.dns_host|default:'Host'}:</span>
+                            <span class="sslm-dcv-value">{$dcvDnsHost|escape:'html'}</span>
+                        </div>
+                        <div class="sslm-dcv-row">
+                            <span class="sslm-dcv-label">{$_LANG.dns_type|default:'Type'}:</span>
+                            <span class="sslm-dcv-value">CNAME</span>
+                        </div>
+                        <div class="sslm-dcv-row">
+                            <span class="sslm-dcv-label">{$_LANG.dns_value|default:'Value'}:</span>
+                            <span class="sslm-dcv-value">{$dcvDnsValue|escape:'html'}</span>
+                        </div>
+                    </div>
+                </div>
+                {/if}
+
+                {* DNS TXT Instructions *}
+                {if $domain.dcvMethod eq 'DNS_CSR_HASH' && $dcvDnsHost}
+                <div class="sslm-dcv-section">
+                    <div class="sslm-dcv-title">
+                        <i class="fas fa-server"></i> {$_LANG.dns_txt_instructions|default:'Add this TXT record to your DNS:'}
+                    </div>
+                    <div class="sslm-dcv-content">
+                        <div class="sslm-dcv-row">
+                            <span class="sslm-dcv-label">{$_LANG.dns_host|default:'Host'}:</span>
+                            <span class="sslm-dcv-value">{$dcvDnsHost|escape:'html'}</span>
+                        </div>
+                        <div class="sslm-dcv-row">
+                            <span class="sslm-dcv-label">{$_LANG.dns_type|default:'Type'}:</span>
+                            <span class="sslm-dcv-value">TXT</span>
+                        </div>
+                        <div class="sslm-dcv-row">
+                            <span class="sslm-dcv-label">{$_LANG.dns_value|default:'Value'}:</span>
+                            <span class="sslm-dcv-value">{$dcvDnsValue|escape:'html'}</span>
+                        </div>
+                    </div>
+                </div>
+                {/if}
+
+                {* HTTP File Instructions *}
+                {if ($domain.dcvMethod eq 'HTTP_CSR_HASH' || $domain.dcvMethod eq 'HTTPS_CSR_HASH') && $dcvFileName}
+                <div class="sslm-dcv-section">
+                    <div class="sslm-dcv-title">
+                        <i class="fas fa-file-alt"></i> 
+                        {if $domain.dcvMethod eq 'HTTPS_CSR_HASH'}
+                            {$_LANG.https_instructions|default:'Create this file on your HTTPS server:'}
+                        {else}
+                            {$_LANG.http_instructions|default:'Create this file on your HTTP server:'}
+                        {/if}
+                    </div>
+                    <div class="sslm-dcv-content">
+                        <div class="sslm-dcv-row">
+                            <span class="sslm-dcv-label">{$_LANG.file_path|default:'Path'}:</span>
+                            <span class="sslm-dcv-value">
+                                {if $domain.dcvMethod eq 'HTTPS_CSR_HASH'}https://{else}http://{/if}{$domain.domainName|escape:'html'}/.well-known/pki-validation/{$dcvFileName|escape:'html'}
+                            </span>
+                        </div>
+                        <div class="sslm-dcv-row">
+                            <span class="sslm-dcv-label">{$_LANG.file_content|default:'Content'}:</span>
+                            <span class="sslm-dcv-value">{$dcvFileContent|escape:'html'}</span>
+                        </div>
+                    </div>
+                    <div style="margin-top: 12px;">
+                        <button type="button" class="sslm-btn sslm-btn-sm sslm-btn-secondary download-dcv-file" 
+                                data-filename="{$dcvFileName|escape:'html'}" 
+                                data-content="{$dcvFileContent|escape:'html'}">
+                            <i class="fas fa-download"></i> {$_LANG.down_txt|default:'Download File'}
+                        </button>
+                    </div>
+                </div>
+                {/if}
+
+                {* Email Instructions *}
+                {if $domain.dcvMethod eq 'EMAIL'}
+                <div class="sslm-dcv-section">
+                    <div class="sslm-dcv-title">
+                        <i class="fas fa-envelope"></i> {$_LANG.email_instructions|default:'Validation email has been sent to:'}
+                    </div>
+                    <div class="sslm-dcv-content">
+                        <div class="sslm-dcv-row">
+                            <span class="sslm-dcv-label">{$_LANG.email|default:'Email'}:</span>
+                            <span class="sslm-dcv-value">{$domain.dcvEmail|escape:'html'}</span>
+                        </div>
+                        <p class="sslm-help-text">{$_LANG.email_wait_info|default:'Please check your email and follow the instructions to complete validation.'}</p>
+                    </div>
+                    <div style="margin-top: 12px;">
+                        <button type="button" class="sslm-btn sslm-btn-sm sslm-btn-secondary resend-dcv-btn" 
+                                data-domain="{$domain.domainName|escape:'html'}">
+                            <i class="fas fa-redo"></i> {$_LANG.resend_dcv|default:'Resend Email'}
+                        </button>
+                    </div>
+                </div>
+                {/if}
+            </div>
+            {/foreach}
         </div>
     </div>
-    {/if}
 
-    {* Quick Links *}
-    <div class="sslm-card">
-        <div class="sslm-card__header">
-            <h3>{$_LANG.more_info|default:'Quick Links'}</h3>
+    {* Actions *}
+    <div class="sslm-section">
+        <div class="sslm-section-header">
+            <h3><i class="fas fa-cog"></i> {$_LANG.actions|default:'Actions'}</h3>
         </div>
-        <div class="sslm-card__body">
-            <div class="sslm-action-bar" style="border: none; margin: 0; padding: 0; justify-content: flex-start;">
-                <a href="clientarea.php?action=productdetails&id={$serviceid}" class="sslm-btn sslm-btn--secondary">
-                    ← {$_LANG.back|default:'Back to Overview'}
-                </a>
-                <a href="supporttickets.php" class="sslm-btn sslm-btn--secondary">
-                    📧 {$_LANG.help|default:'Get Support'}
-                </a>
+        <div class="sslm-section-body">
+            <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+                <button type="button" id="refreshStatusBtn2" class="sslm-btn sslm-btn-primary">
+                    <i class="fas fa-sync-alt"></i> {$_LANG.refresh_status|default:'Refresh Status'}
+                </button>
+                <button type="button" id="cancelOrderBtn" class="sslm-btn sslm-btn-danger">
+                    <i class="fas fa-times"></i> {$_LANG.cancel_order|default:'Cancel Order'}
+                </button>
             </div>
         </div>
     </div>
 </div>
 
-{* Download Modal *}
-{if $actions.download}
-<div id="downloadModal" class="sslm-modal-overlay">
-    <div class="sslm-modal">
-        <div class="sslm-modal__header">
-            <h3 class="sslm-modal__title">{$_LANG.select_download_format|default:'Select Download Format'}</h3>
-            <button class="sslm-modal__close" onclick="SSLManager.closeModal('downloadModal')">&times;</button>
-        </div>
-        <div class="sslm-modal__body">
-            <div class="sslm-action-grid">
-                {if $downloadFormats}
-                {foreach $downloadFormats as $code => $format}
-                <div class="sslm-action-item" onclick="SSLManager.downloadCertificate('{$code}'); SSLManager.closeModal('downloadModal');">
-                    <i>📄</i>
-                    <span>{$format.name}</span>
-                    <small style="color: var(--sslm-text-secondary); font-size: 11px;">{$format.description}</small>
-                </div>
-                {/foreach}
-                {else}
-                <div class="sslm-action-item" onclick="SSLManager.downloadCertificate('apache'); SSLManager.closeModal('downloadModal');">
-                    <i>📄</i>
-                    <span>Apache / cPanel</span>
-                    <small style="color: var(--sslm-text-secondary); font-size: 11px;">.crt + .ca-bundle + .key</small>
-                </div>
-                <div class="sslm-action-item" onclick="SSLManager.downloadCertificate('nginx'); SSLManager.closeModal('downloadModal');">
-                    <i>📄</i>
-                    <span>Nginx</span>
-                    <small style="color: var(--sslm-text-secondary); font-size: 11px;">.pem combined</small>
-                </div>
-                <div class="sslm-action-item" onclick="SSLManager.downloadCertificate('iis'); SSLManager.closeModal('downloadModal');">
-                    <i>📄</i>
-                    <span>IIS / Windows</span>
-                    <small style="color: var(--sslm-text-secondary); font-size: 11px;">.pfx (PKCS#12)</small>
-                </div>
-                <div class="sslm-action-item" onclick="SSLManager.downloadCertificate('tomcat'); SSLManager.closeModal('downloadModal');">
-                    <i>📄</i>
-                    <span>Tomcat / Java</span>
-                    <small style="color: var(--sslm-text-secondary); font-size: 11px;">.jks (Java Keystore)</small>
-                </div>
-                {/if}
-            </div>
-        </div>
-        <div class="sslm-modal__footer">
-            <button type="button" class="sslm-btn sslm-btn--secondary" onclick="SSLManager.closeModal('downloadModal')">
-                {$_LANG.close|default:'Close'}
-            </button>
-        </div>
-    </div>
-</div>
-{/if}
+{* JavaScript Configuration *}
+<script>
+window.sslmConfig = {
+    ajaxUrl: "{$WEB_ROOT}/clientarea.php?action=productdetails&id={$serviceid}",
+    serviceid: "{$serviceid}",
+    configData: {$configData|json_encode nofilter},
+    lang: {$_LANG_JSON nofilter}
+};
+</script>
 
+{* Load JS *}
 <script src="{$WEB_ROOT}/modules/servers/nicsrs_ssl/assets/js/ssl-manager.js"></script>

@@ -3,6 +3,8 @@
  * NicSRS SSL Module - Template Helper
  * Helper functions for template rendering
  * 
+ * FIXED: Properly handles countries array from JSON
+ * 
  * @package    nicsrs_ssl
  * @version    2.0.0
  * @author     HVN GROUP
@@ -10,6 +12,8 @@
  */
 
 namespace nicsrsSSL;
+
+use WHMCS\Database\Capsule;
 
 class TemplateHelper
 {
@@ -43,21 +47,115 @@ class TemplateHelper
     }
 
     /**
+     * Get client info for pre-filling forms
+     */
+    public static function getClientInfo(int $userId): array
+    {
+        if ($userId <= 0) {
+            return [];
+        }
+
+        try {
+            $client = Capsule::table('tblclients')
+                ->where('id', $userId)
+                ->first();
+
+            if (!$client) {
+                return [];
+            }
+
+            return [
+                'firstname' => $client->firstname ?? '',
+                'lastname' => $client->lastname ?? '',
+                'email' => $client->email ?? '',
+                'phonenumber' => $client->phonenumber ?? '',
+                'companyname' => $client->companyname ?? '',
+                'address1' => $client->address1 ?? '',
+                'address2' => $client->address2 ?? '',
+                'city' => $client->city ?? '',
+                'state' => $client->state ?? '',
+                'postcode' => $client->postcode ?? '',
+                'country' => $client->country ?? 'VN',
+            ];
+        } catch (\Exception $e) {
+            return [];
+        }
+    }
+
+    /**
+     * Load countries from JSON file
+     * Returns array of objects with 'code' and 'name' properties
+     */
+    public static function getCountries(): array
+    {
+        $countryFile = NICSRS_SSL_PATH . 'src/config/country.json';
+        
+        if (!file_exists($countryFile)) {
+            // Return basic fallback
+            return [
+                ['code' => 'VN', 'name' => 'Vietnam'],
+                ['code' => 'US', 'name' => 'United States'],
+                ['code' => 'GB', 'name' => 'United Kingdom'],
+                ['code' => 'SG', 'name' => 'Singapore'],
+                ['code' => 'JP', 'name' => 'Japan'],
+                ['code' => 'AU', 'name' => 'Australia'],
+                ['code' => 'DE', 'name' => 'Germany'],
+                ['code' => 'FR', 'name' => 'France'],
+                ['code' => 'CN', 'name' => 'China'],
+                ['code' => 'KR', 'name' => 'South Korea'],
+            ];
+        }
+        
+        $content = file_get_contents($countryFile);
+        $countries = json_decode($content, true);
+        
+        if (!is_array($countries)) {
+            return [];
+        }
+        
+        // Ensure each country has 'code' and 'name'
+        $result = [];
+        foreach ($countries as $country) {
+            if (isset($country['code']) && isset($country['name'])) {
+                $result[] = [
+                    'code' => $country['code'],
+                    'name' => $country['name'],
+                ];
+            }
+        }
+        
+        return $result;
+    }
+
+    /**
      * Render apply certificate page
      */
     public static function applyCert(array $params, object $order, array $cert): array
     {
         $baseVars = self::getBaseVars($params);
-        $configdata = json_decode($order->configdata, true) ?: [];
+        
+        // Decode configdata properly
+        $configdata = [];
+        if (!empty($order->configdata)) {
+            $configdata = json_decode($order->configdata, true);
+            if (!is_array($configdata)) {
+                $configdata = [];
+            }
+        }
 
-        // Load country list
-        $countryFile = NICSRS_SSL_PATH . 'src/config/country.json';
-        $countries = file_exists($countryFile) 
-            ? json_decode(file_get_contents($countryFile), true) 
-            : [];
+        // DEBUG: Log what we're passing
+        logModuleCall('nicsrs_ssl', 'TemplateHelper_applyCert', [
+            'order_id' => $order->id ?? 'N/A',
+            'configdata_raw_length' => strlen($order->configdata ?? ''),
+            'domainCount' => count($configdata['domainInfo'] ?? []),
+            'hasAdmin' => !empty($configdata['Administrator']),
+        ], 'Building template vars');
+
+        // Load countries
+        $countries = self::getCountries();
 
         // Pre-fill client info
-        $client = self::getClientInfo($params['userid']);
+        $client = self::getClientInfo($params['userid'] ?? 0);
 
         return [
             'templatefile' => 'applycert',
@@ -78,124 +176,99 @@ class TemplateHelper
                     'supportWild' => $cert['supportWild'] ?? false,
                     'supportHttps' => $cert['supportHttps'] ?? true,
                 ],
-                'dcvMethods' => DCV_METHODS,
-                'serverTypes' => SERVER_TYPES,
                 'countries' => $countries,
                 'client' => $client,
-                'status' => $order->status,
-                'isRenewal' => $configdata['isRenewal'] ?? false,
-                'previousCertId' => $configdata['previousCertId'] ?? '',
             ]),
         ];
     }
 
     /**
-     * Render pending/message page
+     * Render pending/message page (waiting for validation)
      */
-    public static function pending(array $params, object $order, array $cert, array $collectData = []): array
+    public static function message(array $params, object $order, array $cert): array
     {
         $baseVars = self::getBaseVars($params);
         $configdata = json_decode($order->configdata, true) ?: [];
         $applyReturn = $configdata['applyReturn'] ?? [];
-        $domainInfo = $configdata['domainInfo'] ?? [];
-
-        // Format DCV status
-        $dcvList = $applyReturn['dcvList'] ?? $collectData['dcvList'] ?? [];
-        $dcvStatus = ResponseFormatter::formatDCVStatus($domainInfo, $dcvList);
 
         return [
-            'templatefile' => 'pending',
+            'templatefile' => 'message',
             'vars' => array_merge($baseVars, [
                 'order' => $order,
                 'configData' => $configdata,
-                'applyReturn' => $applyReturn,
                 'cert' => $cert,
                 'productCode' => $cert['name'] ?? '',
-                'sslType' => $cert['sslType'] ?? 'website_ssl',
-                'status' => $order->status,
-                'remoteid' => $order->remoteid,
-                'dcvStatus' => $dcvStatus,
-                'dcvMethods' => DCV_METHODS,
-                'applyTime' => $applyReturn['applyTime'] ?? '',
-                'collectData' => $collectData,
-                'lastRefresh' => $configdata['lastRefresh'] ?? '',
+                'sslValidationType' => $cert['sslValidationType'] ?? 'dv',
+                'domainInfo' => $configdata['domainInfo'] ?? [],
+                'applyReturn' => $applyReturn,
+                'certId' => $order->remoteid ?? '',
+                'vendorId' => $applyReturn['vendorId'] ?? '',
+                // DCV Info
+                'dcvFileName' => $applyReturn['DCVfileName'] ?? '',
+                'dcvFileContent' => $applyReturn['DCVfileContent'] ?? '',
+                'dcvDnsHost' => $applyReturn['DCVdnsHost'] ?? '',
+                'dcvDnsValue' => $applyReturn['DCVdnsValue'] ?? '',
+                'dcvDnsType' => $applyReturn['DCVdnsType'] ?? '',
             ]),
         ];
     }
 
     /**
-     * Render complete page
+     * Render complete page (certificate issued)
      */
-    public static function complete(array $params, object $order, array $cert, array $collectData = []): array
+    public static function complete(array $params, object $order, array $cert): array
     {
         $baseVars = self::getBaseVars($params);
         $configdata = json_decode($order->configdata, true) ?: [];
         $applyReturn = $configdata['applyReturn'] ?? [];
-        $domainInfo = $configdata['domainInfo'] ?? [];
 
-        // Calculate expiry info
-        $endDate = $applyReturn['endDate'] ?? '';
-        $daysLeft = CertificateFunc::getDaysUntilExpiry($endDate);
-        $isExpiringSoon = $daysLeft !== null && $daysLeft <= 30;
-
-        // Format DCV status
-        $dcvList = $applyReturn['dcvList'] ?? [];
-        $dcvStatus = ResponseFormatter::formatDCVStatus($domainInfo, $dcvList);
-
-        // Check if certificate can be downloaded
-        $canDownload = !empty($applyReturn['certificate']);
+        // Check if certificate content is available
+        $hasCertificate = !empty($applyReturn['certificate']);
+        $hasPrivateKey = !empty($configdata['privateKey']);
 
         return [
             'templatefile' => 'complete',
             'vars' => array_merge($baseVars, [
                 'order' => $order,
                 'configData' => $configdata,
-                'applyReturn' => $applyReturn,
                 'cert' => $cert,
                 'productCode' => $cert['name'] ?? '',
-                'sslType' => $cert['sslType'] ?? 'website_ssl',
                 'sslValidationType' => $cert['sslValidationType'] ?? 'dv',
                 'status' => $order->status,
-                'remoteid' => $order->remoteid,
-                'beginDate' => CertificateFunc::formatDate($applyReturn['beginDate'] ?? ''),
-                'endDate' => CertificateFunc::formatDate($endDate),
-                'daysLeft' => $daysLeft,
-                'isExpiringSoon' => $isExpiringSoon,
-                'dcvStatus' => $dcvStatus,
-                'canDownload' => $canDownload,
-                'canReissue' => true,
-                'canRenew' => true,
-                'downloadFormats' => DOWNLOAD_FORMATS,
-                'collectData' => $collectData,
-                'lastRefresh' => $configdata['lastRefresh'] ?? '',
+                'certId' => $order->remoteid ?? '',
+                'vendorId' => $applyReturn['vendorId'] ?? '',
+                'domainInfo' => $configdata['domainInfo'] ?? [],
+                // Certificate data
+                'hasCertificate' => $hasCertificate,
+                'hasPrivateKey' => $hasPrivateKey,
+                'certificate' => $applyReturn['certificate'] ?? '',
+                'caCertificate' => $applyReturn['caCertificate'] ?? '',
+                'beginDate' => $applyReturn['beginDate'] ?? '',
+                'endDate' => $applyReturn['endDate'] ?? '',
+                // Download options
+                'canDownload' => $hasCertificate,
+                'canDownloadKey' => $hasPrivateKey,
             ]),
         ];
     }
 
     /**
-     * Render manage page
+     * Render cancelled/revoked page
      */
-    public static function manage(array $params, object $order, array $cert): array
+    public static function cancelled(array $params, object $order, array $cert): array
     {
         $baseVars = self::getBaseVars($params);
         $configdata = json_decode($order->configdata, true) ?: [];
-        $applyReturn = $configdata['applyReturn'] ?? [];
-        $domainInfo = $configdata['domainInfo'] ?? [];
-
-        // Determine available actions
-        $actions = self::getAvailableActions($order->status);
 
         return [
-            'templatefile' => 'manage',
+            'templatefile' => 'cancelled',
             'vars' => array_merge($baseVars, [
-                'order' => ResponseFormatter::formatOrderForDisplay($order),
+                'order' => $order,
                 'configData' => $configdata,
                 'cert' => $cert,
                 'productCode' => $cert['name'] ?? '',
                 'status' => $order->status,
-                'statusClass' => CertificateFunc::getStatusClass($order->status),
-                'actions' => $actions,
-                'downloadFormats' => DOWNLOAD_FORMATS,
+                'certId' => $order->remoteid ?? '',
             ]),
         ];
     }
@@ -208,25 +281,22 @@ class TemplateHelper
         $baseVars = self::getBaseVars($params);
         $configdata = json_decode($order->configdata, true) ?: [];
 
-        // Load country list
-        $countryFile = NICSRS_SSL_PATH . 'src/config/country.json';
-        $countries = file_exists($countryFile) 
-            ? json_decode(file_get_contents($countryFile), true) 
-            : [];
+        // Load countries
+        $countries = self::getCountries();
 
-        // Pre-fill with existing data
-        $existingData = [
-            'domainInfo' => $configdata['domainInfo'] ?? [],
-            'Administrator' => $configdata['Administrator'] ?? [],
-            'organizationInfo' => $configdata['organizationInfo'] ?? [],
-        ];
+        // Get original domains
+        $originalDomains = [];
+        if (!empty($configdata['domainInfo'])) {
+            foreach ($configdata['domainInfo'] as $domain) {
+                $originalDomains[] = $domain['domainName'] ?? '';
+            }
+        }
 
         return [
             'templatefile' => 'reissue',
             'vars' => array_merge($baseVars, [
                 'order' => $order,
                 'configData' => $configdata,
-                'existingData' => $existingData,
                 'cert' => $cert,
                 'productCode' => $cert['name'] ?? '',
                 'sslType' => $cert['sslType'] ?? 'website_ssl',
@@ -234,11 +304,16 @@ class TemplateHelper
                 'isMultiDomain' => $cert['isMultiDomain'] ?? false,
                 'maxDomains' => $cert['maxDomains'] ?? 1,
                 'requiresOrganization' => in_array($cert['sslValidationType'] ?? 'dv', ['ov', 'ev']),
-                'dcvMethods' => DCV_METHODS,
-                'serverTypes' => SERVER_TYPES,
+                'supportOptions' => [
+                    'supportNormal' => $cert['supportNormal'] ?? true,
+                    'supportIp' => $cert['supportIp'] ?? false,
+                    'supportWild' => $cert['supportWild'] ?? false,
+                    'supportHttps' => $cert['supportHttps'] ?? true,
+                ],
                 'countries' => $countries,
-                'status' => $order->status,
-                'remoteid' => $order->remoteid,
+                // Original domains for reference
+                'originalDomains' => $originalDomains,
+                'replaceTimes' => $configdata['replaceTimes'] ?? 0,
             ]),
         ];
     }
@@ -246,99 +321,70 @@ class TemplateHelper
     /**
      * Render error page
      */
-    public static function error(array $params, string $message, string $title = 'Error'): array
+    public static function error(array $params, string $message): array
     {
         $baseVars = self::getBaseVars($params);
 
         return [
             'templatefile' => 'error',
             'vars' => array_merge($baseVars, [
-                'errorTitle' => $title,
                 'errorMessage' => $message,
             ]),
         ];
     }
 
     /**
-     * Get available actions based on order status
+     * Determine which template to render based on order status
      */
-    private static function getAvailableActions(string $status): array
+    public static function getTemplateForStatus(array $params, object $order, array $cert): array
     {
-        $actions = [
-            'refresh' => false,
-            'download' => false,
-            'reissue' => false,
-            'renew' => false,
-            'cancel' => false,
-            'revoke' => false,
-            'updateDCV' => false,
-        ];
+        $status = strtolower($order->status ?? '');
+
+        // DEBUG
+        logModuleCall('nicsrs_ssl', 'getTemplateForStatus', [
+            'status' => $status,
+            'order_id' => $order->id ?? 'N/A',
+        ], 'Determining template');
 
         switch ($status) {
-            case 'Awaiting Configuration':
-            case 'Draft':
-                // No actions available
-                break;
-            case 'Pending':
-            case 'Processing':
-                $actions['refresh'] = true;
-                $actions['updateDCV'] = true;
-                $actions['cancel'] = true;
-                break;
-            case 'Complete':
-            case 'Issued':
-                $actions['refresh'] = true;
-                $actions['download'] = true;
-                $actions['reissue'] = true;
-                $actions['renew'] = true;
-                $actions['revoke'] = true;
-                break;
-            case 'Reissue':
-                $actions['refresh'] = true;
-                $actions['updateDCV'] = true;
-                break;
-            case 'Cancelled':
-            case 'Revoked':
-            case 'Expired':
-                $actions['renew'] = true;
-                break;
-        }
+            case SSL_STATUS_AWAITING:
+            case SSL_STATUS_DRAFT:
+            case 'awaiting configuration':
+            case 'draft':
+                return self::applyCert($params, $order, $cert);
 
-        return $actions;
-    }
+            case SSL_STATUS_PENDING:
+            case 'pending':
+            case 'processing':
+                return self::message($params, $order, $cert);
 
-    /**
-     * Get client info for pre-filling forms
-     */
-    private static function getClientInfo(int $userId): array
-    {
-        if (!$userId) {
-            return [];
-        }
+            case SSL_STATUS_COMPLETE:
+            case 'complete':
+            case 'active':
+            case 'issued':
+                return self::complete($params, $order, $cert);
 
-        try {
-            $client = \WHMCS\Database\Capsule::table('tblclients')
-                ->where('id', $userId)
-                ->first();
+            case SSL_STATUS_REISSUE:
+            case 'reissue':
+                return self::reissue($params, $order, $cert);
 
-            if (!$client) {
-                return [];
-            }
+            case SSL_STATUS_CANCELLED:
+            case SSL_STATUS_REVOKED:
+            case SSL_STATUS_EXPIRED:
+            case 'cancelled':
+            case 'canceled':
+            case 'revoked':
+            case 'expired':
+                return self::cancelled($params, $order, $cert);
 
-            return [
-                'firstName' => $client->firstname ?? '',
-                'lastName' => $client->lastname ?? '',
-                'email' => $client->email ?? '',
-                'phone' => $client->phonenumber ?? '',
-                'companyName' => $client->companyname ?? '',
-                'address' => $client->address1 ?? '',
-                'city' => $client->city ?? '',
-                'state' => $client->state ?? '',
-                'postCode' => $client->postcode ?? '',
-                'country' => $client->country ?? '',
-            ];
-        } catch (\Exception $e) {
-            return [];
+            default:
+                // Check if it's a reissue scenario
+                $configdata = json_decode($order->configdata, true) ?: [];
+                if (!empty($configdata['replaceTimes'])) {
+                    return self::reissue($params, $order, $cert);
+                }
+                // Default to apply cert for unknown status
+                return self::applyCert($params, $order, $cert);
         }
     }
 }
