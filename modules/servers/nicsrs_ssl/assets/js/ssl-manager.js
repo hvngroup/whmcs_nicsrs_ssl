@@ -46,6 +46,7 @@
         initActionButtons();
         initCopyButtons();
         restoreFormData();
+        initReissueForm(); // NEW: Reissue form handler
     });
 
     // ========================================
@@ -121,9 +122,7 @@
                 '</select>' +
             '</div>' +
             '<div class="sslm-action-col">' +
-                '<button type="button" class="sslm-btn-icon sslm-btn-remove" onclick="removeDomain(this)">' +
-                    '<i class="fas fa-times"></i> ✕' +
-                '</button>' +
+                '<button type="button" class="sslm-btn-icon sslm-btn-remove" onclick="removeDomain(this)">✕</button>' +
             '</div>';
         
         domainList.appendChild(row);
@@ -149,11 +148,7 @@
         var removeButtons = domainList.querySelectorAll('.sslm-btn-remove');
         
         removeButtons.forEach(function(btn, index) {
-            if (rows.length > 1) {
-                btn.style.display = 'flex';
-            } else {
-                btn.style.display = 'none';
-            }
+            btn.style.display = rows.length > 1 ? 'flex' : 'none';
         });
         
         // Hide first row's remove button always
@@ -166,7 +161,7 @@
     // Form Validation
     // ========================================
     function initValidation() {
-        var form = document.getElementById('sslm-apply-form');
+        var form = document.getElementById('sslm-apply-form') || document.getElementById('sslm-reissue-form');
         if (!form) return;
         
         var inputs = form.querySelectorAll('.sslm-input, .sslm-select');
@@ -653,6 +648,329 @@
     }
 
     // ========================================
+    // Reissue Form Handler (NEW)
+    // ========================================
+    function initReissueForm() {
+        var form = document.getElementById('sslm-reissue-form');
+        if (!form) return;
+
+        // Handle form submit
+        form.addEventListener('submit', function(e) {
+            e.preventDefault();
+            submitReissueForm();
+        });
+
+        // Handle submit button click
+        var submitBtn = document.getElementById('submitReissueBtn');
+        if (submitBtn) {
+            submitBtn.addEventListener('click', function(e) {
+                e.preventDefault();
+                submitReissueForm();
+            });
+        }
+
+        // Initialize CSR decode button
+        var decodeBtn = document.getElementById('btnDecodeCsr');
+        if (decodeBtn) {
+            decodeBtn.addEventListener('click', function() {
+                decodeReissueCsr();
+            });
+        }
+
+        // Initialize domain rows for reissue form
+        initReissueDomainRows();
+
+        console.log('Reissue form initialized');
+    }
+
+    function initReissueDomainRows() {
+        var form = document.getElementById('sslm-reissue-form');
+        if (!form) return;
+
+        var domainList = form.querySelector('#domainList');
+        if (!domainList) return;
+
+        var rows = domainList.querySelectorAll('.sslm-domain-row');
+        domainIndex = rows.length - 1;
+        updateRemoveButtons();
+    }
+
+    function submitReissueForm() {
+        var form = document.getElementById('sslm-reissue-form');
+        var submitBtn = document.getElementById('submitReissueBtn');
+
+        if (!form) {
+            showToast(lang.form_not_found || 'Form not found', 'error');
+            return;
+        }
+
+        // Validate form
+        if (!validateReissueForm()) {
+            showToast(lang.validation_error || 'Please fill in all required fields correctly', 'error');
+            return;
+        }
+
+        // Collect form data
+        var data = collectReissueFormData();
+
+        // Disable submit button and show loading
+        if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.classList.add('sslm-loading');
+        }
+
+        // Build URL with step parameter
+        var ajaxUrl = config.ajaxUrl + '&step=submitReissue';
+
+        // Submit via AJAX
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', ajaxUrl, true);
+        xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+        xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+
+        xhr.onload = function() {
+            // Re-enable button
+            if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.classList.remove('sslm-loading');
+            }
+
+            var responseText = xhr.responseText.trim();
+            console.log('Reissue response:', responseText);
+
+            // Check for HTML response (error)
+            if (responseText.indexOf('<!DOCTYPE') === 0 || responseText.indexOf('<html') === 0) {
+                console.error('Server returned HTML instead of JSON');
+                showToast(lang.server_error || 'Server error occurred. Please check console.', 'error');
+                return;
+            }
+
+            // Try to extract JSON from response
+            var jsonStart = responseText.indexOf('{');
+            var jsonEnd = responseText.lastIndexOf('}');
+            if (jsonStart !== -1 && jsonEnd > jsonStart) {
+                responseText = responseText.substring(jsonStart, jsonEnd + 1);
+            }
+
+            try {
+                var response = JSON.parse(responseText);
+
+                if (response.success) {
+                    showToast(response.message || lang.reissue_success || 'Reissue request submitted successfully!', 'success');
+                    
+                    // Redirect back to certificate details after success
+                    setTimeout(function() {
+                        window.location.href = 'clientarea.php?action=productdetails&id=' + config.serviceId;
+                    }, 1500);
+                } else {
+                    showToast(response.message || lang.error || 'An error occurred', 'error');
+                }
+            } catch (e) {
+                console.error('JSON parse error:', e, responseText);
+                showToast(lang.parse_error || 'Server response error', 'error');
+            }
+        };
+
+        xhr.onerror = function() {
+            if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.classList.remove('sslm-loading');
+            }
+            showToast(lang.network_error || 'Network error occurred', 'error');
+        };
+
+        // Send data as JSON string (like apply form)
+        xhr.send('data=' + encodeURIComponent(JSON.stringify(data)));
+    }
+
+    function validateReissueForm() {
+        var form = document.getElementById('sslm-reissue-form');
+        if (!form) return false;
+
+        var isValid = true;
+
+        // Clear previous errors
+        form.querySelectorAll('.sslm-error').forEach(function(el) {
+            el.classList.remove('sslm-error');
+        });
+
+        // Validate CSR (required)
+        var csrField = form.querySelector('[name="csr"]');
+        if (csrField) {
+            var csrValue = csrField.value.trim();
+            if (!csrValue) {
+                csrField.classList.add('sslm-error');
+                isValid = false;
+            } else if (csrValue.indexOf('-----BEGIN CERTIFICATE REQUEST-----') === -1) {
+                csrField.classList.add('sslm-error');
+                showToast(lang.invalid_csr || 'Invalid CSR format. Must start with -----BEGIN CERTIFICATE REQUEST-----', 'error');
+                isValid = false;
+            }
+        }
+
+        // Validate primary domain (required)
+        var domainInput = form.querySelector('.sslm-domain-input');
+        if (domainInput && !domainInput.value.trim()) {
+            domainInput.classList.add('sslm-error');
+            isValid = false;
+        }
+
+        // Validate organization fields for OV/EV (if present)
+        if (config.validationType === 'ov' || config.validationType === 'ev') {
+            var requiredOrgFields = ['organizationName', 'organizationCountry', 'organizationCity'];
+            requiredOrgFields.forEach(function(fieldName) {
+                var field = form.querySelector('[name="' + fieldName + '"]');
+                if (field && !field.value.trim()) {
+                    field.classList.add('sslm-error');
+                    isValid = false;
+                }
+            });
+        }
+
+        return isValid;
+    }
+
+    function collectReissueFormData() {
+        var form = document.getElementById('sslm-reissue-form');
+        if (!form) return {};
+
+        var data = {
+            server: 'other',
+            isReissue: true,
+            csr: '',
+            domainInfo: [],
+            organizationInfo: {}
+        };
+
+        // Get CSR
+        var csrField = form.querySelector('[name="csr"]');
+        if (csrField) {
+            data.csr = csrField.value.trim();
+        }
+
+        // Collect domains
+        data.domainInfo = collectReissueDomains();
+
+        // Collect organization info (for OV/EV)
+        var orgName = form.querySelector('[name="organizationName"]');
+        if (orgName && orgName.value.trim()) {
+            data.organizationInfo = {
+                organizationName: getReissueFieldValue(form, 'organizationName'),
+                organizationAddress: getReissueFieldValue(form, 'organizationAddress'),
+                organizationCity: getReissueFieldValue(form, 'organizationCity'),
+                organizationState: getReissueFieldValue(form, 'organizationState'),
+                organizationCountry: getReissueFieldValue(form, 'organizationCountry'),
+                organizationPostalCode: getReissueFieldValue(form, 'organizationPostalCode'),
+                organizationMobile: getReissueFieldValue(form, 'organizationMobile')
+            };
+        }
+
+        return data;
+    }
+
+    function collectReissueDomains() {
+        var form = document.getElementById('sslm-reissue-form');
+        if (!form) return [];
+
+        var domains = [];
+        var domainRows = form.querySelectorAll('.sslm-domain-row');
+
+        domainRows.forEach(function(row) {
+            var domainInput = row.querySelector('.sslm-domain-input');
+            var dcvSelect = row.querySelector('.sslm-dcv-select');
+
+            if (domainInput && domainInput.value.trim()) {
+                domains.push({
+                    domainName: domainInput.value.trim(),
+                    dcvMethod: dcvSelect ? dcvSelect.value : 'CNAME_CSR_HASH'
+                });
+            }
+        });
+
+        return domains;
+    }
+
+    function getReissueFieldValue(form, name) {
+        var field = form.querySelector('[name="' + name + '"]');
+        return field ? field.value.trim() : '';
+    }
+
+    function decodeReissueCsr() {
+        var csrField = document.querySelector('#sslm-reissue-form [name="csr"]');
+        if (!csrField) return;
+
+        var csr = csrField.value.trim();
+        if (!csr) {
+            showToast(lang.enter_csr || 'Please enter a CSR first', 'warning');
+            return;
+        }
+
+        if (csr.indexOf('-----BEGIN CERTIFICATE REQUEST-----') === -1) {
+            showToast(lang.invalid_csr || 'Invalid CSR format', 'error');
+            return;
+        }
+
+        // Show loading
+        var decodeBtn = document.getElementById('btnDecodeCsr');
+        if (decodeBtn) {
+            decodeBtn.disabled = true;
+            decodeBtn.classList.add('sslm-loading');
+        }
+
+        // Call API to decode CSR
+        var ajaxUrl = config.ajaxUrl + '&step=decodeCSR';
+
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', ajaxUrl, true);
+        xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+        xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+
+        xhr.onload = function() {
+            if (decodeBtn) {
+                decodeBtn.disabled = false;
+                decodeBtn.classList.remove('sslm-loading');
+            }
+
+            try {
+                var responseText = xhr.responseText.trim();
+                var jsonStart = responseText.indexOf('{');
+                var jsonEnd = responseText.lastIndexOf('}');
+                if (jsonStart !== -1 && jsonEnd > jsonStart) {
+                    responseText = responseText.substring(jsonStart, jsonEnd + 1);
+                }
+
+                var response = JSON.parse(responseText);
+
+                if (response.success && response.data) {
+                    // Fill domain if decoded
+                    if (response.data.commonName) {
+                        var domainInput = document.querySelector('#sslm-reissue-form .sslm-domain-input');
+                        if (domainInput && !domainInput.value) {
+                            domainInput.value = response.data.commonName;
+                        }
+                    }
+                    showToast(lang.csr_decoded || 'CSR decoded successfully', 'success');
+                } else {
+                    showToast(response.message || lang.decode_error || 'Could not decode CSR', 'error');
+                }
+            } catch (e) {
+                console.error('Decode CSR error:', e);
+                showToast(lang.decode_error || 'Could not decode CSR', 'error');
+            }
+        };
+
+        xhr.onerror = function() {
+            if (decodeBtn) {
+                decodeBtn.disabled = false;
+                decodeBtn.classList.remove('sslm-loading');
+            }
+            showToast(lang.network_error || 'Network error', 'error');
+        };
+
+        xhr.send('csr=' + encodeURIComponent(csr));
+    }
+
+    // ========================================
     // SSLManager Namespace (for onclick handlers in templates)
     // ========================================
     window.SSLManager = window.SSLManager || {};
@@ -730,6 +1048,11 @@
         var baseUrl = config.ajaxUrl.split('&step=')[0];
         window.location.href = baseUrl + '&modop=custom&a=reissue';
     };
+
+    // Submit reissue (exposed for button onclick)
+    SSLManager.submitReissue = submitReissueForm;
+    SSLManager.validateReissueForm = validateReissueForm;
+    SSLManager.collectReissueFormData = collectReissueFormData;
 
     // ========================================
     // Helper: Download File from Base64
@@ -821,16 +1144,29 @@
         toast.className = 'sslm-toast sslm-toast--' + type;
         toast.innerHTML = '<span>' + message + '</span>';
         
+        // Position toast
+        toast.style.cssText = 'position:fixed;top:20px;right:20px;z-index:9999;padding:12px 20px;border-radius:6px;' +
+            'box-shadow:0 4px 12px rgba(0,0,0,0.15);font-size:14px;max-width:400px;opacity:0;transition:opacity 0.3s;';
+        
+        // Type colors
+        var colors = {
+            success: 'background:#f6ffed;border:1px solid #b7eb8f;color:#389e0d;',
+            error: 'background:#fff2f0;border:1px solid #ffccc7;color:#cf1322;',
+            warning: 'background:#fffbe6;border:1px solid #ffe58f;color:#d48806;',
+            info: 'background:#e6f7ff;border:1px solid #91d5ff;color:#1890ff;'
+        };
+        toast.style.cssText += colors[type] || colors.info;
+        
         document.body.appendChild(toast);
         
         // Show toast
         setTimeout(function() {
-            toast.classList.add('sslm-toast--visible');
+            toast.style.opacity = '1';
         }, 10);
         
         // Hide toast after delay
         setTimeout(function() {
-            toast.classList.remove('sslm-toast--visible');
+            toast.style.opacity = '0';
             setTimeout(function() {
                 if (toast.parentNode) toast.remove();
             }, 300);

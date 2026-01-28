@@ -11,60 +11,297 @@
 
 namespace nicsrsSSL;
 
+use WHMCS\Database\Capsule;
 use Exception;
 use ZipArchive;
 
 class CertificateFunc
 {
     /**
+     * Cached name-to-code mapping
+     * @var array|null
+     */
+    private static $nameToCodeCache = null;
+    
+    /**
+     * Cached code-to-name mapping  
+     * @var array|null
+     */
+    private static $codeToNameCache = null;
+
+    /**
+     * Cached full product data from database
+     * @var array|null
+     */
+    private static $productCache = null;
+
+    // ==========================================
+    // Name <-> Code Conversion Functions (NEW)
+    // ==========================================
+
+    /**
+     * Get product code from product name
+     * Searches: 1) Database cache (mod_nicsrs_products), 2) Static CERT_TYPES
+     * 
+     * @param string|null $name Product name (e.g., "Sectigo PositiveSSL DV")
+     * @return string|null Product code (e.g., "sectigo-positivessl-dv") or null
+     */
+    public static function getCertCodeByName(?string $name): ?string
+    {
+        if (empty($name)) {
+            return null;
+        }
+
+        // If input already looks like a code (contains dashes, no spaces)
+        if (strpos($name, '-') !== false && strpos($name, ' ') === false) {
+            return $name;
+        }
+
+        // Build cache if needed
+        if (self::$nameToCodeCache === null) {
+            self::buildNameCodeCache();
+        }
+
+        // Exact match
+        if (isset(self::$nameToCodeCache[$name])) {
+            return self::$nameToCodeCache[$name];
+        }
+
+        // Case-insensitive match
+        $nameLower = strtolower(trim($name));
+        foreach (self::$nameToCodeCache as $cachedName => $code) {
+            if (strtolower(trim($cachedName)) === $nameLower) {
+                return $code;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Get product name from product code
+     * 
+     * @param string|null $code Product code
+     * @return string|null Product name or null
+     */
+    public static function getCertNameByCode(?string $code): ?string
+    {
+        if (empty($code)) {
+            return null;
+        }
+
+        // Build cache if needed
+        if (self::$codeToNameCache === null) {
+            self::buildNameCodeCache();
+        }
+
+        return self::$codeToNameCache[$code] ?? null;
+    }
+
+    /**
+     * Normalize certificate identifier - always returns code
+     * Accepts either name or code as input
+     * 
+     * @param string|null $identifier Product name or code
+     * @return string Product code (or original if not found)
+     */
+    public static function normalizeToCode(?string $identifier): string
+    {
+        if (empty($identifier)) {
+            return '';
+        }
+
+        $identifier = trim($identifier);
+
+        // If it's already a code (contains dash, no space)
+        if (strpos($identifier, '-') !== false && strpos($identifier, ' ') === false) {
+            return $identifier;
+        }
+
+        // Try to convert from name
+        $code = self::getCertCodeByName($identifier);
+        return $code ?: $identifier;
+    }
+
+    /**
+     * Get full product data from database by code or name
+     * 
+     * @param string $identifier Product code or name
+     * @return object|null Product data or null
+     */
+    public static function getProductFromDatabase(string $identifier): ?object
+    {
+        if (empty($identifier)) {
+            return null;
+        }
+
+        try {
+            if (!Capsule::schema()->hasTable('mod_nicsrs_products')) {
+                return null;
+            }
+
+            return Capsule::table('mod_nicsrs_products')
+                ->where('product_code', $identifier)
+                ->orWhere('product_name', $identifier)
+                ->first();
+        } catch (Exception $e) {
+            return null;
+        }
+    }
+
+    /**
+     * Build name <-> code cache from database and static definitions
+     */
+    private static function buildNameCodeCache(): void
+    {
+        self::$nameToCodeCache = [];
+        self::$codeToNameCache = [];
+
+        // 1. Load from database (mod_nicsrs_products) - higher priority
+        try {
+            if (Capsule::schema()->hasTable('mod_nicsrs_products')) {
+                $products = Capsule::table('mod_nicsrs_products')
+                    ->select('product_code', 'product_name')
+                    ->get();
+
+                foreach ($products as $product) {
+                    if (!empty($product->product_name) && !empty($product->product_code)) {
+                        self::$nameToCodeCache[$product->product_name] = $product->product_code;
+                        self::$codeToNameCache[$product->product_code] = $product->product_name;
+                    }
+                }
+            }
+        } catch (Exception $e) {
+            // Table doesn't exist, continue with static
+        }
+
+        // 2. Load from static CERT_TYPES (fallback/supplement)
+        if (defined('CERT_TYPES') && is_array(CERT_TYPES)) {
+            foreach (CERT_TYPES as $code => $attrs) {
+                if (!empty($attrs['name'])) {
+                    // Don't override database values
+                    if (!isset(self::$nameToCodeCache[$attrs['name']])) {
+                        self::$nameToCodeCache[$attrs['name']] = $code;
+                    }
+                    if (!isset(self::$codeToNameCache[$code])) {
+                        self::$codeToNameCache[$code] = $attrs['name'];
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Clear the cache (useful after product sync)
+     */
+    public static function clearCache(): void
+    {
+        self::$nameToCodeCache = null;
+        self::$codeToNameCache = null;
+        self::$productCache = null;
+    }
+
+    // ==========================================
+    // Certificate Attributes Functions
+    // ==========================================
+
+    /**
      * Get certificate type attributes
+     * 
+     * @param string|null $certType Certificate code (or name - will be normalized)
+     * @param string|null $key Specific attribute key to return
+     * @return mixed
      */
     public static function getCertAttributes(?string $certType = null, ?string $key = null)
     {
-        $types = CERT_TYPES;
+        $types = defined('CERT_TYPES') ? CERT_TYPES : [];
 
         if ($certType === null) {
             return $types;
         }
 
-        if (!isset($types[$certType])) {
-            return null;
-        }
+        // Normalize to code if name was passed
+        $certCode = self::normalizeToCode($certType);
 
-        if ($key === null) {
-            return $types[$certType];
-        }
-
-        return $types[$certType][$key] ?? null;
-    }
-
-    /**
-     * Get certificate attributes dropdown for module config
-     */
-    public static function getCertAttributesDropdown(): string
-    {
-        $options = [];
-        foreach (CERT_TYPES as $code => $cert) {
-            $options[] = $cert['name'];
-        }
-        return implode(',', $options);
-    }
-
-    /**
-     * Get certificate code by name
-     */
-    public static function getCertCodeByName(string $name): ?string
-    {
-        foreach (CERT_TYPES as $code => $cert) {
-            if ($cert['name'] === $name) {
-                return $code;
+        // Try static CERT_TYPES first
+        if (isset($types[$certCode])) {
+            if ($key === null) {
+                return $types[$certCode];
             }
+            return $types[$certCode][$key] ?? null;
         }
+
+        // Fallback: Try to get from database
+        $product = self::getProductFromDatabase($certType);
+        if ($product) {
+            $attrs = [
+                'name' => $product->product_name,
+                'code' => $product->product_code,
+                'vendor' => $product->vendor ?? 'Unknown',
+                'sslType' => 'website_ssl',
+                'sslValidationType' => $product->validation_type ?? 'dv',
+                'isMultiDomain' => (bool) ($product->support_san ?? false),
+                'isWildcard' => (bool) ($product->support_wildcard ?? false),
+                'supportNormal' => true,
+                'supportIp' => false,
+                'supportWild' => (bool) ($product->support_wildcard ?? false),
+                'supportHttps' => true,
+                'maxDomains' => (int) ($product->max_domains ?? 1),
+            ];
+
+            if ($key === null) {
+                return $attrs;
+            }
+            return $attrs[$key] ?? null;
+        }
+
         return null;
     }
 
     /**
+     * Get dropdown options string for module config
+     * Returns PRODUCT CODES (not names) for proper storage
+     * 
+     * @return string Comma-separated product codes
+     */
+    public static function getCertAttributesDropdown(): string
+    {
+        // Try database first
+        try {
+            if (Capsule::schema()->hasTable('mod_nicsrs_products')) {
+                $codes = Capsule::table('mod_nicsrs_products')
+                    ->where('is_active', 1)
+                    ->orderBy('vendor')
+                    ->orderBy('product_name')
+                    ->pluck('product_code')
+                    ->toArray();
+
+                if (!empty($codes)) {
+                    return implode(',', $codes);
+                }
+            }
+        } catch (Exception $e) {
+            // Continue to static fallback
+        }
+
+        // Fallback to static CERT_TYPES
+        if (defined('CERT_TYPES') && is_array(CERT_TYPES)) {
+            return implode(',', array_keys(CERT_TYPES));
+        }
+
+        return '';
+    }
+
+    // ==========================================
+    // CSR Functions
+    // ==========================================
+
+    /**
      * Generate CSR and Private Key
+     * 
+     * @param array $data CSR data (cn/commonName, org, city, state, country, email)
+     * @return array ['csr' => string, 'privateKey' => string, 'dn' => array]
+     * @throws Exception
      */
     public static function generateCSR(array $data): array
     {
@@ -124,7 +361,11 @@ class CertificateFunc
         }
 
         // Configuration
-        $config = DEFAULT_CSR_CONFIG;
+        $config = defined('DEFAULT_CSR_CONFIG') ? DEFAULT_CSR_CONFIG : [
+            'private_key_bits' => 2048,
+            'private_key_type' => OPENSSL_KEYTYPE_RSA,
+            'digest_alg' => 'sha256',
+        ];
 
         // Generate private key
         $privateKey = openssl_pkey_new($config);
@@ -153,6 +394,10 @@ class CertificateFunc
 
     /**
      * Decode and validate CSR
+     * 
+     * @param string $csr CSR content
+     * @return array Decoded CSR data
+     * @throws Exception
      */
     public static function decodeCSR(string $csr): array
     {
@@ -196,6 +441,9 @@ class CertificateFunc
 
     /**
      * Get key type name
+     * 
+     * @param int $type OpenSSL key type constant
+     * @return string Key type name
      */
     private static function getKeyTypeName(int $type): string
     {
@@ -209,8 +457,17 @@ class CertificateFunc
         return $types[$type] ?? 'Unknown';
     }
 
+    // ==========================================
+    // Certificate Download Functions
+    // ==========================================
+
     /**
      * Create certificate download ZIP
+     * 
+     * @param array $certData Certificate data
+     * @param string $format Download format (apache, nginx, iis, tomcat, all)
+     * @return string Base64 encoded ZIP content
+     * @throws Exception
      */
     public static function createCertificateZip(array $certData, string $format = 'all'): string
     {
@@ -235,20 +492,14 @@ class CertificateFunc
 
         switch ($format) {
             case 'apache':
-                // Apache format: .crt, .ca-bundle, .key
-                if ($certificate) {
-                    $zip->addFromString("{$safeDomain}.crt", $certificate);
-                }
-                if ($caCertificate) {
-                    $zip->addFromString("{$safeDomain}.ca-bundle", $caCertificate);
-                }
+                $zip->addFromString("{$safeDomain}.crt", $certificate);
+                $zip->addFromString("{$safeDomain}.ca-bundle", $caCertificate);
                 if ($privateKey) {
                     $zip->addFromString("{$safeDomain}.key", $privateKey);
                 }
                 break;
 
             case 'nginx':
-                // Nginx format: combined .pem
                 $pem = $certificate . "\n" . $caCertificate;
                 $zip->addFromString("{$safeDomain}.pem", $pem);
                 if ($privateKey) {
@@ -257,7 +508,6 @@ class CertificateFunc
                 break;
 
             case 'iis':
-                // IIS format: .p12/.pfx
                 if ($pkcs12) {
                     $zip->addFromString("{$safeDomain}.p12", base64_decode($pkcs12));
                     if ($pkcsPass) {
@@ -267,7 +517,6 @@ class CertificateFunc
                 break;
 
             case 'tomcat':
-                // Tomcat format: .jks
                 if ($jks) {
                     $zip->addFromString("{$safeDomain}.jks", base64_decode($jks));
                     if ($jksPass) {
@@ -278,14 +527,9 @@ class CertificateFunc
 
             case 'all':
             default:
-                // All formats
-                // Apache/Standard
-                if ($certificate) {
-                    $zip->addFromString("apache/{$safeDomain}.crt", $certificate);
-                }
-                if ($caCertificate) {
-                    $zip->addFromString("apache/{$safeDomain}.ca-bundle", $caCertificate);
-                }
+                // Apache
+                $zip->addFromString("apache/{$safeDomain}.crt", $certificate);
+                $zip->addFromString("apache/{$safeDomain}.ca-bundle", $caCertificate);
                 if ($privateKey) {
                     $zip->addFromString("apache/{$safeDomain}.key", $privateKey);
                 }
@@ -336,15 +580,19 @@ class CertificateFunc
 
     /**
      * Generate README content for certificate ZIP
+     * 
+     * @param string $domain Domain name
+     * @return string README content
      */
     private static function generateReadme(string $domain): string
     {
+        $date = date('Y-m-d H:i:s');
         return <<<README
 SSL Certificate Installation Guide
 ===================================
 
 Domain: {$domain}
-Generated: {date('Y-m-d H:i:s')}
+Generated: {$date}
 
 This archive contains your SSL certificate in multiple formats.
 
@@ -393,8 +641,15 @@ Support: https://hvn.vn
 README;
     }
 
+    // ==========================================
+    // Domain Validation Functions
+    // ==========================================
+
     /**
      * Validate domain format
+     * 
+     * @param string $domain Domain to validate
+     * @return bool True if valid
      */
     public static function validateDomain(string $domain): bool
     {
@@ -416,6 +671,9 @@ README;
 
     /**
      * Check if domain is wildcard
+     * 
+     * @param string $domain Domain to check
+     * @return bool True if wildcard
      */
     public static function isWildcardDomain(string $domain): bool
     {
@@ -424,6 +682,9 @@ README;
 
     /**
      * Get base domain from wildcard
+     * 
+     * @param string $domain Domain (may include wildcard)
+     * @return string Base domain without wildcard
      */
     public static function getBaseDomain(string $domain): string
     {
@@ -432,6 +693,9 @@ README;
 
     /**
      * Get DCV email options for a domain
+     * 
+     * @param string $domain Domain name
+     * @return array List of valid DCV email addresses
      */
     public static function getDCVEmailOptions(string $domain): array
     {
@@ -447,8 +711,16 @@ README;
         return $emails;
     }
 
+    // ==========================================
+    // Date/Status Utility Functions
+    // ==========================================
+
     /**
      * Format date for display
+     * 
+     * @param string|null $date Date string
+     * @param string $format Output format
+     * @return string Formatted date or 'N/A'
      */
     public static function formatDate(?string $date, string $format = 'Y-m-d'): string
     {
@@ -462,6 +734,9 @@ README;
 
     /**
      * Calculate days until expiry
+     * 
+     * @param string|null $expiryDate Expiry date string
+     * @return int|null Days until expiry or null
      */
     public static function getDaysUntilExpiry(?string $expiryDate): ?int
     {
@@ -481,18 +756,44 @@ README;
 
     /**
      * Get status badge class
+     * 
+     * @param string $status Order status
+     * @return string CSS class name
      */
     public static function getStatusClass(string $status): string
     {
-        return STATUS_CLASSES[$status] ?? 'default';
+        $classes = defined('STATUS_CLASSES') ? STATUS_CLASSES : [
+            'Awaiting Configuration' => 'warning',
+            'Draft' => 'info',
+            'Pending' => 'processing',
+            'Complete' => 'success',
+            'Issued' => 'success',
+            'Cancelled' => 'default',
+            'Revoked' => 'error',
+            'Expired' => 'error',
+            'Suspended' => 'warning',
+            'Reissue' => 'processing',
+        ];
+
+        return $classes[$status] ?? 'default';
     }
+
+    // ==========================================
+    // Language Functions
+    // ==========================================
 
     /**
      * Load language file
+     * 
+     * @param string $language Language name
+     * @return array Language strings
      */
     public static function loadLanguage(string $language = 'english'): array
     {
-        $langPath = NICSRS_SSL_PATH . 'lang' . DS;
+        $langPath = defined('NICSRS_SSL_PATH') 
+            ? NICSRS_SSL_PATH . 'lang' . DIRECTORY_SEPARATOR
+            : __DIR__ . '/../../lang/';
+            
         $langFile = $langPath . strtolower($language) . '.php';
 
         // Fallback to English
@@ -512,6 +813,9 @@ README;
 
     /**
      * Get client's preferred language
+     * 
+     * @param int $userId User ID
+     * @return string Language name
      */
     public static function getClientLanguage(int $userId): string
     {
@@ -520,7 +824,7 @@ README;
         }
         
         try {
-            $client = \WHMCS\Database\Capsule::table('tblclients')
+            $client = Capsule::table('tblclients')
                 ->where('id', $userId)
                 ->first();
 
@@ -530,11 +834,17 @@ README;
         }
     }
     
+    // ==========================================
+    // Database Functions
+    // ==========================================
+
     /**
      * Create orders table if not exist (backward compatibility)
      */
     public static function createOrdersTableIfNotExist(): void
     {
-        OrderRepository::ensureTableExists();
+        if (class_exists('\\nicsrsSSL\\OrderRepository')) {
+            OrderRepository::ensureTableExists();
+        }
     }
 }

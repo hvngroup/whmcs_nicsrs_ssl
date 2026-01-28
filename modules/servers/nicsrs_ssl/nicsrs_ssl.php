@@ -126,7 +126,7 @@ function getCertTypeOptionsForDropdown(): string
             $products = \WHMCS\Database\Capsule::table('mod_nicsrs_products')
                 ->orderBy('vendor')
                 ->orderBy('product_name')
-                ->pluck('product_name')
+                ->pluck('product_code')
                 ->toArray();
             
             if (count($products) > 0) {

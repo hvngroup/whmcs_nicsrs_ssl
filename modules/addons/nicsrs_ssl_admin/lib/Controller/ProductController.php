@@ -222,13 +222,34 @@ class ProductController extends BaseController
      */
     private function getLinkedProductCodes(): array
     {
-        return Capsule::table('tblproducts')
+        $configValues = Capsule::table('tblproducts')
             ->where('servertype', 'nicsrs_ssl')
             ->whereNotNull('configoption1')
             ->where('configoption1', '!=', '')
             ->pluck('configoption1')
             ->toArray();
+
+        $productCodes = [];
+        
+        foreach ($configValues as $value) {
+            // Check if it's a code (has dash, no space)
+            if (strpos($value, '-') !== false && strpos($value, ' ') === false) {
+                $productCodes[] = $value;
+            } else {
+                // It's a name, try to find the code
+                $product = Capsule::table('mod_nicsrs_products')
+                    ->where('product_name', $value)
+                    ->first();
+                
+                if ($product) {
+                    $productCodes[] = $product->product_code;
+                }
+            }
+        }
+
+        return array_unique($productCodes);
     }
+
 
     /**
      * Get linked/not-linked statistics

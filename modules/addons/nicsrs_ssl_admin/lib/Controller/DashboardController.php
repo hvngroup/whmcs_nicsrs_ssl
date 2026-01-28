@@ -190,6 +190,7 @@ class DashboardController extends BaseController
             if ($order->certtype) {
                 $product = Capsule::table('mod_nicsrs_products')
                     ->where('product_code', $order->certtype)
+                    ->orWhere('product_name', $order->certtype)
                     ->first();
                 if ($product) {
                     $productName = $product->product_name;
@@ -271,9 +272,10 @@ class DashboardController extends BaseController
                     // Get product name
                     $productName = null;
                     if ($order->certtype) {
-                        $product = Capsule::table('mod_nicsrs_products')
-                            ->where('product_code', $order->certtype)
-                            ->first();
+                    $product = Capsule::table('mod_nicsrs_products')
+                        ->where('product_code', $order->certtype)
+                        ->orWhere('product_name', $order->certtype)
+                        ->first();
                         if ($product) {
                             $productName = $product->product_name;
                         }

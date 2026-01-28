@@ -235,8 +235,10 @@ class PageController
      */
     private static function getCertConfig(array $params): array
     {
-        $certName = $params['configoption1'] ?? '';
-        $certCode = CertificateFunc::getCertCodeByName($certName);
+        $certIdentifier = $params['configoption1'] ?? '';
+        
+        // Normalize to code (handles both name and code input)
+        $certCode = CertificateFunc::normalizeToCode($certIdentifier);
         
         if ($certCode) {
             $cert = CertificateFunc::getCertAttributes($certCode);
@@ -246,10 +248,39 @@ class PageController
             }
         }
 
-        // Default configuration if not found
+        // Fallback: Try to get from database by name
+        if ($certIdentifier) {
+            try {
+                $product = \WHMCS\Database\Capsule::table('mod_nicsrs_products')
+                    ->where('product_name', $certIdentifier)
+                    ->orWhere('product_code', $certIdentifier)
+                    ->first();
+
+                if ($product) {
+                    return [
+                        'code' => $product->product_code,
+                        'name' => $product->product_name,
+                        'vendor' => $product->vendor ?? 'Unknown',
+                        'sslType' => 'website_ssl',
+                        'sslValidationType' => $product->validation_type ?? 'dv',
+                        'isMultiDomain' => (bool) ($product->support_san ?? false),
+                        'isWildcard' => (bool) ($product->support_wildcard ?? false),
+                        'supportNormal' => true,
+                        'supportIp' => false,
+                        'supportWild' => (bool) ($product->support_wildcard ?? false),
+                        'supportHttps' => true,
+                        'maxDomains' => (int) ($product->max_domains ?? 1),
+                    ];
+                }
+            } catch (\Exception $e) {
+                // Continue to default
+            }
+        }
+
+        // Default configuration
         return [
             'code' => 'unknown',
-            'name' => $certName ?: 'SSL Certificate',
+            'name' => $certIdentifier ?: 'SSL Certificate',
             'vendor' => 'Unknown',
             'sslType' => 'website_ssl',
             'sslValidationType' => 'dv',
