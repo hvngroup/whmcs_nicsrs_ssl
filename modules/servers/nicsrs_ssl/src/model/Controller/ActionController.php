@@ -76,7 +76,7 @@ class ActionController
             $apiRequest = self::buildApiRequest($formData, $cert, $params);
 
             // Call API
-            $apiResponse = ApiService::placeOrder($params, $apiRequest);
+            $apiResponse = ApiService::place($params, $apiRequest);
             $placeParsed = ApiService::parseResponse($apiResponse);
 
             if (!$placeParsed['success']) {
@@ -491,7 +491,7 @@ class ActionController
             }
             
             // Call API to update DCV
-            $apiResponse = ApiService::updateDCV($params, $order->remoteid, $dcvInfo);
+            $apiResponse = ApiService::batchUpdateDCV($params, $order->remoteid, $dcvInfo);
             $parsed = ApiService::parseResponse($apiResponse);
             
             if (!$parsed['success']) {
@@ -530,9 +530,29 @@ class ActionController
     {
         try {
             $domain = $_POST['domain'] ?? '';
+            $email = $_POST['email'] ?? '';
             
             if (empty($domain)) {
                 return ResponseFormatter::error('Domain is required');
+            }
+            
+            // If no email provided, get from configdata or generate default
+            if (empty($email)) {
+                $order = OrderRepository::getByServiceId($params['serviceid']);
+                if ($order) {
+                    $configdata = json_decode($order->configdata, true) ?: [];
+                    $domainInfo = $configdata['domainInfo'] ?? [];
+                    foreach ($domainInfo as $d) {
+                        if (($d['domainName'] ?? '') === $domain && !empty($d['dcvEmail'])) {
+                            $email = $d['dcvEmail'];
+                            break;
+                        }
+                    }
+                }
+                // Fallback to admin@domain
+                if (empty($email)) {
+                    $email = 'admin@' . $domain;
+                }
             }
             
             $order = OrderRepository::getByServiceId($params['serviceid']);
@@ -541,8 +561,8 @@ class ActionController
                 return ResponseFormatter::error('Order not found or not submitted');
             }
             
-            // Call API
-            $apiResponse = ApiService::resendDCVEmail($params, $order->remoteid, $domain);
+            // Call API with all 4 required parameters
+            $apiResponse = ApiService::resendDCVEmail($params, $order->remoteid, $domain, $email);
             $parsed = ApiService::parseResponse($apiResponse);
             
             if (!$parsed['success']) {
@@ -556,7 +576,7 @@ class ActionController
             return ResponseFormatter::error($e->getMessage());
         }
     }
-
+    
     // ==========================================
     // Status & Refresh Actions
     // ==========================================
@@ -573,7 +593,7 @@ class ActionController
                 return ResponseFormatter::error('No certificate to refresh');
             }
 
-            $apiResponse = ApiService::getCertificate($params, $order->remoteid);
+            $apiResponse = ApiService::collect($params, $order->remoteid);
             $parsed = ApiService::parseResponse($apiResponse);
 
             if (!$parsed['success']) {
@@ -722,7 +742,7 @@ class ActionController
                 return ResponseFormatter::error('Order not submitted yet');
             }
 
-            $apiResponse = ApiService::cancelOrder($params, $order->remoteid);
+            $apiResponse = ApiService::cancel($params, $order->remoteid);
             $parsed = ApiService::parseResponse($apiResponse);
 
             if (!$parsed['success']) {
@@ -755,7 +775,7 @@ class ActionController
 
             $reason = $_POST['reason'] ?? 'unspecified';
             
-            $apiResponse = ApiService::revokeCertificate($params, $order->remoteid, $reason);
+            $apiResponse = ApiService::revoke($params, $order->remoteid, $reason);
             $parsed = ApiService::parseResponse($apiResponse);
 
             if (!$parsed['success']) {
@@ -803,7 +823,9 @@ class ActionController
             $apiRequest = self::buildApiRequest($formData, $cert, $params);
             $apiRequest['certId'] = $order->remoteid;
 
-            $apiResponse = ApiService::reissueCertificate($params, $apiRequest);
+            $certId = $apiRequest['certId'];
+            unset($apiRequest['certId']);
+            $apiResponse = ApiService::reissue($params, $certId, $apiRequest);
             $parsed = ApiService::parseResponse($apiResponse);
 
             if (!$parsed['success']) {
