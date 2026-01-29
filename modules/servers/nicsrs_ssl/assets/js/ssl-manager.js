@@ -614,7 +614,7 @@
         if (!form) return {};
         
         return {
-            organation: getValue(form, 'adminOrganizationName'),
+            organization: getValue(form, 'adminOrganizationName'),
             job: getValue(form, 'adminTitle'),
             firstName: getValue(form, 'adminFirstName'),
             lastName: getValue(form, 'adminLastName'),

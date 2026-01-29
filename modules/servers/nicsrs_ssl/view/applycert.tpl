@@ -288,75 +288,107 @@
                 <h3><span class="sslm-step-number">3</span> {$_LANG.admin_contact|default:'Administrator Contact'}</h3>
             </div>
             <div class="sslm-section-body" id="personalcontactPart">
-                {* NEW: Section guidance text *}
+                {* Section guidance text *}
                 <p class="sslm-help-text" style="margin-bottom: 16px;">
                     <i class="fas fa-lightbulb"></i>
-                    {$_LANG.contact_section_guide|default:'This information will appear on your certificate. The admin email will receive important notifications about your SSL certificate.'}
+                    {$_LANG.contact_section_guide|default:'This information will appear on your certificate. The admin email will receive important notifications about your SSL certificate. All fields marked with * are required by the Certificate Authority.'}
                 </p>
 
-                {* All contact fields - PRESERVED EXACTLY *}
+                {* Row 1: First Name & Last Name (REQUIRED) *}
                 <div class="sslm-form-row">
                     <div class="sslm-form-group sslm-col-6">
                         <label>{$_LANG.first_name|default:'First Name'} <span class="required">*</span></label>
                         <input type="text" name="adminFirstName" class="sslm-input" 
-                               value="{$configData.Administrator.firstName|default:$client.firstname|escape:'html'}" required>
+                            value="{$configData.Administrator.firstName|default:$client.firstname|escape:'html'}" 
+                            required
+                            placeholder="e.g. John">
                     </div>
                     <div class="sslm-form-group sslm-col-6">
                         <label>{$_LANG.last_name|default:'Last Name'} <span class="required">*</span></label>
                         <input type="text" name="adminLastName" class="sslm-input" 
-                               value="{$configData.Administrator.lastName|default:$client.lastname|escape:'html'}" required>
+                            value="{$configData.Administrator.lastName|default:$client.lastname|escape:'html'}" 
+                            required
+                            placeholder="e.g. Doe">
                     </div>
                 </div>
+
+                {* Row 2: Email & Phone (REQUIRED) *}
                 <div class="sslm-form-row">
                     <div class="sslm-form-group sslm-col-6">
                         <label>{$_LANG.email_address|default:'Email Address'} <span class="required">*</span></label>
                         <input type="email" name="adminEmail" class="sslm-input" 
-                               value="{$configData.Administrator.email|default:$client.email|escape:'html'}" required>
+                            value="{$configData.Administrator.email|default:$client.email|escape:'html'}" 
+                            required
+                            placeholder="e.g. admin@example.com">
+                        <p class="sslm-help-text">
+                            <i class="fas fa-info-circle"></i> {$_LANG.admin_email_note|default:'Certificate notifications will be sent to this email.'}
+                        </p>
                     </div>
                     <div class="sslm-form-group sslm-col-6">
-                        <label>{$_LANG.phone|default:'Phone'}</label>
+                        <label>{$_LANG.phone|default:'Phone/Mobile'} <span class="required">*</span></label>
                         <input type="tel" name="adminPhone" class="sslm-input" 
-                               value="{$configData.Administrator.mobile|default:$client.phonenumber|escape:'html'}">
+                            value="{$configData.Administrator.mobile|default:$client.phonenumber|escape:'html'}"
+                            required
+                            placeholder="e.g. +84.123456789">
                     </div>
                 </div>
+
+                {* Row 3: Organization & Job Title (REQUIRED) *}
                 <div class="sslm-form-row">
                     <div class="sslm-form-group sslm-col-6">
-                        <label>{$_LANG.organization_name|default:'Organization'}</label>
+                        <label>{$_LANG.organization_name|default:'Organization'} <span class="required">*</span></label>
                         <input type="text" name="adminOrganizationName" class="sslm-input" 
-                               value="{$configData.Administrator.organation|default:$client.companyname|escape:'html'}">
+                            value="{$configData.Administrator.organization|default:$client.companyname|escape:'html'}"
+                            required
+                            placeholder="e.g. Acme Corporation">
                     </div>
                     <div class="sslm-form-group sslm-col-6">
-                        <label>{$_LANG.title|default:'Job Title'}</label>
+                        <label>{$_LANG.job_title|default:'Job Title'} <span class="required">*</span></label>
                         <input type="text" name="adminTitle" class="sslm-input" 
-                               value="{$configData.Administrator.job|escape:'html'}">
+                            value="{$configData.Administrator.job|escape:'html'}"
+                            required
+                            placeholder="e.g. IT Manager, CEO, CTO">
                     </div>
                 </div>
+
+                {* Row 4: City & Address (REQUIRED) *}
                 <div class="sslm-form-row">
                     <div class="sslm-form-group sslm-col-6">
-                        <label>{$_LANG.address|default:'Address'}</label>
+                        <label>{$_LANG.address|default:'Address'} <span class="required">*</span></label>
                         <input type="text" name="adminAddress" class="sslm-input" 
-                               value="{$configData.Administrator.address|default:$client.address1|escape:'html'}">
+                            value="{$configData.Administrator.address|default:$client.address1|escape:'html'}"
+                            required
+                            placeholder="e.g. 123 Main Street, Suite 100">
                     </div>
                     <div class="sslm-form-group sslm-col-6">
-                        <label>{$_LANG.city|default:'City'}</label>
+                        <label>{$_LANG.city|default:'City'} <span class="required">*</span></label>
                         <input type="text" name="adminCity" class="sslm-input" 
-                               value="{$configData.Administrator.city|default:$client.city|escape:'html'}">
-                    </div>
+                            value="{$configData.Administrator.city|default:$client.city|escape:'html'}"
+                            required
+                            placeholder="e.g. Ho Chi Minh City">
+                    </div>                    
                 </div>
+
+                {* Row 5: State & Postal Code & Country (REQUIRED) *}
                 <div class="sslm-form-row">
                     <div class="sslm-form-group sslm-col-4">
-                        <label>{$_LANG.state|default:'State/Province'}</label>
+                        <label>{$_LANG.state|default:'State/Province'} <span class="required">*</span></label>
                         <input type="text" name="adminProvince" class="sslm-input" 
-                               value="{$configData.Administrator.state|default:$client.state|escape:'html'}">
+                            value="{$configData.Administrator.state|default:$client.state|escape:'html'}"
+                            required
+                            placeholder="e.g. Ho Chi Minh">
                     </div>
                     <div class="sslm-form-group sslm-col-4">
-                        <label>{$_LANG.post_code|default:'Postal Code'}</label>
+                        <label>{$_LANG.post_code|default:'Postal Code'} <span class="required">*</span></label>
                         <input type="text" name="adminPostCode" class="sslm-input" 
-                               value="{$configData.Administrator.postCode|default:$client.postcode|escape:'html'}">
+                            value="{$configData.Administrator.postCode|default:$client.postcode|escape:'html'}"
+                            required
+                            placeholder="e.g. 700000">
                     </div>
                     <div class="sslm-form-group sslm-col-4">
-                        <label>{$_LANG.country|default:'Country'}</label>
-                        <select name="adminCountry" class="sslm-select">
+                        <label>{$_LANG.country|default:'Country'} <span class="required">*</span></label>
+                        <select name="adminCountry" class="sslm-select" required>
+                            <option value="">{$_LANG.select_country|default:'-- Select Country --'}</option>
                             {foreach from=$countries item=country}
                             <option value="{$country.code}" 
                                 {if ($configData.Administrator.country|default:$client.country) eq $country.code}selected{/if}>
