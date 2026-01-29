@@ -38,6 +38,12 @@ class ApiService
     /**
      * Get API token with fallback to Admin Addon settings
      * 
+     * Priority:
+     * 1. Product-level API token (configoption2)
+     * 2. Product config via serviceid
+     * 3. Admin Addon module settings (tbladdonmodules) <-- ADD THIS
+     * 4. Shared settings table (mod_nicsrs_settings)
+     * 
      * @param array $params Module parameters
      * @return string API token
      * @throws Exception If no API token configured
@@ -66,7 +72,21 @@ class ApiService
             }
         }
 
-        // 3. Fallback to Admin Addon shared settings
+        // 3. Try Admin Addon module settings (tbladdonmodules)
+        try {
+            $addonSetting = Capsule::table('tbladdonmodules')
+                ->where('module', 'nicsrs_ssl_admin')
+                ->where('setting', 'api_token')
+                ->first();
+
+            if ($addonSetting && !empty($addonSetting->value)) {
+                return trim($addonSetting->value);
+            }
+        } catch (Exception $e) {
+            // Continue to next fallback
+        }
+
+        // 4. Fallback to shared settings table (mod_nicsrs_settings)
         $setting = Capsule::table('mod_nicsrs_settings')
             ->where('setting_key', 'api_token')
             ->first();
@@ -83,10 +103,10 @@ class ApiService
      * 
      * @param string $endpoint Endpoint name
      * @param array $data Request data
-     * @return object|null Response object
+     * @return object Response object (never null)
      * @throws Exception On API error
      */
-    public static function call(string $endpoint, array $data)
+    public static function call(string $endpoint, array $data): object
     {
         $url = self::getEndpointUrl($endpoint);
         
@@ -106,12 +126,12 @@ class ApiService
             $response = self::curlRequest($url, $data);
             
             // Log the response
-            logModuleCall('nicsrs_ssl', $endpoint . '_response', $logData, $response);
+            logModuleCall('nicsrs_ssl', $endpoint . '_response', $logData, json_encode($response));
 
             return $response;
         } catch (Exception $e) {
             logModuleCall('nicsrs_ssl', $endpoint . '_error', $logData, $e->getMessage());
-            throw $e;
+            throw $e; // Re-throw, don't return null
         }
     }
 
@@ -129,8 +149,13 @@ class ApiService
 
     /**
      * Execute cURL request
+     * 
+     * @param string $url Request URL
+     * @param array $data Request data
+     * @return object Response object (never null)
+     * @throws Exception On any error
      */
-    private static function curlRequest(string $url, array $data)
+    private static function curlRequest(string $url, array $data): object
     {
         $curl = curl_init();
 
@@ -154,18 +179,32 @@ class ApiService
         
         curl_close($curl);
 
+        // Handle cURL errors
         if ($error) {
             throw new Exception("cURL Error: {$error}");
         }
 
+        // Handle HTTP errors
         if ($httpCode !== 200) {
             throw new Exception("HTTP Error: {$httpCode}");
         }
 
+        // Handle empty response
+        if (empty($response)) {
+            throw new Exception("Empty response from API");
+        }
+
+        // Parse JSON response
         $decoded = json_decode($response);
 
+        // Handle JSON parse errors
         if (json_last_error() !== JSON_ERROR_NONE) {
             throw new Exception("Invalid JSON response: " . json_last_error_msg());
+        }
+
+        // Handle null decoded result
+        if ($decoded === null) {
+            throw new Exception("API returned null response");
         }
 
         return $decoded;
@@ -345,23 +384,57 @@ class ApiService
 
     /**
      * Parse API response and check for errors
+     * 
+     * @param object|null $response API response object
+     * @return array Parsed response with success status
      */
-    public static function parseResponse(object $response): array
+    public static function parseResponse($response): array
     {
-        $code = $response->code ?? -2;
-        $message = $response->msg ?? 'Unknown error';
-        $status = $response->status ?? $response->certStatus ?? '';
-        $data = $response->data ?? null;
+        // Handle null response
+        if ($response === null) {
+            return [
+                'success' => false,
+                'code' => 0,
+                'message' => 'No response from API',
+                'data' => null,
+                'status' => '',
+            ];
+        }
 
-        $success = in_array($code, [API_CODE_SUCCESS, API_CODE_PROCESSING]);
+        $code = $response->code ?? 0;
+        $success = ($code == 1 || $code == 2);
+        
+        // Get message from various possible fields
+        $message = $response->msg ?? $response->message ?? $response->error ?? '';
+        
+        if (!$success && empty($message)) {
+            $message = self::getErrorMessage($code);
+        }
 
         return [
             'success' => $success,
             'code' => $code,
             'message' => $message,
-            'status' => $status,
-            'data' => $data,
-            'isProcessing' => $code === API_CODE_PROCESSING,
+            'data' => $response->data ?? null,
+            'status' => $response->status ?? $response->certStatus ?? '',
         ];
+    }
+
+    /**
+     * Get error message for API code
+     */
+    private static function getErrorMessage(int $code): string
+    {
+        $messages = [
+            0 => 'Operation failed',
+            -1 => 'Parameter validation failed',
+            -2 => 'Unknown error',
+            -3 => 'Product/price error',
+            -4 => 'Insufficient credit',
+            -6 => 'CA request failed',
+            400 => 'Permission denied - invalid API token',
+        ];
+
+        return $messages[$code] ?? "Unknown error (code: {$code})";
     }
 }
