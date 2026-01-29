@@ -28,7 +28,6 @@ class ActionController
 
     /**
      * Submit certificate application
-     * FIXED: Changed getCertificateByCode to getCertAttributes
      */
     public static function submitApply(array $params): array
     {
@@ -57,76 +56,103 @@ class ActionController
                 return ResponseFormatter::error('Validation failed: ' . implode(', ', $errors));
             }
 
-            // FIXED: Use getCertAttributes instead of getCertificateByCode
-            $certCode = $order->certtype ?? $params['configoption1'] ?? '';
-            $cert = CertificateFunc::getCertAttributes($certCode);
+            // Get product code
+            $productCode = $order->certtype ?? $params['configoption1'] ?? '';
+            if (empty($productCode)) {
+                return ResponseFormatter::error('Product code not configured');
+            }
+
+            // Get certificate attributes
+            $cert = CertificateFunc::getCertAttributes($productCode);
             
-            // If cert is null, create minimal config
             if (empty($cert)) {
                 $cert = [
-                    'code' => $certCode,
-                    'name' => $certCode,
+                    'code' => $productCode,
+                    'name' => $productCode,
                     'sslValidationType' => 'dv',
                     'isMultiDomain' => false,
                     'maxDomains' => 1,
                 ];
             }
-            
-            // Build API request
+
+            // Get billing cycle and convert to years (period)
+            $billing = Capsule::table('tblhosting')
+                ->where('id', $params['serviceid'])
+                ->value('billingcycle');
+
+            $billToPeriodArr = [
+                'Annually'    => 1,
+                'Biennially'  => 2,
+                'Triennially' => 3,
+            ];
+            $period = $billToPeriodArr[$billing] ?? 1;
+
+            // Build API request params (csr, domainInfo, Administrator, etc.)
             $apiRequest = self::buildApiRequest($formData, $cert, $params);
 
-            // Call API
-            $apiResponse = ApiService::place($params, $apiRequest);
+            // Log for debugging
+            logModuleCall('nicsrs_ssl', 'submitApply_REQUEST', [
+                'productCode' => $productCode,
+                'years' => $period,
+                'params' => $apiRequest,
+            ], 'Building API request');
+
+            // Call API with productCode and years at root level
+            $apiResponse = ApiService::place($params, $productCode, $period, $apiRequest);
             $placeParsed = ApiService::parseResponse($apiResponse);
 
             if (!$placeParsed['success']) {
                 return ResponseFormatter::error($placeParsed['message']);
             }
 
-            // FIXED: Store isRenew as originalfromOthers for compatibility
+            // Store isRenew as originalfromOthers for compatibility
             $isRenew = $formData['originalfromOthers'] ?? $formData['isRenew'] ?? '0';
 
-            // Build configdata
+            // Get main domain
+            $mainDomain = '';
+            if (!empty($formData['domainInfo'][0]['domainName'])) {
+                $mainDomain = $formData['domainInfo'][0]['domainName'];
+            }
+
+            // Build configdata to store
             $configdata = [
                 'csr' => $formData['csr'] ?? '',
                 'privateKey' => $formData['privateKey'] ?? '',
                 'domainInfo' => $formData['domainInfo'] ?? [],
-                'server' => $formData['server'] ?? 'other',
-                'originalfromOthers' => $isRenew,
-                'isRenew' => $isRenew, // Store both for compatibility
                 'Administrator' => $formData['Administrator'] ?? [],
                 'tech' => $formData['tech'] ?? $formData['Administrator'] ?? [],
                 'finance' => $formData['finance'] ?? $formData['Administrator'] ?? [],
                 'organizationInfo' => $formData['organizationInfo'] ?? [],
+                'originalfromOthers' => $isRenew,
+                'isRenew' => $isRenew,
                 'applyReturn' => (array) ($placeParsed['data'] ?? []),
-                'applyParams' => $apiRequest,
-                'lastRefresh' => date('Y-m-d H:i:s'),
+                'applyTime' => date('Y-m-d H:i:s'),
             ];
 
             // Get certId from response
             $certId = '';
-            if (isset($placeParsed['data'])) {
+            if ($placeParsed['data']) {
                 $certId = $placeParsed['data']->certId ?? '';
             }
 
-            // Update main domain
-            $mainDomain = $formData['domainInfo'][0]['domainName'] ?? '';
+            // Update order
+            OrderRepository::update($order->id, [
+                'status' => SSL_STATUS_PENDING,
+                'remoteid' => $certId,
+                'configdata' => json_encode($configdata),
+            ]);
+
+            // Update WHMCS hosting domain
             if (!empty($mainDomain)) {
                 Capsule::table('tblhosting')
                     ->where('id', $params['serviceid'])
                     ->update(['domain' => $mainDomain]);
             }
 
-            OrderRepository::update($order->id, [
-                'remoteid' => $certId,
-                'status' => SSL_STATUS_PENDING,
-                'configdata' => json_encode($configdata),
-            ]);
-
-            return ResponseFormatter::success('Certificate request submitted successfully', [
+            return ResponseFormatter::success([
                 'certId' => $certId,
-                'status' => 'Pending',
-            ]);
+                'status' => 'pending',
+            ], 'Certificate application submitted successfully');
 
         } catch (Exception $e) {
             logModuleCall('nicsrs_ssl', 'submitApply', $params, $e->getMessage());
@@ -576,7 +602,7 @@ class ActionController
             return ResponseFormatter::error($e->getMessage());
         }
     }
-    
+
     // ==========================================
     // Status & Refresh Actions
     // ==========================================
@@ -806,46 +832,73 @@ class ActionController
                 return ResponseFormatter::error('Order not found');
             }
 
+            if (empty($order->remoteid)) {
+                return ResponseFormatter::error('No certificate to reissue');
+            }
+
             $formData = self::getPostData('data');
             
             if (empty($formData)) {
                 return ResponseFormatter::error('Missing form data');
             }
 
-            // FIXED: Use getCertAttributes
-            $certCode = $order->certtype ?? $params['configoption1'] ?? '';
-            $cert = CertificateFunc::getCertAttributes($certCode);
-            
-            if (empty($cert)) {
-                $cert = ['code' => $certCode, 'name' => $certCode];
+            // Validate CSR
+            $csr = $formData['csr'] ?? '';
+            if (empty($csr)) {
+                return ResponseFormatter::error('CSR is required for reissue');
             }
 
-            $apiRequest = self::buildApiRequest($formData, $cert, $params);
-            $apiRequest['certId'] = $order->remoteid;
+            // Process domain info
+            $domainInfos = $formData['domainInfo'] ?? [];
+            $processedDomains = [];
+            foreach ($domainInfos as $domain) {
+                $item = [
+                    'domainName' => $domain['domainName'] ?? '',
+                    'dcvMethod'  => $domain['dcvMethod'] ?? 'CNAME_CSR_HASH',
+                ];
+                
+                $dcvMethod = $item['dcvMethod'];
+                if (filter_var($dcvMethod, FILTER_VALIDATE_EMAIL)) {
+                    $item['dcvMethod'] = 'EMAIL';
+                    $item['dcvEmail'] = $dcvMethod;
+                } elseif (strtoupper($dcvMethod) === 'EMAIL' && !empty($domain['dcvEmail'])) {
+                    $item['dcvEmail'] = $domain['dcvEmail'];
+                }
+                
+                $processedDomains[] = $item;
+            }
 
-            $certId = $apiRequest['certId'];
-            unset($apiRequest['certId']);
-            $apiResponse = ApiService::reissue($params, $certId, $apiRequest);
+            // Call API with correct parameters
+            $apiResponse = ApiService::reissue($params, $order->remoteid, $csr, $processedDomains);
             $parsed = ApiService::parseResponse($apiResponse);
 
             if (!$parsed['success']) {
                 return ResponseFormatter::error($parsed['message']);
             }
 
+            // Update local data
             $configdata = json_decode($order->configdata, true) ?: [];
-            $configdata['csr'] = $formData['csr'] ?? '';
+            $configdata['csr'] = $csr;
             $configdata['privateKey'] = $formData['privateKey'] ?? '';
             $configdata['domainInfo'] = $formData['domainInfo'] ?? [];
             $configdata['replaceTimes'] = ($configdata['replaceTimes'] ?? 0) + 1;
-            $configdata['applyReturn'] = (array) ($parsed['data'] ?? []);
-            $configdata['lastRefresh'] = date('Y-m-d H:i:s');
+            $configdata['reissueTime'] = date('Y-m-d H:i:s');
+
+            if ($parsed['data']) {
+                $configdata['applyReturn'] = array_merge(
+                    $configdata['applyReturn'] ?? [],
+                    (array) $parsed['data']
+                );
+            }
 
             OrderRepository::update($order->id, [
-                'status' => SSL_STATUS_PENDING,
+                'status'     => SSL_STATUS_REISSUE,
                 'configdata' => json_encode($configdata),
             ]);
 
-            return ResponseFormatter::success('Reissue request submitted successfully');
+            return ResponseFormatter::success([
+                'status' => 'reissue_pending',
+            ], 'Reissue request submitted successfully');
 
         } catch (Exception $e) {
             logModuleCall('nicsrs_ssl', 'submitReissue', $params, $e->getMessage());
@@ -964,29 +1017,45 @@ class ActionController
                 'dcvMethod' => $domain['dcvMethod'] ?? 'CNAME_CSR_HASH',
             ];
             
-            // Check if dcvMethod is an email
+            // Check if dcvMethod is an email (old module pattern)
             $dcvMethod = $item['dcvMethod'];
             if (filter_var($dcvMethod, FILTER_VALIDATE_EMAIL)) {
                 $item['dcvMethod'] = 'EMAIL';
                 $item['dcvEmail'] = $dcvMethod;
-            } elseif (!empty($domain['dcvEmail'])) {
+            } elseif (strtoupper($dcvMethod) === 'EMAIL' && !empty($domain['dcvEmail'])) {
                 $item['dcvEmail'] = $domain['dcvEmail'];
             }
             
             $processedDomains[] = $item;
         }
+
+        // Build Administrator contact (required by API)
+        $administrator = $formData['Administrator'] ?? [];
         
+        // Build request with correct field names per NicSRS API
         $request = [
-            'productCode' => $cert['code'] ?? $params['configoption1'] ?? '',
-            'period' => self::getPeriodFromBillingCycle($params),
+            'server' => $formData['server'] ?? 'other',
             'csr' => $formData['csr'] ?? '',
             'domainInfo' => $processedDomains,
-            'adminContact' => $formData['Administrator'] ?? [],
-            'techContact' => $formData['tech'] ?? $formData['Administrator'] ?? [],
+            'Administrator' => $administrator,
+            'tech' => $formData['tech'] ?? $administrator,
+            'finance' => $formData['finance'] ?? $administrator,
         ];
 
+        // Add organization info for OV/EV certificates
         if (!empty($formData['organizationInfo'])) {
-            $request['organization'] = $formData['organizationInfo'];
+            $request['organizationInfo'] = $formData['organizationInfo'];
+        }
+
+        // Add private key if provided
+        if (!empty($formData['privateKey'])) {
+            $request['privateKey'] = $formData['privateKey'];
+        }
+
+        // Add originalfromOthers (isRenew) if set
+        $isRenew = $formData['originalfromOthers'] ?? $formData['isRenew'] ?? '0';
+        if ($isRenew === '1' || $isRenew === 1) {
+            $request['originalfromOthers'] = '1';
         }
 
         return $request;

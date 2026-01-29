@@ -840,6 +840,296 @@
     }
 
     // ========================================
+    // DCV Method Change - NEW v2.0.3
+    // ========================================
+    var currentDCVDomain = null;
+    
+    function openChangeDCVModal(domain, currentMethod) {
+        currentDCVDomain = domain;
+        
+        var modal = document.getElementById('dcvChangeModal');
+        if (!modal) {
+            createDCVChangeModal();
+            modal = document.getElementById('dcvChangeModal');
+        }
+        
+        // Set domain name
+        var domainLabel = modal.querySelector('.dcv-domain-label');
+        if (domainLabel) {
+            domainLabel.textContent = domain;
+        }
+        
+        // Reset and set current method
+        var methodSelect = modal.querySelector('#newDcvMethod');
+        if (methodSelect) {
+            methodSelect.value = '';
+            
+            // Mark current method
+            Array.from(methodSelect.options).forEach(function(opt) {
+                if (opt.value === currentMethod) {
+                    opt.textContent = opt.textContent.replace(' (Current)', '') + ' (Current)';
+                } else {
+                    opt.textContent = opt.textContent.replace(' (Current)', '');
+                }
+            });
+        }
+        
+        // Generate email options
+        updateModalDCVEmails(domain);
+        
+        // Show modal
+        modal.classList.add('show');
+    }
+    
+    function closeChangeDCVModal() {
+        var modal = document.getElementById('dcvChangeModal');
+        if (modal) {
+            modal.classList.remove('show');
+        }
+        currentDCVDomain = null;
+    }
+    
+    function createDCVChangeModal() {
+        var config = window.sslmConfig || {};
+        var lang = config.lang || {};
+        
+        var modalHtml = `
+            <div id="dcvChangeModal" class="sslm-modal-overlay">
+                <div class="sslm-modal">
+                    <div class="sslm-modal-header">
+                        <h3><i class="fas fa-exchange-alt"></i> ${lang.change_dcv_method || 'Change DCV Method'}</h3>
+                        <button type="button" class="sslm-modal-close" onclick="SSLManager.closeChangeDCVModal()">&times;</button>
+                    </div>
+                    <div class="sslm-modal-body">
+                        <div class="sslm-form-group">
+                            <label>${lang.domain || 'Domain'}</label>
+                            <div class="dcv-domain-label" style="font-weight:600;color:var(--sslm-primary);font-size:16px;"></div>
+                        </div>
+                        <div class="sslm-form-group">
+                            <label>${lang.new_dcv_method || 'New DCV Method'} <span class="required">*</span></label>
+                            <select id="newDcvMethod" class="sslm-select" onchange="SSLManager.onDCVMethodChange(this.value)">
+                                <option value="">${lang.please_choose || '-- Select Method --'}</option>
+                                <optgroup label="${lang.file_dns_validation || 'File/DNS Validation'}">
+                                    <option value="HTTP_CSR_HASH">${lang.http_file || 'HTTP File Validation'}</option>
+                                    <option value="HTTPS_CSR_HASH">${lang.https_file || 'HTTPS File Validation'}</option>
+                                    <option value="CNAME_CSR_HASH">${lang.dns_cname || 'DNS CNAME Validation'}</option>
+                                </optgroup>
+                                <optgroup label="${lang.email_validation || 'Email Validation'}">
+                                    <option value="EMAIL">${lang.email || 'Email Validation'}</option>
+                                </optgroup>
+                            </select>
+                        </div>
+                        <div id="dcvEmailSection" class="sslm-form-group" style="display:none;">
+                            <label>${lang.dcv_email || 'DCV Email'} <span class="required">*</span></label>
+                            <select id="newDcvEmail" class="sslm-select">
+                                <option value="">${lang.please_choose || '-- Select Email --'}</option>
+                            </select>
+                            <p class="sslm-help-text">${lang.dcv_email_note || 'Select an email address to receive the validation email.'}</p>
+                        </div>
+                        <div class="sslm-alert sslm-alert-info" style="margin-top:16px;">
+                            <i class="fas fa-info-circle"></i>
+                            <div>${lang.dcv_change_note || 'After changing the DCV method, you will need to complete the new validation process.'}</div>
+                        </div>
+                    </div>
+                    <div class="sslm-modal-footer">
+                        <button type="button" class="sslm-btn sslm-btn-secondary" onclick="SSLManager.closeChangeDCVModal()">
+                            ${lang.cancel || 'Cancel'}
+                        </button>
+                        <button type="button" id="confirmDcvChangeBtn" class="sslm-btn sslm-btn-primary" onclick="SSLManager.confirmChangeDCV()">
+                            <i class="fas fa-check"></i> ${lang.confirm_change || 'Confirm Change'}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+        
+        // Close on overlay click
+        var modal = document.getElementById('dcvChangeModal');
+        modal.addEventListener('click', function(e) {
+            if (e.target === modal) {
+                closeChangeDCVModal();
+            }
+        });
+    }
+    
+    function onDCVMethodChange(method) {
+        var emailSection = document.getElementById('dcvEmailSection');
+        if (emailSection) {
+            emailSection.style.display = (method === 'EMAIL') ? 'block' : 'none';
+        }
+    }
+    
+    function updateModalDCVEmails(domain) {
+        var emailSelect = document.getElementById('newDcvEmail');
+        if (!emailSelect) return;
+        
+        // Clear existing options (except first)
+        while (emailSelect.options.length > 1) {
+            emailSelect.remove(1);
+        }
+        
+        // Get base domain
+        var baseDomain = domain.replace(/^\*\./, '');
+        var parts = baseDomain.split('.');
+        
+        // Standard prefixes
+        var prefixes = ['admin', 'administrator', 'hostmaster', 'postmaster', 'webmaster'];
+        var emails = [];
+        
+        prefixes.forEach(function(prefix) {
+            emails.push(prefix + '@' + baseDomain);
+        });
+        
+        // If subdomain, add parent domain emails
+        if (parts.length > 2) {
+            var parentDomain = parts.slice(1).join('.');
+            prefixes.forEach(function(prefix) {
+                emails.push(prefix + '@' + parentDomain);
+            });
+        }
+        
+        // Add options
+        emails.forEach(function(email) {
+            var opt = document.createElement('option');
+            opt.value = email;
+            opt.textContent = email;
+            emailSelect.appendChild(opt);
+        });
+    }
+    
+    function confirmChangeDCV() {
+        if (!currentDCVDomain) return;
+        
+        var methodSelect = document.getElementById('newDcvMethod');
+        var emailSelect = document.getElementById('newDcvEmail');
+        var newMethod = methodSelect ? methodSelect.value : '';
+        var newEmail = emailSelect ? emailSelect.value : '';
+        
+        if (!newMethod) {
+            showToast('Please select a DCV method', 'error');
+            return;
+        }
+        
+        if (newMethod === 'EMAIL' && !newEmail) {
+            showToast('Please select a DCV email', 'error');
+            return;
+        }
+        
+        var config = window.sslmConfig || {};
+        var lang = config.lang || {};
+        var btn = document.getElementById('confirmDcvChangeBtn');
+        
+        if (btn) {
+            btn.disabled = true;
+            btn.classList.add('sslm-loading');
+        }
+        
+        // Build data
+        var dcvData = {
+            domains: [{
+                domainName: currentDCVDomain,
+                dcvMethod: newMethod === 'EMAIL' ? 'EMAIL' : newMethod,
+                dcvEmail: newMethod === 'EMAIL' ? newEmail : ''
+            }]
+        };
+        
+        ajaxRequest('batchUpdateDCV', dcvData, function(response) {
+            if (btn) {
+                btn.disabled = false;
+                btn.classList.remove('sslm-loading');
+            }
+            
+            if (response.success) {
+                showToast(lang.dcv_changed || 'DCV method changed successfully', 'success');
+                closeChangeDCVModal();
+                setTimeout(function() {
+                    window.location.reload();
+                }, 1500);
+            } else {
+                showToast(response.message || lang.error || 'Failed to change DCV method', 'error');
+            }
+        });
+    }
+    
+    // ========================================
+    // Copy to Clipboard - Enhanced
+    // ========================================
+    function copyToClipboard(text, btn) {
+        var copyText = function() {
+            // Fallback for older browsers
+            var textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.style.position = 'fixed';
+            textarea.style.opacity = '0';
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textarea);
+        };
+        
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(function() {
+                showCopyFeedback(btn);
+            }).catch(function() {
+                copyText();
+                showCopyFeedback(btn);
+            });
+        } else {
+            copyText();
+            showCopyFeedback(btn);
+        }
+    }
+    
+    function showCopyFeedback(btn) {
+        if (btn) {
+            var originalText = btn.innerHTML;
+            btn.innerHTML = '<i class="fas fa-check"></i>';
+            btn.classList.add('copied');
+            
+            setTimeout(function() {
+                btn.innerHTML = originalText;
+                btn.classList.remove('copied');
+            }, 2000);
+        }
+        
+        showToast('Copied to clipboard!', 'success');
+    }
+    
+    // ========================================
+    // Loading Overlay
+    // ========================================
+    function showLoading(message) {
+        var overlay = document.getElementById('sslmLoadingOverlay');
+        if (!overlay) {
+            overlay = document.createElement('div');
+            overlay.id = 'sslmLoadingOverlay';
+            overlay.className = 'sslm-loading-overlay';
+            overlay.innerHTML = `
+                <div class="sslm-loading-spinner">
+                    <i class="fas fa-spinner fa-spin fa-3x"></i>
+                    <p class="loading-text">${message || 'Loading...'}</p>
+                </div>
+            `;
+            document.body.appendChild(overlay);
+        } else {
+            var textEl = overlay.querySelector('.loading-text');
+            if (textEl) {
+                textEl.textContent = message || 'Loading...';
+            }
+            overlay.style.display = 'flex';
+        }
+    }
+    
+    function hideLoading() {
+        var overlay = document.getElementById('sslmLoadingOverlay');
+        if (overlay) {
+            overlay.style.display = 'none';
+        }
+    }    
+
+    // ========================================
     // AJAX Helper
     // ========================================
     function ajaxRequest(action, data, callback) {
@@ -937,7 +1227,14 @@
         showToast: showToast,
         refreshStatus: refreshStatus,
         saveDraft: window.saveDraft,
-        updateDCVEmailOptions: updateDCVEmailOptions
+        updateDCVEmailOptions: updateDCVEmailOptions,
+        openChangeDCVModal: openChangeDCVModal,
+        closeChangeDCVModal: closeChangeDCVModal,
+        confirmChangeDCV: confirmChangeDCV,
+        onDCVMethodChange: onDCVMethodChange,
+        copyToClipboard: copyToClipboard,
+        showLoading: showLoading,
+        hideLoading: hideLoading
     };
 
 })();

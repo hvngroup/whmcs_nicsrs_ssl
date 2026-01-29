@@ -217,25 +217,28 @@ class ApiService
     /**
      * Validate certificate request
      */
-    public static function validate(array $params, array $requestData): object
+    public static function validate(array $params, string $productCode, string $csr, array $domainInfo): object
     {
-        $apiToken = self::getApiToken($params);
-
-        return self::call('validate', array_merge($requestData, [
-            'api_token' => $apiToken,
-        ]));
+        return self::call('validate', [
+            'api_token'   => self::getApiToken($params),
+            'productCode' => $productCode,
+            'csr'         => $csr,
+            'domainInfo'  => json_encode($domainInfo),
+        ]);
     }
 
     /**
      * Place certificate order
      */
-    public static function place(array $params, array $requestData): object
+    public static function place(array $params, string $productCode, int $years, array $requestData): object
     {
         $apiToken = self::getApiToken($params);
 
         $data = [
-            'api_token' => $apiToken,
-            'params' => json_encode($requestData),
+            'api_token'   => $apiToken,
+            'productCode' => $productCode,
+            'years'       => $years,
+            'params'      => json_encode($requestData),
         ];
 
         return self::call('place', $data);
@@ -246,11 +249,9 @@ class ApiService
      */
     public static function collect(array $params, string $certId): object
     {
-        $apiToken = self::getApiToken($params);
-
         return self::call('collect', [
-            'api_token' => $apiToken,
-            'certId' => $certId,
+            'api_token' => self::getApiToken($params),
+            'certId'    => $certId,
         ]);
     }
 
@@ -259,12 +260,10 @@ class ApiService
      */
     public static function cancel(array $params, string $certId, string $reason = ''): object
     {
-        $apiToken = self::getApiToken($params);
-
         return self::call('cancel', [
-            'api_token' => $apiToken,
-            'certId' => $certId,
-            'reason' => $reason ?: 'Customer requested cancellation',
+            'api_token' => self::getApiToken($params),
+            'certId'    => $certId,
+            'reason'    => $reason ?: 'Customer requested cancellation',
         ]);
     }
 
@@ -273,32 +272,24 @@ class ApiService
      */
     public static function revoke(array $params, string $certId, string $reason = ''): object
     {
-        $apiToken = self::getApiToken($params);
-
         return self::call('revoke', [
-            'api_token' => $apiToken,
-            'certId' => $certId,
-            'reason' => $reason ?: 'Customer requested revocation',
+            'api_token' => self::getApiToken($params),
+            'certId'    => $certId,
+            'reason'    => $reason ?: 'Customer requested revocation',
         ]);
     }
 
     /**
      * Reissue certificate
      */
-    public static function reissue(array $params, string $certId, array $requestData = []): object
+    public static function reissue(array $params, string $certId, string $csr, array $domainInfo): object
     {
-        $apiToken = self::getApiToken($params);
-
-        $data = [
-            'api_token' => $apiToken,
-            'certId' => $certId,
-        ];
-
-        if (!empty($requestData)) {
-            $data['params'] = json_encode($requestData);
-        }
-
-        return self::call('reissue', $data);
+        return self::call('reissue', [
+            'api_token'  => self::getApiToken($params),
+            'certId'     => $certId,
+            'csr'        => $csr,
+            'domainInfo' => json_encode($domainInfo),
+        ]);
     }
 
     /**
@@ -362,10 +353,8 @@ class ApiService
      */
     public static function getProductList(array $params): object
     {
-        $apiToken = self::getApiToken($params);
-
         return self::call('productList', [
-            'api_token' => $apiToken,
+            'api_token' => self::getApiToken($params),
         ]);
     }
 

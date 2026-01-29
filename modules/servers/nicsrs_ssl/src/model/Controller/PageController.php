@@ -16,58 +16,99 @@ use Exception;
 class PageController
 {
     /**
-     * Render page based on order status
+     * Route to appropriate page based on order status
      */
     public static function index(array $params): array
     {
         try {
-            // Get or create order
             $order = OrderRepository::getByServiceId($params['serviceid']);
-            
+
             if (!$order) {
-                // Create order if doesn't exist
                 OrderRepository::create([
                     'userid' => $params['userid'],
                     'serviceid' => $params['serviceid'],
-                    'module' => 'nicsrs_ssl',
                     'certtype' => $params['configoption1'] ?? '',
                     'status' => SSL_STATUS_AWAITING,
                 ]);
                 $order = OrderRepository::getByServiceId($params['serviceid']);
             }
 
-            // Get certificate type configuration
             $cert = self::getCertConfig($params);
 
-            // Route based on status
-            switch ($order->status) {
-                case SSL_STATUS_AWAITING:
-                case SSL_STATUS_DRAFT:
+            // FIXED: Normalize status to handle case-sensitivity
+            $status = self::normalizeStatus($order->status);
+
+            // Route based on normalized status
+            switch ($status) {
+                case 'awaiting':
+                case 'draft':
                     return self::renderApplyCert($params, $order, $cert);
 
-                case SSL_STATUS_PENDING:
-                case SSL_STATUS_PROCESSING:
+                case 'pending':
+                case 'processing':
+                case 'reissue':
                     return self::renderPending($params, $order, $cert);
 
-                case SSL_STATUS_COMPLETE:
-                case SSL_STATUS_ISSUED:
+                case 'complete':
+                case 'issued':
+                case 'active':
                     return self::renderComplete($params, $order, $cert);
 
-                case SSL_STATUS_REISSUE:
-                    return self::renderPending($params, $order, $cert);
-
-                case SSL_STATUS_CANCELLED:
-                case SSL_STATUS_REVOKED:
-                case SSL_STATUS_EXPIRED:
+                case 'cancelled':
+                case 'canceled':
+                case 'revoked':
+                case 'expired':
+                case 'suspended':
+                case 'terminated':
                     return self::renderCancelled($params, $order, $cert);
 
                 default:
+                    // Check if has remoteid (already submitted)
+                    if (!empty($order->remoteid)) {
+                        return self::renderPending($params, $order, $cert);
+                    }
                     return self::renderApplyCert($params, $order, $cert);
             }
         } catch (Exception $e) {
             logModuleCall('nicsrs_ssl', 'PageController::index', $params, $e->getMessage());
             return TemplateHelper::error($params, $e->getMessage());
         }
+    }
+
+    /**
+     * Normalize status string for comparison
+     * Handles case-sensitivity and various formats
+     */
+    private static function normalizeStatus(?string $status): string
+    {
+        if (empty($status)) {
+            return 'awaiting';
+        }
+
+        $status = strtolower(trim($status));
+
+        // Map various status formats to normalized values
+        $statusMap = [
+            'awaiting configuration' => 'awaiting',
+            'awaiting' => 'awaiting',
+            'draft' => 'draft',
+            'pending' => 'pending',
+            'processing' => 'processing',
+            'complete' => 'complete',
+            'completed' => 'complete',
+            'issued' => 'issued',
+            'active' => 'active',
+            'cancelled' => 'cancelled',
+            'canceled' => 'cancelled',
+            'revoked' => 'revoked',
+            'expired' => 'expired',
+            'suspended' => 'suspended',
+            'terminated' => 'terminated',
+            'reissue' => 'reissue',
+            'reissued' => 'reissue',
+        ];
+
+        return $statusMap[$status] ?? $status;
     }
 
     /**

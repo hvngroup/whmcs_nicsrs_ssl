@@ -46,9 +46,9 @@
    Container & Layout
    ======================================== */
 .sslm-container {
-    max-width: 900px;
+    max-width: 980px;
     margin: 0 auto;
-    padding: 20px;
+    padding: 10px;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
     color: var(--sslm-text-primary);
     line-height: 1.5;
@@ -856,11 +856,571 @@
 }
 
 /* ========================================
+   Progress Steps
+   ======================================== */
+.sslm-progress {
+    display: flex;
+    justify-content: space-between;
+    margin: 24px 0 32px;
+    padding: 0;
+    counter-reset: step;
+}
+
+.sslm-progress-step {
+    flex: 1;
+    text-align: center;
+    position: relative;
+}
+
+.sslm-progress-step:not(:last-child)::after {
+    content: '';
+    position: absolute;
+    top: 20px;
+    left: 55%;
+    width: 90%;
+    height: 3px;
+    background: var(--sslm-border-color);
+    z-index: 0;
+}
+
+.sslm-progress-step.completed:not(:last-child)::after {
+    background: var(--sslm-success);
+}
+
+.sslm-progress-step.active:not(:last-child)::after {
+    background: linear-gradient(90deg, var(--sslm-success) 0%, var(--sslm-border-color) 100%);
+}
+
+.sslm-progress-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: var(--sslm-bg-light);
+    border: 3px solid var(--sslm-border-color);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 10px;
+    font-size: 16px;
+    color: var(--sslm-text-secondary);
+    position: relative;
+    z-index: 1;
+    transition: all 0.3s ease;
+}
+
+.sslm-progress-step.completed .sslm-progress-icon {
+    background: var(--sslm-success);
+    border-color: var(--sslm-success);
+    color: white;
+}
+
+.sslm-progress-step.active .sslm-progress-icon {
+    background: var(--sslm-primary);
+    border-color: var(--sslm-primary);
+    color: white;
+    box-shadow: 0 0 0 4px rgba(24, 144, 255, 0.2);
+}
+
+.sslm-progress-label {
+    font-size: 13px;
+    color: var(--sslm-text-secondary);
+    font-weight: 500;
+}
+
+.sslm-progress-step.completed .sslm-progress-label,
+.sslm-progress-step.active .sslm-progress-label {
+    color: var(--sslm-text-primary);
+}
+
+/* ========================================
+   Cards - Enhanced
+   ======================================== */
+.sslm-card {
+    background: var(--sslm-bg-base);
+    border: 1px solid var(--sslm-border-color);
+    border-radius: var(--sslm-border-radius);
+    margin-bottom: 20px;
+    overflow: hidden;
+}
+
+.sslm-card-header {
+    padding: 16px 20px;
+    background: var(--sslm-bg-light);
+    border-bottom: 1px solid var(--sslm-border-color);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.sslm-card-header h3 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.sslm-card-header-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.sslm-card-body {
+    padding: 20px;
+}
+
+.sslm-card-warning {
+    border-color: #ffe58f;
+}
+
+.sslm-card-warning .sslm-card-header {
+    background: var(--sslm-warning-bg);
+    border-color: #ffe58f;
+}
+
+.sslm-card-success {
+    border-color: #b7eb8f;
+}
+
+.sslm-card-success .sslm-card-header {
+    background: var(--sslm-success-bg);
+    border-color: #b7eb8f;
+}
+
+/* ========================================
+   Info Grid
+   ======================================== */
+.sslm-info-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 16px;
+}
+
+.sslm-info-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.sslm-info-item label {
+    font-size: 12px;
+    color: var(--sslm-text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.sslm-info-item span {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--sslm-text-primary);
+}
+
+.sslm-info-item .sslm-cert-id {
+    color: var(--sslm-primary);
+    font-family: 'SFMono-Regular', Consolas, monospace;
+}
+
+/* ========================================
+   DCV Domain Cards
+   ======================================== */
+.sslm-dcv-card {
+    background: var(--sslm-bg-base);
+    border: 1px solid var(--sslm-border-color);
+    border-radius: var(--sslm-border-radius);
+    margin-bottom: 16px;
+    overflow: hidden;
+}
+
+.sslm-dcv-card:last-child {
+    margin-bottom: 0;
+}
+
+.sslm-dcv-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    background: var(--sslm-bg-light);
+    border-bottom: 1px solid var(--sslm-border-color);
+}
+
+.sslm-dcv-domain {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 600;
+    color: var(--sslm-text-primary);
+}
+
+.sslm-dcv-domain i {
+    color: var(--sslm-primary);
+}
+
+.sslm-dcv-card-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.sslm-dcv-method-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    background: #e6f7ff;
+    color: var(--sslm-primary);
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.sslm-dcv-card-body {
+    padding: 16px;
+}
+
+/* ========================================
+   Code Display - Enhanced
+   ======================================== */
+.sslm-code-group {
+    background: #f6f8fa;
+    border: 1px solid var(--sslm-border-color);
+    border-radius: var(--sslm-border-radius);
+    overflow: hidden;
+}
+
+.sslm-code-row {
+    display: flex;
+    align-items: stretch;
+    border-bottom: 1px solid var(--sslm-border-color);
+}
+
+.sslm-code-row:last-child {
+    border-bottom: none;
+}
+
+.sslm-code-label {
+    flex: 0 0 140px;
+    padding: 12px 16px;
+    background: var(--sslm-bg-light);
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--sslm-text-secondary);
+    border-right: 1px solid var(--sslm-border-color);
+    display: flex;
+    align-items: center;
+}
+
+.sslm-code-value {
+    flex: 1;
+    padding: 12px 16px;
+    font-family: 'SFMono-Regular', Consolas, monospace;
+    font-size: 13px;
+    word-break: break-all;
+    background: var(--sslm-bg-base);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.sslm-code-value code {
+    flex: 1;
+    word-break: break-all;
+}
+
+.sslm-code-copy {
+    flex-shrink: 0;
+    padding: 6px 10px;
+    background: var(--sslm-primary);
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    transition: background 0.2s;
+}
+
+.sslm-code-copy:hover {
+    background: var(--sslm-primary-hover);
+}
+
+.sslm-code-copy.copied {
+    background: var(--sslm-success);
+}
+
+/* ========================================
+   Modal
+   ======================================== */
+.sslm-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.2s ease;
+}
+
+.sslm-modal-overlay.show {
+    opacity: 1;
+    visibility: visible;
+}
+
+.sslm-modal {
+    background: white;
+    border-radius: var(--sslm-border-radius);
+    width: 90%;
+    max-width: 500px;
+    max-height: 90vh;
+    overflow: hidden;
+    transform: scale(0.9);
+    transition: transform 0.2s ease;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+}
+
+.sslm-modal-overlay.show .sslm-modal {
+    transform: scale(1);
+}
+
+.sslm-modal-header {
+    padding: 16px 20px;
+    background: var(--sslm-bg-light);
+    border-bottom: 1px solid var(--sslm-border-color);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.sslm-modal-header h3 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.sslm-modal-close {
+    background: transparent;
+    border: none;
+    font-size: 20px;
+    color: var(--sslm-text-secondary);
+    cursor: pointer;
+    padding: 4px;
+    line-height: 1;
+}
+
+.sslm-modal-close:hover {
+    color: var(--sslm-text-primary);
+}
+
+.sslm-modal-body {
+    padding: 20px;
+    overflow-y: auto;
+    max-height: calc(90vh - 140px);
+}
+
+.sslm-modal-footer {
+    padding: 16px 20px;
+    background: var(--sslm-bg-light);
+    border-top: 1px solid var(--sslm-border-color);
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+}
+
+/* ========================================
+   Help Section
+   ======================================== */
+.sslm-help-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 20px;
+}
+
+.sslm-help-item {
+    padding: 16px;
+    background: var(--sslm-bg-light);
+    border-radius: var(--sslm-border-radius);
+}
+
+.sslm-help-item h4 {
+    font-size: 14px;
+    font-weight: 600;
+    margin: 0 0 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.sslm-help-item h4 i {
+    color: var(--sslm-primary);
+}
+
+.sslm-help-item p {
+    font-size: 13px;
+    color: var(--sslm-text-secondary);
+    margin: 0;
+    line-height: 1.5;
+}
+
+/* ========================================
+   Loading Overlay
+   ======================================== */
+.sslm-loading-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(255, 255, 255, 0.85);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+}
+
+.sslm-loading-spinner {
+    text-align: center;
+}
+
+.sslm-loading-spinner i {
+    color: var(--sslm-primary);
+}
+
+.sslm-loading-spinner p {
+    margin-top: 16px;
+    color: var(--sslm-text-secondary);
+    font-size: 14px;
+}
+
+/* ========================================
+   Btn Variants - Additional
+   ======================================== */
+.sslm-btn-success {
+    background: var(--sslm-success);
+    color: white;
+    border-color: var(--sslm-success);
+}
+
+.sslm-btn-success:hover:not(:disabled) {
+    background: #73d13d;
+    border-color: #73d13d;
+}
+
+.sslm-btn-warning {
+    background: var(--sslm-warning);
+    color: white;
+    border-color: var(--sslm-warning);
+}
+
+.sslm-btn-danger {
+    background: var(--sslm-error);
+    color: white;
+    border-color: var(--sslm-error);
+}
+
+.sslm-btn-danger:hover:not(:disabled) {
+    background: #ff7875;
+    border-color: #ff7875;
+}
+
+.sslm-btn-outline {
+    background: transparent;
+    color: var(--sslm-primary);
+    border-color: var(--sslm-primary);
+}
+
+.sslm-btn-outline:hover:not(:disabled) {
+    background: #e6f7ff;
+}
+
+.sslm-btn-link {
+    background: transparent;
+    color: var(--sslm-primary);
+    border: none;
+    padding: 4px 8px;
+}
+
+.sslm-btn-link:hover:not(:disabled) {
+    color: var(--sslm-primary-hover);
+    text-decoration: underline;
+}
+
+/* ========================================
+   Empty State
+   ======================================== */
+.sslm-empty {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--sslm-text-secondary);
+}
+
+.sslm-empty i {
+    font-size: 48px;
+    opacity: 0.3;
+    margin-bottom: 16px;
+}
+
+.sslm-empty h4 {
+    margin: 0 0 8px;
+    color: var(--sslm-text-primary);
+}
+
+.sslm-empty p {
+    margin: 0;
+    font-size: 14px;
+}
+
+/* ========================================
+   Responsive Adjustments
+   ======================================== */
+@media (max-width: 768px) {
+    .sslm-progress {
+        flex-wrap: wrap;
+        gap: 16px;
+    }
+    
+    .sslm-progress-step {
+        flex: 0 0 calc(50% - 8px);
+    }
+    
+    .sslm-progress-step:not(:last-child)::after {
+        display: none;
+    }
+    
+    .sslm-code-row {
+        flex-direction: column;
+    }
+    
+    .sslm-code-label {
+        flex: none;
+        border-right: none;
+        border-bottom: 1px solid var(--sslm-border-color);
+    }
+    
+    .sslm-dcv-card-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 12px;
+    }
+    
+    .sslm-info-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+}
+
+/* ========================================
    Responsive
    ======================================== */
 @media (max-width: 480px) {
     .sslm-container {
-        padding: 12px;
+        padding: 8px;
     }
     
     .sslm-header {
@@ -884,5 +1444,13 @@
     .sslm-radio-group {
         flex-direction: column;
         gap: 12px;
+    }
+
+    .sslm-progress-step {
+        flex: 0 0 100%;
+    }
+    
+    .sslm-info-grid {
+        grid-template-columns: 1fr;
     }
 }
