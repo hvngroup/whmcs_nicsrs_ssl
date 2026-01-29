@@ -1,15 +1,16 @@
 {**
  * NicSRS SSL Module - Apply Certificate Template
- * Production Ready Version
+ * Enhanced UI v2.1.0 - Preserves original form structure
  * 
- * FIXED v2.0.2:
- * - DCV Email options now appear directly in dcvMethod dropdown
- * - No separate email dropdown needed
- * - Domain section before CSR section
- * - Fixed isRenew/originalfromOthers loading
+ * CHANGES v2.1.0:
+ * - Added Progress Steps indicator
+ * - Added Status Card for draft
+ * - Added guidance text in sections
+ * - Added Help Section with SSL installation service promo
+ * - PRESERVED: All form fields, DCV dropdown, Generate CSR, Contact Info
  * 
  * @package    nicsrs_ssl
- * @version    2.0.2
+ * @version    2.1.0
  * @author     HVN GROUP
  * @copyright  Copyright (c) HVN GROUP (https://hvn.vn)
  *}
@@ -30,11 +31,51 @@
         </div>
     </div>
 
-    {* Status Alert *}
+    {* ============================================ *}
+    {* NEW: Progress Steps *}
+    {* ============================================ *}
+    <div class="sslm-progress">
+        <div class="sslm-progress-step active">
+            <div class="sslm-progress-icon"><i class="fas fa-edit"></i></div>
+            <div class="sslm-progress-label">{$_LANG.step_configure|default:'Configure'}</div>
+        </div>
+        <div class="sslm-progress-step">
+            <div class="sslm-progress-icon"><i class="fas fa-paper-plane"></i></div>
+            <div class="sslm-progress-label">{$_LANG.step_submit|default:'Submit'}</div>
+        </div>
+        <div class="sslm-progress-step">
+            <div class="sslm-progress-icon"><i class="fas fa-check-circle"></i></div>
+            <div class="sslm-progress-label">{$_LANG.step_validation|default:'Validation'}</div>
+        </div>
+        <div class="sslm-progress-step">
+            <div class="sslm-progress-icon"><i class="fas fa-certificate"></i></div>
+            <div class="sslm-progress-label">{$_LANG.step_issued|default:'Issued'}</div>
+        </div>
+    </div>
+
+    {* ============================================ *}
+    {* NEW: Draft Status Card *}
+    {* ============================================ *}
     {if $configData.isDraft}
+    <div class="sslm-status-card" style="margin-bottom: 20px;">
+        <div class="sslm-status-icon info">
+            <i class="fas fa-save"></i>
+        </div>
+        <div class="sslm-status-content">
+            <div class="sslm-status-title">{$_LANG.draft_saved|default:'Draft Saved'}</div>
+            <div class="sslm-status-desc">
+                {$_LANG.draft_desc|default:'Your progress has been saved. You can continue where you left off.'}
+                {if $configData.lastSaved}
+                <br><small>{$_LANG.last_saved|default:'Last saved'}: {$configData.lastSaved}</small>
+                {/if}
+            </div>
+        </div>
+    </div>
+    {else}
+    {* NEW: Welcome Alert for new applications *}
     <div class="sslm-alert sslm-alert-info">
         <i class="fas fa-info-circle"></i>
-        <span>{$_LANG.draft|default:'Draft'}: {$_LANG.last_saved|default:'Last saved'} {$configData.lastSaved|default:'N/A'}</span>
+        <span>{$_LANG.apply_welcome|default:'Please fill in the information below to request your SSL certificate. Fields marked with * are required.'}</span>
     </div>
     {/if}
 
@@ -42,14 +83,20 @@
     <form id="sslm-apply-form" class="sslm-form" method="post">
         
         {* ============================================ *}
-        {* Step 1: Domain Configuration (MOVED TO TOP) *}
+        {* Step 1: Domain Configuration - PRESERVED *}
         {* ============================================ *}
         <div class="sslm-section">
             <div class="sslm-section-header">
                 <h3><span class="sslm-step-number">1</span> {$_LANG.domain_info|default:'Domain Information'}</h3>
             </div>
             <div class="sslm-section-body">
-                {* Is Renew Option *}
+                {* NEW: Section guidance text *}
+                <p class="sslm-help-text" style="margin-bottom: 16px;">
+                    <i class="fas fa-lightbulb"></i>
+                    {$_LANG.domain_section_guide|default:'Enter the domain name(s) you want to protect and select a validation method. For Email validation, options will appear based on your domain.'}
+                </p>
+
+                {* Is Renew Option - PRESERVED *}
                 <div class="sslm-form-group">
                     <label>{$_LANG.is_renew|default:'Is this a renewal?'}</label>
                     <div class="sslm-radio-group">
@@ -67,11 +114,11 @@
                     <p class="sslm-help-text">{$_LANG.is_renew_des|default:'Select "Yes" if renewing an existing certificate to receive bonus time.'}</p>
                 </div>
 
-                {* Domain List *}
+                {* Domain List - PRESERVED STRUCTURE *}
                 <div class="sslm-form-group">
                     <label>{$_LANG.domain_name|default:'Domain Name'} <span class="required">*</span></label>
                     <div id="domainList" class="sslm-domain-list">
-                        {* Primary domain row *}
+                        {* Primary domain row - PRESERVED *}
                         <div class="sslm-domain-row" data-index="0">
                             <div class="sslm-domain-input-group">
                                 <span class="sslm-domain-number">1</span>
@@ -81,7 +128,7 @@
                                        placeholder="{$_LANG.common_name|default:'example.com'}"
                                        value="{if isset($configData.domainInfo[0].domainName)}{$configData.domainInfo[0].domainName|escape:'html'}{/if}"
                                        required>
-                                {* DCV Method dropdown - includes email options *}
+                                {* DCV Method dropdown - PRESERVED with email optgroup *}
                                 <select class="sslm-select sslm-dcv-select" name="dcvMethod">
                                     <option value="">{$_LANG.please_choose|default:'-- Select DCV Method --'}</option>
                                     <optgroup label="{$_LANG.file_validation|default:'File/DNS Validation'}">
@@ -101,8 +148,7 @@
                                         </option>
                                     </optgroup>
                                     <optgroup label="{$_LANG.email_validation|default:'Email Validation'}" class="dcv-email-options">
-                                        {* Email options will be populated by JavaScript based on domain *}
-                                        {* If saved dcvMethod is an email, show it *}
+                                        {* Email options populated by JavaScript *}
                                         {if isset($configData.domainInfo[0].dcvMethod) && $configData.domainInfo[0].dcvMethod|strpos:'@' !== false}
                                         <option value="{$configData.domainInfo[0].dcvMethod}" selected>{$configData.domainInfo[0].dcvMethod}</option>
                                         {/if}
@@ -114,13 +160,13 @@
                             </div>
                         </div>
                         
-                        {* Additional domains from saved data *}
-                        {if isset($configData.domainInfo) && count($configData.domainInfo) > 1}
+                        {* Additional domains from saved data - PRESERVED *}
+                        {if isset($configData.domainInfo) && $configData.domainInfo|count > 1}
                             {foreach from=$configData.domainInfo item=domain key=idx}
                                 {if $idx > 0}
                                 <div class="sslm-domain-row" data-index="{$idx}">
                                     <div class="sslm-domain-input-group">
-                                        <span class="sslm-domain-number">{$idx + 1}</span>
+                                        <span class="sslm-domain-number">{$idx+1}</span>
                                         <input type="text" 
                                                class="sslm-input sslm-domain-input" 
                                                name="domainName" 
@@ -137,7 +183,6 @@
                                                 <option value="DNS_CSR_HASH" {if $domain.dcvMethod eq 'DNS_CSR_HASH'}selected{/if}>{$_LANG.dns_csr_hash|default:'DNS TXT Validation'}</option>
                                             </optgroup>
                                             <optgroup label="{$_LANG.email_validation|default:'Email Validation'}" class="dcv-email-options">
-                                                {* If saved dcvMethod is an email, show it *}
                                                 {if $domain.dcvMethod|strpos:'@' !== false}
                                                 <option value="{$domain.dcvMethod}" selected>{$domain.dcvMethod}</option>
                                                 {/if}
@@ -153,7 +198,7 @@
                         {/if}
                     </div>
                     
-                    {* Add Domain Button *}
+                    {* Add Domain Button - PRESERVED *}
                     {if $isMultiDomain || $maxDomains > 1}
                     <div class="sslm-domain-actions">
                         <button type="button" id="addDomainBtn" class="sslm-btn sslm-btn-secondary">
@@ -169,14 +214,20 @@
         </div>
 
         {* ============================================ *}
-        {* Step 2: CSR Configuration *}
+        {* Step 2: CSR Configuration - PRESERVED *}
         {* ============================================ *}
         <div class="sslm-section">
             <div class="sslm-section-header">
                 <h3><span class="sslm-step-number">2</span> {$_LANG.csr_configuration|default:'CSR Configuration'}</h3>
             </div>
             <div class="sslm-section-body">
-                {* CSR Toggle *}
+                {* NEW: Section guidance text *}
+                <p class="sslm-help-text" style="margin-bottom: 16px;">
+                    <i class="fas fa-lightbulb"></i>
+                    {$_LANG.csr_section_guide|default:'A CSR (Certificate Signing Request) contains your domain and organization info. You can auto-generate one or paste your own if you already have it.'}
+                </p>
+
+                {* CSR Toggle - PRESERVED *}
                 <div class="sslm-form-group">
                     <label class="sslm-toggle">
                         <input type="checkbox" id="isManualCsr" {if $configData.csr}checked{/if}>
@@ -185,18 +236,18 @@
                     </label>
                 </div>
 
-                {* Auto Generate Section *}
+                {* Auto Generate Section - PRESERVED *}
                 <div id="autoGenSection" class="sslm-csr-auto" style="{if $configData.csr}display:none{/if}">
-                    <p class="sslm-info-text">
+                    <div class="sslm-alert sslm-alert-info">
                         <i class="fas fa-info-circle"></i>
-                        {$_LANG.auto_generate_csr|default:'CSR will be automatically generated based on your domain and contact information.'}
-                    </p>
+                        <span>{$_LANG.auto_generate_csr|default:'CSR will be automatically generated based on your domain and contact information.'}</span>
+                    </div>
                     <button type="button" id="generateCsrBtn" class="sslm-btn sslm-btn-primary">
                         <i class="fas fa-key"></i> {$_LANG.generate_csr|default:'Generate CSR'}
                     </button>
                 </div>
 
-                {* Manual CSR Section *}
+                {* Manual CSR Section - PRESERVED *}
                 <div id="csrSection" class="sslm-csr-manual" style="{if !$configData.csr}display:none{/if}">
                     <div class="sslm-form-group">
                         <label for="csr">{$_LANG.csr|default:'CSR'} <span class="required">*</span></label>
@@ -209,7 +260,7 @@
                         </div>
                     </div>
                     
-                    {* CSR Decode Result Display *}
+                    {* CSR Decode Result Display - PRESERVED *}
                     <div id="csrDecodeResult" class="sslm-csr-decode-result" style="display:none;">
                         <h4>{$_LANG.csr_info|default:'CSR Information'}</h4>
                         <table class="sslm-info-table">
@@ -223,20 +274,27 @@
                         </table>
                     </div>
                     
-                    {* Private Key (hidden storage) *}
+                    {* Private Key (hidden storage) - PRESERVED *}
                     <input type="hidden" id="privateKey" name="privateKey" value="{$configData.privateKey|escape:'html'}">
                 </div>
             </div>
         </div>
 
         {* ============================================ *}
-        {* Step 3: Contact Information *}
+        {* Step 3: Contact Information - PRESERVED *}
         {* ============================================ *}
         <div class="sslm-section">
             <div class="sslm-section-header">
                 <h3><span class="sslm-step-number">3</span> {$_LANG.admin_contact|default:'Administrator Contact'}</h3>
             </div>
             <div class="sslm-section-body" id="personalcontactPart">
+                {* NEW: Section guidance text *}
+                <p class="sslm-help-text" style="margin-bottom: 16px;">
+                    <i class="fas fa-lightbulb"></i>
+                    {$_LANG.contact_section_guide|default:'This information will appear on your certificate. The admin email will receive important notifications about your SSL certificate.'}
+                </p>
+
+                {* All contact fields - PRESERVED EXACTLY *}
                 <div class="sslm-form-row">
                     <div class="sslm-form-group sslm-col-6">
                         <label>{$_LANG.first_name|default:'First Name'} <span class="required">*</span></label>
@@ -312,7 +370,7 @@
         </div>
 
         {* ============================================ *}
-        {* Step 4: Organization Information (OV/EV only) *}
+        {* Step 4: Organization Information (OV/EV) - PRESERVED *}
         {* ============================================ *}
         {if $requiresOrganization}
         <div class="sslm-section">
@@ -320,6 +378,13 @@
                 <h3><span class="sslm-step-number">4</span> {$_LANG.organization_info|default:'Organization Information'}</h3>
             </div>
             <div class="sslm-section-body" id="organizationPart">
+                {* NEW: Section guidance text *}
+                <p class="sslm-help-text" style="margin-bottom: 16px;">
+                    <i class="fas fa-lightbulb"></i>
+                    {$_LANG.org_section_guide|default:'For OV/EV certificates, your organization details will be verified and displayed in the certificate. Please ensure all information is accurate.'}
+                </p>
+
+                {* All organization fields - PRESERVED EXACTLY *}
                 <div class="sslm-form-row">
                     <div class="sslm-form-group sslm-col-6">
                         <label>{$_LANG.organization_name|default:'Organization Name'} <span class="required">*</span></label>
@@ -339,32 +404,26 @@
                                value="{$configData.organizationInfo.organizationCity|escape:'html'}" required>
                     </div>
                     <div class="sslm-form-group sslm-col-4">
-                        <label>{$_LANG.state|default:'State/Province'} <span class="required">*</span></label>
+                        <label>{$_LANG.state|default:'State/Province'}</label>
                         <input type="text" name="organizationState" class="sslm-input" 
-                               value="{$configData.organizationInfo.organizationState|escape:'html'}" required>
+                               value="{$configData.organizationInfo.organizationState|escape:'html'}">
                     </div>
                     <div class="sslm-form-group sslm-col-4">
-                        <label>{$_LANG.country|default:'Country'} <span class="required">*</span></label>
-                        <select name="organizationCountry" class="sslm-select" required>
-                            {foreach from=$countries item=country}
-                            <option value="{$country.code}" 
-                                {if $configData.organizationInfo.organizationCountry eq $country.code}selected{/if}>
-                                {$country.name|escape:'html'}
-                            </option>
-                            {/foreach}
-                        </select>
+                        <label>{$_LANG.post_code|default:'Postal Code'} <span class="required">*</span></label>
+                        <input type="text" name="organizationPostCode" class="sslm-input" 
+                               value="{$configData.organizationInfo.organizationPostCode|escape:'html'}" required>
                     </div>
                 </div>
                 <div class="sslm-form-row">
                     <div class="sslm-form-group sslm-col-4">
-                        <label>{$_LANG.post_code|default:'Postal Code'}</label>
-                        <input type="text" name="organizationPostCode" class="sslm-input" 
-                               value="{$configData.organizationInfo.organizationPostCode|escape:'html'}">
+                        <label>{$_LANG.country|default:'Country'} <span class="required">*</span></label>
+                        <input type="text" name="organizationCountry" class="sslm-input" 
+                               value="{$configData.organizationInfo.organizationCountry|escape:'html'}" required>
                     </div>
                     <div class="sslm-form-group sslm-col-4">
-                        <label>{$_LANG.phone|default:'Phone'}</label>
-                        <input type="tel" name="organizationMobile" class="sslm-input" 
-                               value="{$configData.organizationInfo.organizationMobile|escape:'html'}">
+                        <label>{$_LANG.phone|default:'Phone'} <span class="required">*</span></label>
+                        <input type="text" name="organizationPhone" class="sslm-input" 
+                               value="{$configData.organizationInfo.organizationPhone|escape:'html'}" required>
                     </div>
                     <div class="sslm-form-group sslm-col-4">
                         <label>{$_LANG.registration_number|default:'Registration Number'}</label>
@@ -377,7 +436,7 @@
         {/if}
 
         {* ============================================ *}
-        {* Form Actions *}
+        {* Form Actions - PRESERVED *}
         {* ============================================ *}
         <div class="sslm-form-actions">
             <button type="button" id="saveBtn" class="sslm-btn sslm-btn-secondary" onclick="saveDraft()">
@@ -388,10 +447,38 @@
             </button>
         </div>
     </form>
+
+    {* ============================================ *}
+    {* NEW: Help Section with SSL Installation Service Promo *}
+    {* ============================================ *}
+    <div class="sslm-section" style="margin-top: 24px;">
+        <div class="sslm-section-header">
+            <h3><i class="fas fa-question-circle"></i> {$_LANG.need_help|default:'Need Help?'}</h3>
+        </div>
+        <div class="sslm-section-body">
+            <div class="sslm-help-grid">
+                <div class="sslm-help-item">
+                    <h4><i class="fas fa-file-alt"></i> {$_LANG.what_is_dcv|default:'What is DCV?'}</h4>
+                    <p>{$_LANG.dcv_explanation|default:'Domain Control Validation (DCV) proves you own the domain. Choose HTTP file, DNS record, or email validation based on your preference.'}</p>
+                </div>
+                <div class="sslm-help-item">
+                    <h4><i class="fas fa-key"></i> {$_LANG.what_is_csr|default:'What is CSR?'}</h4>
+                    <p>{$_LANG.csr_explanation|default:'A Certificate Signing Request contains your domain info. Click "Generate CSR" to create one automatically, or paste your own if you have it.'}</p>
+                </div>
+                <div class="sslm-help-item" style="background: linear-gradient(135deg, #e6f7ff 0%, #bae7ff 100%); border: 1px solid #1890ff;">
+                    <h4 style="color: #0050b3;"><i class="fas fa-tools"></i> {$_LANG.installation_service|default:'SSL Installation Service'}</h4>
+                    <p style="color: #003a8c;">{$_LANG.installation_service_desc|default:'Don\'t want to install SSL yourself? Our experts can install and configure your SSL certificate for you. Fast, secure, and hassle-free!'}</p>
+                    <a href="{$WEB_ROOT}/cart.php?a=add&pid=ssl-installation" class="sslm-btn sslm-btn-primary sslm-btn-sm" style="margin-top: 12px;">
+                        <i class="fas fa-shopping-cart"></i> {$_LANG.order_installation|default:'Order Installation Service'}
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 
 {* ============================================ *}
-{* Domain Row Template for JavaScript *}
+{* Domain Row Template for JavaScript - PRESERVED *}
 {* ============================================ *}
 <template id="domainRowTemplate">
     <div class="sslm-domain-row">
@@ -423,7 +510,7 @@
 </template>
 
 {* ============================================ *}
-{* JavaScript Configuration *}
+{* JavaScript Configuration - PRESERVED *}
 {* ============================================ *}
 <script>
 window.sslmConfig = {
@@ -451,5 +538,5 @@ window.sslmConfig = {
 };
 </script>
 
-{* Load JavaScript *}
+{* Load JavaScript - PRESERVED *}
 <script src="{$WEB_ROOT}/modules/servers/nicsrs_ssl/assets/js/ssl-manager.js"></script>

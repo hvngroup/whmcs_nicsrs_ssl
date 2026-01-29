@@ -1,13 +1,15 @@
 {**
- * NicSRS SSL Module - Pending/Message Template
- * Shows DCV instructions with change DCV functionality
+ * NicSRS SSL Module - Message/Pending Template
+ * Shows DCV instructions while certificate is pending validation
+ * Reference template for UI consistency
  * 
  * @package    nicsrs_ssl
- * @version    2.0.3
+ * @version    2.1.0
  * @author     HVN GROUP
  * @copyright  Copyright (c) HVN GROUP (https://hvn.vn)
  *}
 
+{* Load CSS *}
 <link rel="stylesheet" href="{$WEB_ROOT}/modules/servers/nicsrs_ssl/assets/css/ssl-manager.css">
 
 <div class="sslm-container">
@@ -19,6 +21,7 @@
         </h2>
         <div class="sslm-header-info">
             <span class="sslm-product-name">{$productCode|escape:'html'}</span>
+            <span class="sslm-badge sslm-badge-warning">{$_LANG.pending|default:'Pending'}</span>
         </div>
     </div>
 
@@ -42,6 +45,17 @@
         </div>
     </div>
 
+    {* Status Card *}
+    <div class="sslm-status-card">
+        <div class="sslm-status-icon warning">
+            <i class="fas fa-clock"></i>
+        </div>
+        <div class="sslm-status-content">
+            <div class="sslm-status-title">{$_LANG.certificate_pending|default:'Certificate Pending Validation'}</div>
+            <div class="sslm-status-desc">{$_LANG.message_desc|default:'Your certificate request has been submitted. Please complete domain validation below to receive your SSL certificate.'}</div>
+        </div>
+    </div>
+
     {* Order Info Card *}
     <div class="sslm-card">
         <div class="sslm-card-header">
@@ -60,7 +74,7 @@
                 </div>
                 <div class="sslm-info-item">
                     <label>{$_LANG.certificate_id|default:'Certificate ID'}</label>
-                    <span class="sslm-cert-id">{$certId|escape:'html'|default:'N/A'}</span>
+                    <span class="sslm-code">{$certId|escape:'html'|default:'N/A'}</span>
                 </div>
                 <div class="sslm-info-item">
                     <label>{$_LANG.status|default:'Status'}</label>
@@ -90,7 +104,7 @@
             <h3><i class="fas fa-exclamation-triangle"></i> {$_LANG.action_required|default:'Action Required: Domain Validation'}</h3>
         </div>
         <div class="sslm-card-body">
-            <div class="sslm-alert sslm-alert-warning">
+            <div class="sslm-alert sslm-alert-info" style="margin-bottom: 20px;">
                 <i class="fas fa-lightbulb"></i>
                 <div>
                     <strong>{$_LANG.important|default:'Important'}:</strong>
@@ -110,9 +124,9 @@
                     </div>
                     <div class="sslm-dcv-card-actions">
                         <span class="sslm-dcv-method-tag">
-                            {if $dcvMethod == 'EMAIL'}
+                            {if $dcvMethod eq 'EMAIL'}
                                 <i class="fas fa-envelope"></i> Email
-                            {elseif $dcvMethod == 'HTTP_CSR_HASH' || $dcvMethod == 'HTTPS_CSR_HASH'}
+                            {elseif $dcvMethod eq 'HTTP_CSR_HASH' || $dcvMethod eq 'HTTPS_CSR_HASH'}
                                 <i class="fas fa-file-alt"></i> HTTP File
                             {else}
                                 <i class="fas fa-server"></i> DNS CNAME
@@ -120,93 +134,88 @@
                         </span>
                         <button type="button" class="sslm-btn sslm-btn-sm sslm-btn-outline" 
                                 onclick="SSLManager.openChangeDCVModal('{$domain.domainName|escape:'javascript'}', '{$dcvMethod|escape:'javascript'}')">
-                            <i class="fas fa-exchange-alt"></i> {$_LANG.change_method|default:'Change'}
+                            <i class="fas fa-exchange-alt"></i> {$_LANG.change|default:'Change'}
                         </button>
                     </div>
                 </div>
                 <div class="sslm-dcv-card-body">
                     {* DNS CNAME Validation *}
-                    {if $dcvMethod == 'CNAME_CSR_HASH' || $dcvMethod == 'DNS_CSR_HASH'}
-                    <p style="margin-bottom:12px;">
-                        <i class="fas fa-info-circle" style="color:var(--sslm-info);"></i>
-                        {$_LANG.dns_instruction|default:'Add the following DNS record to your domain:'}
+                    {if $dcvMethod eq 'CNAME_CSR_HASH'}
+                    <p style="margin-bottom: 12px;">
+                        <i class="fas fa-info-circle" style="color: var(--sslm-info);"></i>
+                        {$_LANG.dns_instruction|default:'Add the following CNAME record to your DNS settings:'}
                     </p>
                     <div class="sslm-code-group">
                         <div class="sslm-code-row">
-                            <div class="sslm-code-label">{$_LANG.type|default:'Type'}</div>
+                            <div class="sslm-code-label">{$_LANG.record_type|default:'Type'}</div>
                             <div class="sslm-code-value">
-                                <code>{$applyReturn.DCVdnsType|escape:'html'|default:'CNAME'}</code>
-                                <button type="button" class="sslm-code-copy" onclick="SSLManager.copyToClipboard('{$applyReturn.DCVdnsType|escape:'javascript'|default:'CNAME'}', this)">
-                                    <i class="fas fa-copy"></i>
-                                </button>
+                                <code>CNAME</code>
                             </div>
                         </div>
                         <div class="sslm-code-row">
                             <div class="sslm-code-label">{$_LANG.host_name|default:'Host/Name'}</div>
                             <div class="sslm-code-value">
-                                <code>{$applyReturn.DCVdnsHost|escape:'html'}</code>
-                                <button type="button" class="sslm-code-copy" onclick="SSLManager.copyToClipboard('{$applyReturn.DCVdnsHost|escape:'javascript'}', this)">
+                                <code>{$dcvDnsHost|escape:'html'|default:'_dnsauth'}.{$domain.domainName|escape:'html'}</code>
+                                <button type="button" class="sslm-code-copy" onclick="SSLManager.copyToClipboard('{$dcvDnsHost|escape:'javascript'|default:'_dnsauth'}.{$domain.domainName|escape:'javascript'}')">
                                     <i class="fas fa-copy"></i>
                                 </button>
                             </div>
                         </div>
                         <div class="sslm-code-row">
-                            <div class="sslm-code-label">{$_LANG.value|default:'Value/Points To'}</div>
+                            <div class="sslm-code-label">{$_LANG.points_to|default:'Points To'}</div>
                             <div class="sslm-code-value">
-                                <code>{$applyReturn.DCVdnsValue|escape:'html'}</code>
-                                <button type="button" class="sslm-code-copy" onclick="SSLManager.copyToClipboard('{$applyReturn.DCVdnsValue|escape:'javascript'}', this)">
+                                <code>{$dcvDnsValue|escape:'html'}</code>
+                                <button type="button" class="sslm-code-copy" onclick="SSLManager.copyToClipboard('{$dcvDnsValue|escape:'javascript'}')">
                                     <i class="fas fa-copy"></i>
                                 </button>
                             </div>
                         </div>
                     </div>
-                    <p class="sslm-help-text" style="margin-top:12px;">
-                        <i class="fas fa-clock"></i> {$_LANG.dns_propagation|default:'DNS changes may take 5-30 minutes to propagate. TTL: 300-3600 seconds recommended.'}
+                    <p class="sslm-help-text" style="margin-top: 12px;">
+                        <i class="fas fa-clock"></i> {$_LANG.dns_propagation|default:'DNS changes may take 5-30 minutes to propagate.'}
                     </p>
 
-                    {* HTTP File Validation *}
-                    {elseif $dcvMethod == 'HTTP_CSR_HASH' || $dcvMethod == 'HTTPS_CSR_HASH'}
-                    <p style="margin-bottom:12px;">
-                        <i class="fas fa-info-circle" style="color:var(--sslm-info);"></i>
-                        {$_LANG.http_instruction|default:'Create a file at the following location on your web server:'}
+                    {* HTTP/HTTPS File Validation *}
+                    {elseif $dcvMethod eq 'HTTP_CSR_HASH' || $dcvMethod eq 'HTTPS_CSR_HASH'}
+                    <p style="margin-bottom: 12px;">
+                        <i class="fas fa-info-circle" style="color: var(--sslm-info);"></i>
+                        {$_LANG.http_instruction|default:'Create a file with the following content and upload it to your web server:'}
                     </p>
                     <div class="sslm-code-group">
                         <div class="sslm-code-row">
                             <div class="sslm-code-label">{$_LANG.file_url|default:'File URL'}</div>
                             <div class="sslm-code-value">
-                                <code>{if $dcvMethod == 'HTTPS_CSR_HASH'}https{else}http{/if}://{$domain.domainName}/.well-known/pki-validation/{$applyReturn.DCVfileName|escape:'html'}</code>
-                                <button type="button" class="sslm-code-copy" onclick="SSLManager.copyToClipboard('{if $dcvMethod == 'HTTPS_CSR_HASH'}https{else}http{/if}://{$domain.domainName|escape:'javascript'}/.well-known/pki-validation/{$applyReturn.DCVfileName|escape:'javascript'}', this)">
+                                <code>{if $dcvMethod eq 'HTTPS_CSR_HASH'}https{else}http{/if}://{$domain.domainName|escape:'html'}/.well-known/pki-validation/{$dcvFileName|escape:'html'}</code>
+                                <button type="button" class="sslm-code-copy" onclick="SSLManager.copyToClipboard('{if $dcvMethod eq 'HTTPS_CSR_HASH'}https{else}http{/if}://{$domain.domainName|escape:'javascript'}/.well-known/pki-validation/{$dcvFileName|escape:'javascript'}')">
                                     <i class="fas fa-copy"></i>
                                 </button>
                             </div>
                         </div>
                         <div class="sslm-code-row">
-                            <div class="sslm-code-label">{$_LANG.file_name|default:'File Name'}</div>
+                            <div class="sslm-code-label">{$_LANG.file_content|default:'Content'}</div>
                             <div class="sslm-code-value">
-                                <code>{$applyReturn.DCVfileName|escape:'html'}</code>
-                                <button type="button" class="sslm-code-copy" onclick="SSLManager.copyToClipboard('{$applyReturn.DCVfileName|escape:'javascript'}', this)">
-                                    <i class="fas fa-copy"></i>
-                                </button>
-                            </div>
-                        </div>
-                        <div class="sslm-code-row">
-                            <div class="sslm-code-label">{$_LANG.file_content|default:'File Content'}</div>
-                            <div class="sslm-code-value">
-                                <code>{$applyReturn.DCVfileContent|escape:'html'}</code>
-                                <button type="button" class="sslm-code-copy" onclick="SSLManager.copyToClipboard('{$applyReturn.DCVfileContent|escape:'javascript'}', this)">
+                                <code>{$dcvFileContent|escape:'html'}</code>
+                                <button type="button" class="sslm-code-copy" onclick="SSLManager.copyToClipboard('{$dcvFileContent|escape:'javascript'}')">
                                     <i class="fas fa-copy"></i>
                                 </button>
                             </div>
                         </div>
                     </div>
-                    <p class="sslm-help-text" style="margin-top:12px;">
-                        <i class="fas fa-exclamation-circle"></i> {$_LANG.http_note|default:'Ensure the file is accessible without redirects. Content-Type should be text/plain.'}
+                    <div style="margin-top: 16px;">
+                        <button type="button" class="sslm-btn sslm-btn-sm sslm-btn-secondary download-dcv-file" 
+                                data-filename="{$dcvFileName|escape:'html'}" 
+                                data-content="{$dcvFileContent|escape:'html'}">
+                            <i class="fas fa-download"></i> {$_LANG.download_file|default:'Download File'}
+                        </button>
+                    </div>
+                    <p class="sslm-help-text" style="margin-top: 12px;">
+                        <i class="fas fa-folder"></i> {$_LANG.http_note|default:'Make sure the file is accessible via HTTP/HTTPS. Content-Type should be text/plain.'}
                     </p>
 
                     {* Email Validation *}
-                    {elseif $dcvMethod == 'EMAIL'}
-                    <p style="margin-bottom:12px;">
-                        <i class="fas fa-info-circle" style="color:var(--sslm-info);"></i>
+                    {elseif $dcvMethod eq 'EMAIL'}
+                    <p style="margin-bottom: 12px;">
+                        <i class="fas fa-info-circle" style="color: var(--sslm-info);"></i>
                         {$_LANG.email_instruction|default:'A validation email has been sent to:'}
                     </p>
                     <div class="sslm-code-group">
@@ -217,12 +226,12 @@
                             </div>
                         </div>
                     </div>
-                    <div style="margin-top:16px;">
+                    <div style="margin-top: 16px;">
                         <button type="button" class="sslm-btn sslm-btn-sm sslm-btn-primary resend-dcv-btn" data-domain="{$domain.domainName|escape:'html'}">
                             <i class="fas fa-paper-plane"></i> {$_LANG.resend_email|default:'Resend Email'}
                         </button>
                     </div>
-                    <p class="sslm-help-text" style="margin-top:12px;">
+                    <p class="sslm-help-text" style="margin-top: 12px;">
                         <i class="fas fa-envelope-open-text"></i> {$_LANG.email_note|default:'Check your inbox and spam folder. Click the validation link in the email.'}
                     </p>
                     {/if}
@@ -234,11 +243,11 @@
     </div>
 
     {* Help Section *}
-    <div class="sslm-card">
-        <div class="sslm-card-header">
+    <div class="sslm-section">
+        <div class="sslm-section-header">
             <h3><i class="fas fa-question-circle"></i> {$_LANG.need_help|default:'Need Help?'}</h3>
         </div>
-        <div class="sslm-card-body">
+        <div class="sslm-section-body">
             <div class="sslm-help-grid">
                 <div class="sslm-help-item">
                     <h4><i class="fas fa-clock"></i> {$_LANG.how_long|default:'How long does it take?'}</h4>
@@ -253,44 +262,88 @@
                     <p>{$_LANG.change_note|default:'Click "Change" next to each domain to switch to a different validation method.'}</p>
                 </div>
             </div>
-            <div style="text-align:center; margin-top:20px; padding-top:20px; border-top:1px solid var(--sslm-border-color);">
-                <p style="margin-bottom:12px; color:var(--sslm-text-secondary);">{$_LANG.still_need_help|default:'Still having trouble?'}</p>
-                <a href="{$WEB_ROOT}/submitticket.php" class="sslm-btn sslm-btn-outline">
-                    <i class="fas fa-headset"></i> {$_LANG.contact_support|default:'Contact Support'}
-                </a>
-            </div>
         </div>
     </div>
 </div>
 
-{* JavaScript Config *}
+{* Change DCV Modal *}
+<div class="sslm-modal-overlay" id="changeDcvModal">
+    <div class="sslm-modal">
+        <div class="sslm-modal-header">
+            <h3><i class="fas fa-exchange-alt"></i> {$_LANG.change_dcv_method|default:'Change Validation Method'}</h3>
+            <button type="button" class="sslm-modal-close" onclick="SSLManager.closeChangeDCVModal()">&times;</button>
+        </div>
+        <div class="sslm-modal-body">
+            <div class="sslm-form-group">
+                <label>{$_LANG.domain|default:'Domain'}</label>
+                <div id="dcvModalDomain" style="font-weight: 600; color: var(--sslm-primary); font-size: 16px;"></div>
+            </div>
+            <div class="sslm-form-group">
+                <label>{$_LANG.new_dcv_method|default:'New Validation Method'} <span class="required">*</span></label>
+                <select id="newDcvMethod" class="sslm-select" onchange="SSLManager.onDCVMethodChange(this.value)">
+                    <option value="">{$_LANG.select_method|default:'-- Select Method --'}</option>
+                    <optgroup label="{$_LANG.file_dns_validation|default:'File/DNS Validation'}">
+                        <option value="HTTP_CSR_HASH">{$_LANG.http_file|default:'HTTP File Validation'}</option>
+                        <option value="HTTPS_CSR_HASH">{$_LANG.https_file|default:'HTTPS File Validation'}</option>
+                        <option value="CNAME_CSR_HASH">{$_LANG.dns_cname|default:'DNS CNAME Validation'}</option>
+                    </optgroup>
+                    <optgroup label="{$_LANG.email_validation|default:'Email Validation'}">
+                        <option value="EMAIL">{$_LANG.email|default:'Email Validation'}</option>
+                    </optgroup>
+                </select>
+            </div>
+            <div id="dcvEmailSection" class="sslm-form-group" style="display: none;">
+                <label>{$_LANG.dcv_email|default:'Validation Email'} <span class="required">*</span></label>
+                <select id="newDcvEmail" class="sslm-select">
+                    <option value="">{$_LANG.select_email|default:'-- Select Email --'}</option>
+                </select>
+            </div>
+            <div class="sslm-alert sslm-alert-info" style="margin-top: 16px;">
+                <i class="fas fa-info-circle"></i>
+                <div>{$_LANG.dcv_change_note|default:'After changing the validation method, you will need to complete the new validation process.'}</div>
+            </div>
+        </div>
+        <div class="sslm-modal-footer">
+            <button type="button" class="sslm-btn sslm-btn-secondary" onclick="SSLManager.closeChangeDCVModal()">
+                {$_LANG.cancel|default:'Cancel'}
+            </button>
+            <button type="button" class="sslm-btn sslm-btn-primary" onclick="SSLManager.submitChangeDCV()">
+                <i class="fas fa-check"></i> {$_LANG.confirm_change|default:'Confirm Change'}
+            </button>
+        </div>
+    </div>
+</div>
+
+{* JavaScript Configuration *}
 <script>
 window.sslmConfig = {
-    ajaxUrl: '{$WEB_ROOT}/clientarea.php?action=productdetails&id={$serviceid}',
-    serviceid: '{$serviceid}',
+    ajaxUrl: "{$WEB_ROOT}/clientarea.php?action=productdetails&id={$serviceid}",
+    serviceid: "{$serviceid}",
+    configData: {$configData|json_encode nofilter},
     lang: {
-        status_refreshed: '{$_LANG.status_refreshed|default:"Status refreshed"}',
-        dcv_email_sent: '{$_LANG.dcv_email_sent|default:"Email sent successfully"}',
-        dcv_changed: '{$_LANG.dcv_changed|default:"DCV method changed successfully"}',
-        error: '{$_LANG.error|default:"An error occurred"}',
-        network_error: '{$_LANG.network_error|default:"Network error"}',
-        change_dcv_method: '{$_LANG.change_dcv_method|default:"Change DCV Method"}',
-        domain: '{$_LANG.domain|default:"Domain"}',
-        new_dcv_method: '{$_LANG.new_dcv_method|default:"New DCV Method"}',
-        please_choose: '{$_LANG.please_choose|default:"-- Select --"}',
-        file_dns_validation: '{$_LANG.file_dns_validation|default:"File/DNS Validation"}',
-        email_validation: '{$_LANG.email_validation|default:"Email Validation"}',
-        http_file: '{$_LANG.http_file|default:"HTTP File Validation"}',
-        https_file: '{$_LANG.https_file|default:"HTTPS File Validation"}',
-        dns_cname: '{$_LANG.dns_cname|default:"DNS CNAME Validation"}',
-        email: '{$_LANG.email|default:"Email Validation"}',
-        dcv_email: '{$_LANG.dcv_email|default:"DCV Email"}',
-        dcv_email_note: '{$_LANG.dcv_email_note|default:"Select an email to receive validation."}',
-        dcv_change_note: '{$_LANG.dcv_change_note|default:"You will need to complete the new validation."}',
-        cancel: '{$_LANG.cancel|default:"Cancel"}',
-        confirm_change: '{$_LANG.confirm_change|default:"Confirm Change"}'
+        refresh_success: '{$_LANG.refresh_success|default:"Status refreshed"}',
+        certificate_issued: '{$_LANG.certificate_issued|default:"Certificate has been issued!"}',
+        still_pending: '{$_LANG.still_pending|default:"Still pending validation"}',
+        dcv_changed: '{$_LANG.dcv_changed|default:"Validation method changed"}',
+        dcv_email_sent: '{$_LANG.dcv_email_sent|default:"Validation email sent"}',
+        copied: '{$_LANG.copied|default:"Copied!"}',
+        copy_failed: '{$_LANG.copy_failed|default:"Copy failed"}'
     }
 };
+
+// Download DCV file handler
+document.querySelectorAll('.download-dcv-file').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+        var filename = this.getAttribute('data-filename');
+        var content = this.getAttribute('data-content');
+        var blob = new Blob([content], { type: 'text/plain' });
+        var link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = filename;
+        link.click();
+        URL.revokeObjectURL(link.href);
+    });
+});
 
 // Resend DCV email handler
 document.querySelectorAll('.resend-dcv-btn').forEach(function(btn) {
@@ -326,4 +379,5 @@ document.querySelectorAll('.resend-dcv-btn').forEach(function(btn) {
 });
 </script>
 
+{* Load JavaScript *}
 <script src="{$WEB_ROOT}/modules/servers/nicsrs_ssl/assets/js/ssl-manager.js"></script>

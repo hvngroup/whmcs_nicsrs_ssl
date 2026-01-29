@@ -818,13 +818,109 @@
 }
 
 /* ========================================
+   Status Card (Enhanced)
+   ======================================== */
+.sslm-status-card {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    padding: 24px;
+    background: var(--sslm-bg-base);
+    border: 1px solid var(--sslm-border-color);
+    border-radius: var(--sslm-border-radius);
+    margin-bottom: 24px;
+}
+
+.sslm-status-icon {
+    flex-shrink: 0;
+    width: 80px;
+    height: 80px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    font-size: 36px;
+}
+
+.sslm-status-icon.success {
+    background: var(--sslm-success-bg);
+    color: var(--sslm-success);
+}
+
+.sslm-status-icon.warning {
+    background: var(--sslm-warning-bg);
+    color: var(--sslm-warning);
+}
+
+.sslm-status-icon.error {
+    background: var(--sslm-error-bg);
+    color: var(--sslm-error);
+}
+
+.sslm-status-icon.info {
+    background: var(--sslm-info-bg);
+    color: var(--sslm-info);
+}
+
+.sslm-status-content {
+    flex: 1;
+}
+
+.sslm-status-title {
+    font-size: 20px;
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: var(--sslm-text-primary);
+}
+
+.sslm-status-desc {
+    font-size: 14px;
+    color: var(--sslm-text-secondary);
+    line-height: 1.6;
+}
+
+/* ========================================
    Download Buttons
    ======================================== */
 .sslm-download-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-    gap: 12px;
-    margin-top: 16px;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+}
+
+.sslm-download-card {
+    padding: 20px;
+    text-align: center;
+    border: 1px solid var(--sslm-border-color);
+    border-radius: var(--sslm-border-radius);
+    background: var(--sslm-bg-base);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.sslm-download-card:hover {
+    border-color: var(--sslm-primary);
+    box-shadow: 0 4px 12px rgba(24, 144, 255, 0.15);
+    transform: translateY(-2px);
+}
+
+.sslm-download-icon {
+    font-size: 36px;
+    color: var(--sslm-primary);
+    margin-bottom: 12px;
+}
+
+.sslm-download-title {
+    font-weight: 600;
+    font-size: 15px;
+    margin-bottom: 4px;
+    color: var(--sslm-text-primary);
+}
+
+.sslm-download-desc {
+    font-size: 12px;
+    color: var(--sslm-text-secondary);
+    margin-bottom: 16px;
 }
 
 .sslm-download-btn {
@@ -853,6 +949,483 @@
 .sslm-download-btn span {
     font-size: 13px;
     font-weight: 500;
+}
+
+/* ========================================
+   Timeline
+   ======================================== */
+.sslm-timeline {
+    position: relative;
+    padding-left: 30px;
+}
+
+.sslm-timeline::before {
+    content: '';
+    position: absolute;
+    left: 8px;
+    top: 4px;
+    bottom: 4px;
+    width: 2px;
+    background: var(--sslm-border-color);
+}
+
+.sslm-timeline-item {
+    position: relative;
+    padding-bottom: 24px;
+}
+
+.sslm-timeline-item:last-child {
+    padding-bottom: 0;
+}
+
+.sslm-timeline-marker {
+    position: absolute;
+    left: -26px;
+    top: 2px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--sslm-bg-base);
+    border: 2px solid var(--sslm-border-color);
+}
+
+.sslm-timeline-item.completed .sslm-timeline-marker {
+    background: var(--sslm-success);
+    border-color: var(--sslm-success);
+}
+
+.sslm-timeline-item.completed .sslm-timeline-marker::after {
+    content: '✓';
+    color: white;
+    font-size: 10px;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+}
+
+.sslm-timeline-item.error .sslm-timeline-marker {
+    background: var(--sslm-error);
+    border-color: var(--sslm-error);
+}
+
+.sslm-timeline-item.warning .sslm-timeline-marker {
+    background: var(--sslm-warning);
+    border-color: var(--sslm-warning);
+}
+
+.sslm-timeline-item.active .sslm-timeline-marker {
+    background: var(--sslm-primary);
+    border-color: var(--sslm-primary);
+    box-shadow: 0 0 0 4px rgba(24, 144, 255, 0.2);
+}
+
+.sslm-timeline-content {
+    padding-left: 8px;
+}
+
+.sslm-timeline-title {
+    font-weight: 600;
+    font-size: 14px;
+    margin-bottom: 4px;
+    color: var(--sslm-text-primary);
+}
+
+.sslm-timeline-date {
+    font-size: 12px;
+    color: var(--sslm-text-secondary);
+}
+
+.sslm-timeline-desc {
+    font-size: 13px;
+    color: var(--sslm-text-secondary);
+    margin-top: 4px;
+}
+
+/* ========================================
+   Validity Display
+   ======================================== */
+.sslm-validity-display {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 32px;
+    padding: 20px;
+    background: var(--sslm-bg-light);
+    border-radius: var(--sslm-border-radius);
+}
+
+.sslm-validity-item {
+    text-align: center;
+}
+
+.sslm-validity-label {
+    display: block;
+    font-size: 12px;
+    color: var(--sslm-text-secondary);
+    margin-bottom: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.sslm-validity-value {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--sslm-text-primary);
+}
+
+.sslm-validity-value.sslm-highlight {
+    color: var(--sslm-success);
+}
+
+.sslm-validity-value.sslm-warning {
+    color: var(--sslm-warning);
+}
+
+.sslm-validity-value.sslm-error {
+    color: var(--sslm-error);
+}
+
+.sslm-validity-arrow {
+    color: var(--sslm-text-secondary);
+    font-size: 24px;
+}
+
+.sslm-validity-days {
+    display: block;
+    font-size: 11px;
+    color: var(--sslm-text-secondary);
+    margin-top: 4px;
+}
+
+/* ========================================
+   Card Variants
+   ======================================== */
+.sslm-card-success {
+    border-left: 4px solid var(--sslm-success);
+}
+
+.sslm-card-warning {
+    border-left: 4px solid var(--sslm-warning);
+}
+
+.sslm-card-error {
+    border-left: 4px solid var(--sslm-error);
+}
+
+.sslm-card-info {
+    border-left: 4px solid var(--sslm-info);
+}
+
+/* ========================================
+   Form Validation States
+   ======================================== */
+.sslm-form-group.sslm-has-error .sslm-input,
+.sslm-form-group.sslm-has-error .sslm-select,
+.sslm-form-group.sslm-has-error .sslm-textarea {
+    border-color: var(--sslm-error);
+    background-color: #fff2f0;
+}
+
+.sslm-form-group.sslm-has-error .sslm-input:focus,
+.sslm-form-group.sslm-has-error .sslm-select:focus,
+.sslm-form-group.sslm-has-error .sslm-textarea:focus {
+    box-shadow: 0 0 0 2px rgba(255, 77, 79, 0.2);
+}
+
+.sslm-form-group.sslm-has-success .sslm-input,
+.sslm-form-group.sslm-has-success .sslm-select {
+    border-color: var(--sslm-success);
+}
+
+.sslm-error-text {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--sslm-error);
+    font-size: 12px;
+    margin-top: 6px;
+}
+
+.sslm-success-text {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--sslm-success);
+    font-size: 12px;
+    margin-top: 6px;
+}
+
+/* ========================================
+   Info Card (Enhanced)
+   ======================================== */
+.sslm-info-card {
+    background: var(--sslm-bg-light);
+    border: 1px solid var(--sslm-border-color);
+    border-radius: var(--sslm-border-radius);
+    padding: 16px;
+}
+
+.sslm-info-card-title {
+    font-weight: 600;
+    font-size: 14px;
+    margin-bottom: 12px;
+    color: var(--sslm-text-primary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.sslm-info-card-title i {
+    color: var(--sslm-primary);
+}
+
+.sslm-info-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--sslm-border-color);
+}
+
+.sslm-info-row:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+}
+
+.sslm-info-row:first-child {
+    padding-top: 0;
+}
+
+.sslm-info-label {
+    color: var(--sslm-text-secondary);
+    font-size: 13px;
+}
+
+.sslm-info-value {
+    font-weight: 500;
+    font-size: 14px;
+    color: var(--sslm-text-primary);
+}
+
+.sslm-info-value.sslm-code {
+    font-family: 'SFMono-Regular', Consolas, monospace;
+    background: var(--sslm-bg-dark);
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 13px;
+}
+
+/* ========================================
+   Action Cards Grid
+   ======================================== */
+.sslm-action-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 20px;
+}
+
+.sslm-action-card {
+    padding: 24px;
+    background: var(--sslm-bg-base);
+    border: 1px solid var(--sslm-border-color);
+    border-radius: var(--sslm-border-radius);
+    text-align: center;
+    transition: all 0.2s ease;
+}
+
+.sslm-action-card:hover {
+    border-color: var(--sslm-primary);
+    box-shadow: var(--sslm-box-shadow);
+}
+
+.sslm-action-card-icon {
+    width: 56px;
+    height: 56px;
+    margin: 0 auto 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--sslm-info-bg);
+    border-radius: 50%;
+    font-size: 24px;
+    color: var(--sslm-primary);
+}
+
+.sslm-action-card-title {
+    font-weight: 600;
+    font-size: 16px;
+    margin-bottom: 8px;
+    color: var(--sslm-text-primary);
+}
+
+.sslm-action-card-desc {
+    font-size: 13px;
+    color: var(--sslm-text-secondary);
+    margin-bottom: 16px;
+    line-height: 1.5;
+}
+
+/* ========================================
+   Certificate Display Card
+   ======================================== */
+.sslm-cert-display {
+    background: var(--sslm-bg-light);
+    border: 1px solid var(--sslm-border-color);
+    border-radius: var(--sslm-border-radius);
+    overflow: hidden;
+}
+
+.sslm-cert-display-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    background: var(--sslm-bg-dark);
+    border-bottom: 1px solid var(--sslm-border-color);
+}
+
+.sslm-cert-display-title {
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--sslm-text-secondary);
+}
+
+.sslm-cert-display-body {
+    padding: 16px;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.sslm-cert-display-body pre {
+    margin: 0;
+    font-family: 'SFMono-Regular', Consolas, monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+/* ========================================
+   Quick Stats
+   ======================================== */
+.sslm-quick-stats {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 24px;
+}
+
+.sslm-stat-item {
+    flex: 1;
+    padding: 16px;
+    background: var(--sslm-bg-base);
+    border: 1px solid var(--sslm-border-color);
+    border-radius: var(--sslm-border-radius);
+    text-align: center;
+}
+
+.sslm-stat-value {
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--sslm-primary);
+    line-height: 1;
+}
+
+.sslm-stat-label {
+    font-size: 12px;
+    color: var(--sslm-text-secondary);
+    margin-top: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* ========================================
+   Collapsible Section
+   ======================================== */
+.sslm-collapsible .sslm-section-header {
+    cursor: pointer;
+    user-select: none;
+}
+
+.sslm-collapsible .sslm-section-header:hover {
+    background: var(--sslm-bg-dark);
+}
+
+.sslm-collapsible .sslm-section-header h3 {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+}
+
+.sslm-collapse-icon {
+    transition: transform 0.2s ease;
+}
+
+.sslm-collapsible.collapsed .sslm-collapse-icon {
+    transform: rotate(-90deg);
+}
+
+.sslm-collapsible.collapsed .sslm-section-body {
+    display: none;
+}
+
+/* ========================================
+   Domain Verification Status
+   ======================================== */
+.sslm-domain-status {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    background: var(--sslm-bg-light);
+    border: 1px solid var(--sslm-border-color);
+    border-radius: var(--sslm-border-radius);
+    margin-bottom: 12px;
+}
+
+.sslm-domain-status:last-child {
+    margin-bottom: 0;
+}
+
+.sslm-domain-status-icon {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    font-size: 14px;
+}
+
+.sslm-domain-status-icon.verified {
+    background: var(--sslm-success-bg);
+    color: var(--sslm-success);
+}
+
+.sslm-domain-status-icon.pending {
+    background: var(--sslm-warning-bg);
+    color: var(--sslm-warning);
+}
+
+.sslm-domain-status-icon.failed {
+    background: var(--sslm-error-bg);
+    color: var(--sslm-error);
+}
+
+.sslm-domain-status-content {
+    flex: 1;
+}
+
+.sslm-domain-status-name {
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--sslm-text-primary);
+}
+
+.sslm-domain-status-method {
+    font-size: 12px;
+    color: var(--sslm-text-secondary);
 }
 
 /* ========================================
@@ -1375,6 +1948,109 @@
 .sslm-empty p {
     margin: 0;
     font-size: 14px;
+}
+/* ========================================
+   Badge Variants
+   ======================================== */
+.sslm-badge-lg {
+    padding: 6px 16px;
+    font-size: 14px;
+}
+
+.sslm-badge-success {
+    background: var(--sslm-success-bg);
+    color: var(--sslm-success);
+}
+
+.sslm-badge-error {
+    background: var(--sslm-error-bg);
+    color: var(--sslm-error);
+}
+
+.sslm-badge-warning {
+    background: var(--sslm-warning-bg);
+    color: var(--sslm-warning);
+}
+
+.sslm-badge-info {
+    background: var(--sslm-info-bg);
+    color: var(--sslm-info);
+}
+
+.sslm-badge-default {
+    background: var(--sslm-bg-dark);
+    color: var(--sslm-text-secondary);
+}
+
+/* ========================================
+   Responsive Adjustments
+   ======================================== */
+@media (max-width: 768px) {
+    .sslm-status-card {
+        flex-direction: column;
+        text-align: center;
+    }
+    
+    .sslm-status-icon {
+        width: 64px;
+        height: 64px;
+        font-size: 28px;
+    }
+    
+    .sslm-download-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    
+    .sslm-validity-display {
+        flex-direction: column;
+        gap: 16px;
+    }
+    
+    .sslm-validity-arrow {
+        transform: rotate(90deg);
+    }
+    
+    .sslm-quick-stats {
+        flex-wrap: wrap;
+    }
+    
+    .sslm-stat-item {
+        flex: 1 1 calc(50% - 8px);
+    }
+    
+    .sslm-action-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .sslm-timeline {
+        padding-left: 24px;
+    }
+    
+    .sslm-timeline-marker {
+        left: -20px;
+        width: 14px;
+        height: 14px;
+    }
+}
+
+@media (max-width: 480px) {
+    .sslm-download-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .sslm-download-card {
+        padding: 16px;
+    }
+    
+    .sslm-stat-item {
+        flex: 1 1 100%;
+    }
+    
+    .sslm-domain-status {
+        flex-direction: column;
+        text-align: center;
+        gap: 8px;
+    }
 }
 
 /* ========================================
