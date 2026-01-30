@@ -222,7 +222,7 @@
                         <div class="sslm-code-row">
                             <div class="sslm-code-label">{$_LANG.email|default:'Email'}</div>
                             <div class="sslm-code-value">
-                                <code>{$domain.dcvEmail|escape:'html'|default:'admin@'|cat:$domain.domainName}</code>
+                                <code>{$domain.dcvEmail|default:"admin@`$domain.domainName`"|escape:'html'}</code>
                             </div>
                         </div>
                     </div>
@@ -280,22 +280,17 @@
             </div>
             <div class="sslm-form-group">
                 <label>{$_LANG.new_dcv_method|default:'New Validation Method'} <span class="required">*</span></label>
-                <select id="newDcvMethod" class="sslm-select" onchange="SSLManager.onDCVMethodChange(this.value)">
+                <select id="newDcvMethod" class="sslm-select">
                     <option value="">{$_LANG.select_method|default:'-- Select Method --'}</option>
                     <optgroup label="{$_LANG.file_dns_validation|default:'File/DNS Validation'}">
                         <option value="HTTP_CSR_HASH">{$_LANG.http_file|default:'HTTP File Validation'}</option>
                         <option value="HTTPS_CSR_HASH">{$_LANG.https_file|default:'HTTPS File Validation'}</option>
                         <option value="CNAME_CSR_HASH">{$_LANG.dns_cname|default:'DNS CNAME Validation'}</option>
                     </optgroup>
-                    <optgroup label="{$_LANG.email_validation|default:'Email Validation'}">
-                        <option value="EMAIL">{$_LANG.email|default:'Email Validation'}</option>
+                    {* Email options sẽ được populate bởi JavaScript *}
+                    <optgroup label="{$_LANG.email_validation|default:'Email Validation'}" class="dcv-email-options">
+                        {* Dynamic email options will be added here *}
                     </optgroup>
-                </select>
-            </div>
-            <div id="dcvEmailSection" class="sslm-form-group" style="display: none;">
-                <label>{$_LANG.dcv_email|default:'Validation Email'} <span class="required">*</span></label>
-                <select id="newDcvEmail" class="sslm-select">
-                    <option value="">{$_LANG.select_email|default:'-- Select Email --'}</option>
                 </select>
             </div>
             <div class="sslm-alert sslm-alert-info" style="margin-top: 16px;">
@@ -307,7 +302,7 @@
             <button type="button" class="sslm-btn sslm-btn-secondary" onclick="SSLManager.closeChangeDCVModal()">
                 {$_LANG.cancel|default:'Cancel'}
             </button>
-            <button type="button" class="sslm-btn sslm-btn-primary" onclick="SSLManager.submitChangeDCV()">
+            <button type="button" class="sslm-btn sslm-btn-primary" onclick="SSLManager.confirmChangeDCV()">
                 <i class="fas fa-check"></i> {$_LANG.confirm_change|default:'Confirm Change'}
             </button>
         </div>

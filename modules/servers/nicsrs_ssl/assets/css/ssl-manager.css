@@ -351,27 +351,33 @@
     cursor: pointer;
 }
 
-.sslm-toggle {
-    display: flex;
+.sslm-form-group .sslm-toggle {
+    position: relative;
+    display: inline-flex;
     align-items: center;
     gap: 12px;
     cursor: pointer;
 }
 
-.sslm-toggle input[type="checkbox"] {
-    display: none;
+.sslm-form-group .sslm-toggle input[type="checkbox"] {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+    pointer-events: none;
 }
 
-.sslm-toggle-slider {
+.sslm-form-group .sslm-toggle-slider {
     width: 44px;
     height: 22px;
     background: #bfbfbf;
     border-radius: 22px;
     position: relative;
     transition: background 0.2s;
+    flex-shrink: 0;
 }
 
-.sslm-toggle-slider::after {
+.sslm-form-group .sslm-toggle-slider::after {
     content: '';
     position: absolute;
     width: 18px;
@@ -384,11 +390,11 @@
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
 }
 
-.sslm-toggle input:checked + .sslm-toggle-slider {
+.sslm-form-group .sslm-toggle input:checked + .sslm-toggle-slider {
     background: var(--sslm-primary);
 }
 
-.sslm-toggle input:checked + .sslm-toggle-slider::after {
+.sslm-form-group .sslm-toggle input:checked + .sslm-toggle-slider::after {
     transform: translateX(22px);
 }
 

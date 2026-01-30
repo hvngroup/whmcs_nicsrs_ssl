@@ -552,9 +552,19 @@
                 var response = JSON.parse(responseText);
                 
                 if (response.success) {
-                    showToast(response.message || (action === 'draft' ? 
-                        (lang.draft_saved || 'Draft saved') : 
-                        (lang.submit_success || 'Request submitted')), 'success');
+                    var successMsg = '';
+                    
+                    if (typeof response.message === 'string') {
+                        successMsg = response.message;
+                    } else if (response.msg && typeof response.msg === 'string') {
+                        successMsg = response.msg;
+                    } else if (action === 'draft') {
+                        successMsg = lang.draft_saved || 'Draft saved successfully';
+                    } else {
+                        successMsg = lang.submit_success || 'Certificate request submitted successfully';
+                    }
+                    
+                    showToast(successMsg, 'success');
                     
                     if (action === 'submit') {
                         setTimeout(function() {
@@ -562,14 +572,29 @@
                         }, 1500);
                     }
                 } else {
-                    showToast(response.message || lang.error || 'An error occurred', 'error');
+                    // FIX: Handle error message properly
+                    var errorMsg = '';
+                    
+                    if (typeof response.message === 'string') {
+                        errorMsg = response.message;
+                    } else if (typeof response.msg === 'string') {
+                        errorMsg = response.msg;
+                    } else if (response.error) {
+                        errorMsg = Array.isArray(response.error) 
+                            ? response.error.join(', ') 
+                            : response.error;
+                    } else {
+                        errorMsg = lang.error || 'An error occurred';
+                    }
+                    
+                    showToast(errorMsg, 'error');
                 }
             } catch (e) {
-                console.error('JSON parse error:', e);
+                console.error('JSON parse error:', e, responseText);
                 showToast('Invalid server response', 'error');
             }
         };
-        
+
         xhr.onerror = function() {
             if (submitBtn) submitBtn.disabled = false;
             if (saveBtn) saveBtn.disabled = false;
@@ -614,7 +639,7 @@
         if (!form) return {};
         
         return {
-            organization: getValue(form, 'adminOrganizationName'),
+            organation: getValue(form, 'adminOrganizationName'),
             job: getValue(form, 'adminTitle'),
             firstName: getValue(form, 'adminFirstName'),
             lastName: getValue(form, 'adminLastName'),
@@ -847,35 +872,23 @@
     function openChangeDCVModal(domain, currentMethod) {
         currentDCVDomain = domain;
         
-        var modal = document.getElementById('dcvChangeModal');
-        if (!modal) {
-            createDCVChangeModal();
-            modal = document.getElementById('dcvChangeModal');
-        }
+        var modal = document.getElementById('changeDcvModal');
+        if (!modal) return;
         
-        // Set domain name
-        var domainLabel = modal.querySelector('.dcv-domain-label');
+        // Set domain display
+        var domainLabel = document.getElementById('dcvModalDomain');
         if (domainLabel) {
             domainLabel.textContent = domain;
         }
         
-        // Reset and set current method
-        var methodSelect = modal.querySelector('#newDcvMethod');
+        // Reset method dropdown
+        var methodSelect = document.getElementById('newDcvMethod');
         if (methodSelect) {
             methodSelect.value = '';
             
-            // Mark current method
-            Array.from(methodSelect.options).forEach(function(opt) {
-                if (opt.value === currentMethod) {
-                    opt.textContent = opt.textContent.replace(' (Current)', '') + ' (Current)';
-                } else {
-                    opt.textContent = opt.textContent.replace(' (Current)', '');
-                }
-            });
+            // Populate email options based on domain
+            populateModalDCVEmails(methodSelect, domain, currentMethod);
         }
-        
-        // Generate email options
-        updateModalDCVEmails(domain);
         
         // Show modal
         modal.classList.add('show');
@@ -888,7 +901,7 @@
         }
         currentDCVDomain = null;
     }
-    
+        
     function createDCVChangeModal() {
         var config = window.sslmConfig || {};
         var lang = config.lang || {};
@@ -903,28 +916,21 @@
                     <div class="sslm-modal-body">
                         <div class="sslm-form-group">
                             <label>${lang.domain || 'Domain'}</label>
-                            <div class="dcv-domain-label" style="font-weight:600;color:var(--sslm-primary);font-size:16px;"></div>
+                            <div class="dcv-domain-label" style="font-weight: 600; color: var(--sslm-primary); font-size: 16px;"></div>
                         </div>
                         <div class="sslm-form-group">
-                            <label>${lang.new_dcv_method || 'New DCV Method'} <span class="required">*</span></label>
-                            <select id="newDcvMethod" class="sslm-select" onchange="SSLManager.onDCVMethodChange(this.value)">
-                                <option value="">${lang.please_choose || '-- Select Method --'}</option>
+                            <label>${lang.new_dcv_method || 'New Validation Method'} <span class="required">*</span></label>
+                            <select id="newDcvMethod" class="sslm-select">
+                                <option value="">${lang.select_method || '-- Select Method --'}</option>
                                 <optgroup label="${lang.file_dns_validation || 'File/DNS Validation'}">
                                     <option value="HTTP_CSR_HASH">${lang.http_file || 'HTTP File Validation'}</option>
                                     <option value="HTTPS_CSR_HASH">${lang.https_file || 'HTTPS File Validation'}</option>
                                     <option value="CNAME_CSR_HASH">${lang.dns_cname || 'DNS CNAME Validation'}</option>
                                 </optgroup>
-                                <optgroup label="${lang.email_validation || 'Email Validation'}">
-                                    <option value="EMAIL">${lang.email || 'Email Validation'}</option>
+                                <optgroup label="${lang.email_validation || 'Email Validation'}" class="dcv-email-options">
+                                    <!-- Email options populated dynamically -->
                                 </optgroup>
                             </select>
-                        </div>
-                        <div id="dcvEmailSection" class="sslm-form-group" style="display:none;">
-                            <label>${lang.dcv_email || 'DCV Email'} <span class="required">*</span></label>
-                            <select id="newDcvEmail" class="sslm-select">
-                                <option value="">${lang.please_choose || '-- Select Email --'}</option>
-                            </select>
-                            <p class="sslm-help-text">${lang.dcv_email_note || 'Select an email address to receive the validation email.'}</p>
                         </div>
                         <div class="sslm-alert sslm-alert-info" style="margin-top:16px;">
                             <i class="fas fa-info-circle"></i>
@@ -952,37 +958,34 @@
                 closeChangeDCVModal();
             }
         });
-    }
-    
-    function onDCVMethodChange(method) {
-        var emailSection = document.getElementById('dcvEmailSection');
-        if (emailSection) {
-            emailSection.style.display = (method === 'EMAIL') ? 'block' : 'none';
-        }
-    }
-    
-    function updateModalDCVEmails(domain) {
-        var emailSelect = document.getElementById('newDcvEmail');
-        if (!emailSelect) return;
+    }      
+
+    /**
+     * Populate DCV email options directly in the dropdown
+     */
+    function populateModalDCVEmails(selectElement, domain, currentMethod) {
+        // Find email optgroup
+        var emailOptgroup = selectElement.querySelector('optgroup.dcv-email-options');
+        if (!emailOptgroup) return;
         
-        // Clear existing options (except first)
-        while (emailSelect.options.length > 1) {
-            emailSelect.remove(1);
-        }
+        // Clear existing options
+        emailOptgroup.innerHTML = '';
         
-        // Get base domain
-        var baseDomain = domain.replace(/^\*\./, '');
-        var parts = baseDomain.split('.');
+        // Clean domain (remove wildcard prefix)
+        var cleanDomain = domain.replace(/^\*\./, '').trim();
+        if (!cleanDomain) return;
         
-        // Standard prefixes
-        var prefixes = ['admin', 'administrator', 'hostmaster', 'postmaster', 'webmaster'];
+        // Standard DCV email prefixes
+        var prefixes = ['admin', 'administrator', 'webmaster', 'hostmaster', 'postmaster'];
         var emails = [];
         
+        // Generate emails for main domain
         prefixes.forEach(function(prefix) {
-            emails.push(prefix + '@' + baseDomain);
+            emails.push(prefix + '@' + cleanDomain);
         });
         
-        // If subdomain, add parent domain emails
+        // If subdomain, also add parent domain emails
+        var parts = cleanDomain.split('.');
         if (parts.length > 2) {
             var parentDomain = parts.slice(1).join('.');
             prefixes.forEach(function(prefix) {
@@ -990,51 +993,73 @@
             });
         }
         
-        // Add options
+        // Add email options to optgroup
         emails.forEach(function(email) {
-            var opt = document.createElement('option');
-            opt.value = email;
-            opt.textContent = email;
-            emailSelect.appendChild(opt);
+            var option = document.createElement('option');
+            option.value = email;  // Value là email trực tiếp
+            option.textContent = email;
+            
+            // Mark current method if it's this email
+            if (currentMethod === email) {
+                option.textContent += ' (Current)';
+            }
+            
+            emailOptgroup.appendChild(option);
+        });
+        
+        // Mark current method in other options
+        Array.from(selectElement.options).forEach(function(opt) {
+            if (opt.value && opt.value !== '' && !opt.value.includes('@')) {
+                if (opt.value === currentMethod) {
+                    opt.textContent = opt.textContent.replace(' (Current)', '') + ' (Current)';
+                } else {
+                    opt.textContent = opt.textContent.replace(' (Current)', '');
+                }
+            }
         });
     }
-    
+
+    /**
+     * Confirm DCV Change - Updated
+     */
     function confirmChangeDCV() {
-        if (!currentDCVDomain) return;
-        
         var methodSelect = document.getElementById('newDcvMethod');
-        var emailSelect = document.getElementById('newDcvEmail');
-        var newMethod = methodSelect ? methodSelect.value : '';
-        var newEmail = emailSelect ? emailSelect.value : '';
+        var selectedValue = methodSelect ? methodSelect.value : '';
         
-        if (!newMethod) {
-            showToast('Please select a DCV method', 'error');
+        if (!selectedValue) {
+            showToast(window.sslmConfig?.lang?.select_method || 'Please select a validation method', 'warning');
             return;
         }
         
-        if (newMethod === 'EMAIL' && !newEmail) {
-            showToast('Please select a DCV email', 'error');
+        if (!currentDCVDomain) {
+            showToast('Domain not selected', 'error');
             return;
         }
         
-        var config = window.sslmConfig || {};
-        var lang = config.lang || {};
+        // Determine if email method (value contains @)
+        var isEmail = selectedValue.includes('@');
+        var dcvMethod = isEmail ? 'EMAIL' : selectedValue;
+        var dcvEmail = isEmail ? selectedValue : '';
+        
+        // Show loading on button
         var btn = document.getElementById('confirmDcvChangeBtn');
-        
         if (btn) {
             btn.disabled = true;
             btn.classList.add('sslm-loading');
         }
         
-        // Build data
+        var lang = window.sslmConfig?.lang || {};
+        
+        // Build data in format expected by batchUpdateDCV
         var dcvData = {
             domains: [{
                 domainName: currentDCVDomain,
-                dcvMethod: newMethod === 'EMAIL' ? 'EMAIL' : newMethod,
-                dcvEmail: newMethod === 'EMAIL' ? newEmail : ''
+                dcvMethod: dcvMethod,
+                dcvEmail: dcvEmail
             }]
         };
         
+        // Use existing ajaxRequest helper
         ajaxRequest('batchUpdateDCV', dcvData, function(response) {
             if (btn) {
                 btn.disabled = false;
@@ -1199,12 +1224,46 @@
     function showToast(message, type) {
         type = type || 'info';
         
+        var displayMessage = '';
+        
+        if (typeof message === 'string') {
+            displayMessage = message;
+        } else if (message === null || message === undefined) {
+            displayMessage = 'Unknown message';
+        } else if (Array.isArray(message)) {
+            displayMessage = message.map(function(m) {
+                return typeof m === 'string' ? m : JSON.stringify(m);
+            }).join(', ');
+        } else if (typeof message === 'object') {
+            if (message.message) {
+                displayMessage = message.message;
+            } else if (message.msg) {
+                displayMessage = message.msg;
+            } else if (message.error) {
+                displayMessage = Array.isArray(message.error) 
+                    ? message.error.join(', ') 
+                    : message.error;
+            } else if (message.text) {
+                displayMessage = message.text;
+            } else {
+                try {
+                    displayMessage = JSON.stringify(message);
+                } catch (e) {
+                    displayMessage = 'Operation completed';
+                }
+            }
+        } else {
+            displayMessage = String(message);
+        }
+        
+        // Remove existing toasts
         var existing = document.querySelectorAll('.sslm-toast');
         existing.forEach(function(el) { el.remove(); });
         
+        // Create new toast
         var toast = document.createElement('div');
         toast.className = 'sslm-toast sslm-toast-' + type;
-        toast.textContent = message;
+        toast.textContent = displayMessage;
         
         document.body.appendChild(toast);
         
@@ -1224,17 +1283,27 @@
     // Export for global access
     // ========================================
     window.SSLManager = {
+        // Toast & Loading
         showToast: showToast,
+        showLoading: showLoading,
+        hideLoading: hideLoading,
+        
+        // Status & Draft
         refreshStatus: refreshStatus,
         saveDraft: window.saveDraft,
+        
+        // Domain & DCV (applycert.tpl)
         updateDCVEmailOptions: updateDCVEmailOptions,
+        removeDomainRow: removeDomainRow,
+        addDomainRow: addDomainRow,
+        
+        // DCV Modal (message.tpl, manage.tpl)
         openChangeDCVModal: openChangeDCVModal,
         closeChangeDCVModal: closeChangeDCVModal,
         confirmChangeDCV: confirmChangeDCV,
-        onDCVMethodChange: onDCVMethodChange,
-        copyToClipboard: copyToClipboard,
-        showLoading: showLoading,
-        hideLoading: hideLoading
+        populateModalDCVEmails: populateModalDCVEmails,
+        
+        // Utilities
+        copyToClipboard: copyToClipboard
     };
-
 })();
