@@ -681,6 +681,14 @@ class ActionController
 
     /**
      * Download certificate
+     * 
+     * Supported formats:
+     * - apache/crt: .crt + .ca-bundle + .key (ZIP)
+     * - nginx/pem: .pem + .key
+     * - iis: .p12 (PKCS#12) 
+     * - tomcat: .jks (Java KeyStore)
+     * - all: Complete ZIP with all formats
+     * - key: Private key only
      */
     public static function downCert(array $params): array
     {
@@ -697,15 +705,20 @@ class ActionController
                 return ResponseFormatter::error('Certificate not yet issued');
             }
 
-            $format = $_POST['format'] ?? $_GET['format'] ?? 'pem';
+            $format = strtolower($_POST['format'] ?? $_GET['format'] ?? 'pem');
             $domain = $configdata['domainInfo'][0]['domainName'] ?? 'certificate';
-            $domain = str_replace(['*', '.'], ['wildcard', '_'], $domain);
+            $safeDomain = str_replace(['*', '.'], ['wildcard', '_'], $domain);
             
-            $certificate = $configdata['applyReturn']['certificate'];
+            // Certificate data
+            $certificate = $configdata['applyReturn']['certificate'] ?? '';
             $caCertificate = $configdata['applyReturn']['caCertificate'] ?? '';
             $privateKey = $configdata['privateKey'] ?? '';
+            $pkcs12 = $configdata['applyReturn']['pkcs12'] ?? '';
+            $pkcsPass = $configdata['applyReturn']['pkcsPass'] ?? '';
+            $jks = $configdata['applyReturn']['jks'] ?? '';
+            $jksPass = $configdata['applyReturn']['jksPass'] ?? '';
 
-            switch (strtolower($format)) {
+            switch ($format) {
                 case 'pem':
                 case 'nginx':
                     $content = $certificate;
@@ -713,30 +726,155 @@ class ActionController
                         $content .= "\n" . $caCertificate;
                     }
                     return ResponseFormatter::success('Download ready', [
-                        'filename' => $domain . '.pem',
+                        'filename' => $safeDomain . '.pem',
                         'content' => base64_encode($content),
                         'mime' => 'application/x-pem-file',
+                        'privateKey' => !empty($privateKey) ? base64_encode($privateKey) : null,
+                        'privateKeyFilename' => $safeDomain . '.key',
                     ]);
                     
                 case 'crt':
                 case 'apache':
-                    return ResponseFormatter::success('Download ready', [
-                        'filename' => $domain . '.crt',
-                        'content' => base64_encode($certificate),
-                        'mime' => 'application/x-x509-ca-cert',
-                        'caBundle' => !empty($caCertificate) ? base64_encode($caCertificate) : null,
-                        'caBundleFilename' => $domain . '.ca-bundle',
-                    ]);
+                    // For Apache, create a ZIP with all components
+                    $certData = [
+                        'domain' => $domain,
+                        'certificate' => $certificate,
+                        'caCertificate' => $caCertificate,
+                        'privateKey' => $privateKey,
+                    ];
+                    
+                    try {
+                        $zipContent = CertificateFunc::createCertificateZip($certData, 'apache');
+                        return ResponseFormatter::success('Download ready', [
+                            'filename' => $safeDomain . '_apache.zip',
+                            'content' => $zipContent,
+                            'mime' => 'application/zip',
+                        ]);
+                    } catch (Exception $e) {
+                        // Fallback to single file download
+                        return ResponseFormatter::success('Download ready', [
+                            'filename' => $safeDomain . '.crt',
+                            'content' => base64_encode($certificate),
+                            'mime' => 'application/x-x509-ca-cert',
+                            'caBundle' => !empty($caCertificate) ? base64_encode($caCertificate) : null,
+                            'caBundleFilename' => $safeDomain . '.ca-bundle',
+                        ]);
+                    }
                     
                 case 'key':
                     if (empty($privateKey)) {
                         return ResponseFormatter::error('Private key not available');
                     }
                     return ResponseFormatter::success('Download ready', [
-                        'filename' => $domain . '.key',
+                        'filename' => $safeDomain . '.key',
                         'content' => base64_encode($privateKey),
                         'mime' => 'application/x-pem-file',
                     ]);
+
+                // ============================================
+                // NEW: IIS / Windows Format (PKCS#12)
+                // ============================================
+                case 'iis':
+                case 'pfx':
+                case 'p12':
+                case 'pkcs12':
+                    if (empty($pkcs12)) {
+                        return ResponseFormatter::error('PKCS12/PFX file not available for this certificate. Please contact support.');
+                    }
+                    
+                    // Create ZIP containing P12 and password file
+                    $certData = [
+                        'domain' => $domain,
+                        'certificate' => $certificate,
+                        'caCertificate' => $caCertificate,
+                        'privateKey' => $privateKey,
+                        'pkcs12' => $pkcs12,
+                        'pkcsPass' => $pkcsPass,
+                    ];
+                    
+                    try {
+                        $zipContent = CertificateFunc::createCertificateZip($certData, 'iis');
+                        return ResponseFormatter::success('Download ready', [
+                            'filename' => $safeDomain . '_iis.zip',
+                            'content' => $zipContent,
+                            'mime' => 'application/zip',
+                            'password' => $pkcsPass, // Include password in response
+                        ]);
+                    } catch (Exception $e) {
+                        // Fallback: Return raw P12 file
+                        return ResponseFormatter::success('Download ready', [
+                            'filename' => $safeDomain . '.p12',
+                            'content' => $pkcs12, // Already base64 encoded from API
+                            'mime' => 'application/x-pkcs12',
+                            'password' => $pkcsPass,
+                        ]);
+                    }
+
+                // ============================================
+                // NEW: Tomcat Format (JKS)
+                // ============================================
+                case 'tomcat':
+                case 'jks':
+                    if (empty($jks)) {
+                        return ResponseFormatter::error('JKS file not available for this certificate. Please contact support.');
+                    }
+                    
+                    $certData = [
+                        'domain' => $domain,
+                        'certificate' => $certificate,
+                        'caCertificate' => $caCertificate,
+                        'jks' => $jks,
+                        'jksPass' => $jksPass,
+                    ];
+                    
+                    try {
+                        $zipContent = CertificateFunc::createCertificateZip($certData, 'tomcat');
+                        return ResponseFormatter::success('Download ready', [
+                            'filename' => $safeDomain . '_tomcat.zip',
+                            'content' => $zipContent,
+                            'mime' => 'application/zip',
+                            'password' => $jksPass,
+                        ]);
+                    } catch (Exception $e) {
+                        // Fallback: Return raw JKS file
+                        return ResponseFormatter::success('Download ready', [
+                            'filename' => $safeDomain . '.jks',
+                            'content' => $jks, // Already base64 encoded
+                            'mime' => 'application/octet-stream',
+                            'password' => $jksPass,
+                        ]);
+                    }
+
+                // ============================================
+                // NEW: All Formats (Complete ZIP)
+                // ============================================
+                case 'all':
+                case 'zip':
+                case 'complete':
+                    $certData = [
+                        'domain' => $domain,
+                        'certificate' => $certificate,
+                        'caCertificate' => $caCertificate,
+                        'privateKey' => $privateKey,
+                        'pkcs12' => $pkcs12,
+                        'pkcsPass' => $pkcsPass,
+                        'jks' => $jks,
+                        'jksPass' => $jksPass,
+                    ];
+                    
+                    try {
+                        $zipContent = CertificateFunc::createCertificateZip($certData, 'all');
+                        return ResponseFormatter::success('Download ready', [
+                            'filename' => $safeDomain . '_all_formats.zip',
+                            'content' => $zipContent,
+                            'mime' => 'application/zip',
+                            'pkcsPassword' => $pkcsPass,
+                            'jksPassword' => $jksPass,
+                        ]);
+                    } catch (Exception $e) {
+                        logModuleCall('nicsrs_ssl', 'downCert::createZip', $format, $e->getMessage());
+                        return ResponseFormatter::error('Failed to create download package: ' . $e->getMessage());
+                    }
                     
                 default:
                     return ResponseFormatter::error('Unknown format: ' . $format);

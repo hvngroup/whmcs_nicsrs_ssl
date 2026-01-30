@@ -337,7 +337,16 @@ window.sslmConfig = {
     }
 };
 
-// Download certificate
+/**
+ * Download certificate in specified format
+ * 
+ * Supported formats:
+ * - apache: .crt + .ca-bundle + .key (ZIP)
+ * - nginx: .pem + .key
+ * - iis: .p12 (PKCS#12) with password
+ * - tomcat: .jks (Java KeyStore) with password
+ * - all: Complete ZIP with all formats
+ */
 function downloadCert(format) {
     var btn = event.currentTarget.querySelector('.sslm-btn');
     if (btn) {
@@ -350,13 +359,18 @@ function downloadCert(format) {
     xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
     
     xhr.onload = function() {
+        // Reset button state
         if (btn) {
             btn.disabled = false;
-            btn.innerHTML = '<i class="fas fa-download"></i> {$_LANG.download|default:"Download"}';
+            var btnText = format === 'all' 
+                ? '<i class="fas fa-download"></i> {$_LANG.download_all|default:"Download All"}'
+                : '<i class="fas fa-download"></i> {$_LANG.download|default:"Download"}';
+            btn.innerHTML = btnText;
         }
         
         try {
             var response = JSON.parse(xhr.responseText);
+            
             if (response.success && response.data) {
                 // Decode base64 and trigger download
                 var content = atob(response.data.content);
@@ -364,18 +378,66 @@ function downloadCert(format) {
                 for (var i = 0; i < content.length; i++) {
                     bytes[i] = content.charCodeAt(i);
                 }
-                var blob = new Blob([bytes], { type: response.data.mime || 'application/octet-stream' });
+                
+                var blob = new Blob([bytes], { 
+                    type: response.data.mime || 'application/octet-stream' 
+                });
                 var link = document.createElement('a');
                 link.href = URL.createObjectURL(blob);
                 link.download = response.data.filename;
                 link.click();
                 URL.revokeObjectURL(link.href);
                 
+                // Show success toast
                 SSLManager.showToast(window.sslmConfig.lang.download_started, 'success');
+                
+                // Handle password notification for IIS/Tomcat/All formats
+                var password = response.data.password || response.data.pkcsPassword;
+                var jksPassword = response.data.jksPassword;
+                
+                if (password || jksPassword) {
+                    showPasswordModal(format, password, jksPassword);
+                }
+                
+                // Also download private key if available (for nginx/pem format)
+                if (response.data.privateKey && response.data.privateKeyFilename) {
+                    setTimeout(function() {
+                        var keyContent = atob(response.data.privateKey);
+                        var keyBytes = new Uint8Array(keyContent.length);
+                        for (var i = 0; i < keyContent.length; i++) {
+                            keyBytes[i] = keyContent.charCodeAt(i);
+                        }
+                        var keyBlob = new Blob([keyBytes], { type: 'application/x-pem-file' });
+                        var keyLink = document.createElement('a');
+                        keyLink.href = URL.createObjectURL(keyBlob);
+                        keyLink.download = response.data.privateKeyFilename;
+                        keyLink.click();
+                        URL.revokeObjectURL(keyLink.href);
+                    }, 500);
+                }
+                
+                // Also download CA Bundle if available (for apache format single file fallback)
+                if (response.data.caBundle && response.data.caBundleFilename) {
+                    setTimeout(function() {
+                        var caContent = atob(response.data.caBundle);
+                        var caBytes = new Uint8Array(caContent.length);
+                        for (var i = 0; i < caContent.length; i++) {
+                            caBytes[i] = caContent.charCodeAt(i);
+                        }
+                        var caBlob = new Blob([caBytes], { type: 'application/x-x509-ca-cert' });
+                        var caLink = document.createElement('a');
+                        caLink.href = URL.createObjectURL(caBlob);
+                        caLink.download = response.data.caBundleFilename;
+                        caLink.click();
+                        URL.revokeObjectURL(caLink.href);
+                    }, 1000);
+                }
+                
             } else {
                 SSLManager.showToast(response.message || window.sslmConfig.lang.download_failed, 'error');
             }
         } catch (e) {
+            console.error('Download error:', e);
             SSLManager.showToast(window.sslmConfig.lang.download_failed, 'error');
         }
     };
@@ -389,6 +451,100 @@ function downloadCert(format) {
     };
     
     xhr.send('format=' + encodeURIComponent(format));
+}
+
+/**
+ * Show password modal for IIS/Tomcat formats
+ * Using correct CSS structure: .sslm-modal-overlay > .sslm-modal
+ */
+function showPasswordModal(format, pkcsPassword, jksPassword) {
+    var title, content;
+    
+    if (format === 'all') {
+        title = '{$_LANG.password_info|default:"Certificate Passwords"}';
+        content = '<div class="sslm-password-info">';
+        if (pkcsPassword) {
+            content += '<div class="sslm-password-item">';
+            content += '<label><i class="fab fa-microsoft"></i> PKCS12/IIS Password:</label>';
+            content += '<div class="sslm-password-box">';
+            content += '<code class="sslm-password-value">' + escapeHtml(pkcsPassword) + '</code>';
+            content += '<button type="button" class="sslm-btn sslm-btn-sm sslm-btn-outline" onclick="SSLManager.copyToClipboard(\'' + escapeHtml(pkcsPassword) + '\')"><i class="fas fa-copy"></i></button>';
+            content += '</div></div>';
+        }
+        if (jksPassword) {
+            content += '<div class="sslm-password-item">';
+            content += '<label><i class="fab fa-java"></i> JKS/Tomcat Password:</label>';
+            content += '<div class="sslm-password-box">';
+            content += '<code class="sslm-password-value">' + escapeHtml(jksPassword) + '</code>';
+            content += '<button type="button" class="sslm-btn sslm-btn-sm sslm-btn-outline" onclick="SSLManager.copyToClipboard(\'' + escapeHtml(jksPassword) + '\')"><i class="fas fa-copy"></i></button>';
+            content += '</div></div>';
+        }
+        content += '</div>';
+    } else if (format === 'iis' || format === 'pfx' || format === 'p12') {
+        title = '{$_LANG.iis_password|default:"IIS/Windows Certificate Password"}';
+        content = '<div class="sslm-password-info">';
+        content += '<p class="sslm-password-desc">{$_LANG.iis_password_desc|default:"Use this password when importing the .p12 file into IIS or Windows Certificate Manager:"}</p>';
+        content += '<div class="sslm-password-display">';
+        content += '<code class="sslm-password-value">' + escapeHtml(pkcsPassword) + '</code>';
+        content += '<button type="button" class="sslm-btn sslm-btn-sm sslm-btn-outline" onclick="SSLManager.copyToClipboard(\'' + escapeHtml(pkcsPassword) + '\')"><i class="fas fa-copy"></i> {$_LANG.copy|default:"Copy"}</button>';
+        content += '</div></div>';
+    } else if (format === 'tomcat' || format === 'jks') {
+        title = '{$_LANG.jks_password|default:"Tomcat/JKS Certificate Password"}';
+        content = '<div class="sslm-password-info">';
+        content += '<p class="sslm-password-desc">{$_LANG.jks_password_desc|default:"Use this password in your Tomcat server.xml configuration:"}</p>';
+        content += '<div class="sslm-password-display">';
+        content += '<code class="sslm-password-value">' + escapeHtml(jksPassword || pkcsPassword) + '</code>';
+        content += '<button type="button" class="sslm-btn sslm-btn-sm sslm-btn-outline" onclick="SSLManager.copyToClipboard(\'' + escapeHtml(jksPassword || pkcsPassword) + '\')"><i class="fas fa-copy"></i> {$_LANG.copy|default:"Copy"}</button>';
+        content += '</div></div>';
+    }
+    
+    // Create modal overlay (parent) with modal (child) inside
+    // This matches the CSS structure: .sslm-modal-overlay.show > .sslm-modal
+    var overlay = document.createElement('div');
+    overlay.className = 'sslm-modal-overlay show';
+    overlay.id = 'passwordModalOverlay';
+    overlay.onclick = function(e) {
+        if (e.target === overlay) closePasswordModal();
+    };
+    
+    overlay.innerHTML = '\
+        <div class="sslm-modal">\
+            <div class="sslm-modal-header">\
+                <h3><i class="fas fa-key"></i> ' + title + '</h3>\
+                <button type="button" class="sslm-modal-close" onclick="closePasswordModal()">&times;</button>\
+            </div>\
+            <div class="sslm-modal-body">' + content + '</div>\
+            <div class="sslm-modal-footer">\
+                <button type="button" class="sslm-btn sslm-btn-primary" onclick="closePasswordModal()">\
+                    <i class="fas fa-check"></i> {$_LANG.ok|default:"OK"}\
+                </button>\
+            </div>\
+        </div>';
+    
+    document.body.appendChild(overlay);
+}
+
+/**
+ * Close password modal
+ */
+function closePasswordModal() {
+    var overlay = document.getElementById('passwordModalOverlay');
+    if (overlay) {
+        overlay.classList.remove('show');
+        setTimeout(function() {
+            overlay.remove();
+        }, 200);
+    }
+}
+
+/**
+ * Escape HTML special characters
+ */
+function escapeHtml(str) {
+    if (!str) return '';
+    var div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
 }
 
 // Revoke modal functions
