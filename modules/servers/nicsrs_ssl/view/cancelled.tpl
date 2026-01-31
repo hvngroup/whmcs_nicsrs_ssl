@@ -155,17 +155,25 @@
                     <div class="sslm-timeline-marker"></div>
                     <div class="sslm-timeline-content">
                         <div class="sslm-timeline-title">{$_LANG.order_placed|default:'Order Placed'}</div>
-                        <div class="sslm-timeline-date">{$order->regdate|escape:'html'|default:'N/A'}</div>
+                        <div class="sslm-timeline-date">
+                            {if $configdata.applyTime}
+                                {$configdata.applyTime|escape:'html'}
+                            {elseif $order->provisiondate && $order->provisiondate != '0000-00-00'}
+                                {$order->provisiondate|escape:'html'}
+                            {else}
+                                N/A
+                            {/if}
+                        </div>
                     </div>
                 </div>
-
+                
                 {* Certificate Issued (if it was issued) *}
-                {if $configData.applyReturn.beginDate}
+                {if $configdata.applyReturn.beginDate}
                 <div class="sslm-timeline-item completed">
                     <div class="sslm-timeline-marker"></div>
                     <div class="sslm-timeline-content">
                         <div class="sslm-timeline-title">{$_LANG.certificate_issued|default:'Certificate Issued'}</div>
-                        <div class="sslm-timeline-date">{$configData.applyReturn.beginDate|escape:'html'}</div>
+                        <div class="sslm-timeline-date">{$configdata.applyReturn.beginDate|escape:'html'}</div>
                     </div>
                 </div>
                 {/if}
@@ -186,14 +194,23 @@
                             {/if}
                         </div>
                         <div class="sslm-timeline-date">
-                            {if $statusType eq 'expired' && $configData.applyReturn.endDate}
-                                {$configData.applyReturn.endDate|escape:'html'}
+                            {if $statusType eq 'expired' && $configdata.applyReturn.endDate}
+                                {$configdata.applyReturn.endDate|escape:'html'}
+                            {elseif $statusType eq 'cancelled' && $configdata.cancelledAt}
+                                {$configdata.cancelledAt|escape:'html'}
+                            {elseif $statusType eq 'revoked' && $configdata.revokedAt}
+                                {$configdata.revokedAt|escape:'html'}
+                            {elseif $order->completiondate && $order->completiondate != '0000-00-00 00:00:00'}
+                                {$order->completiondate|escape:'html'}
                             {else}
-                                {$order->completiondate|escape:'html'|default:'N/A'}
+                                N/A
                             {/if}
                         </div>
-                        {if $statusType eq 'revoked'}
-                        <div class="sslm-timeline-desc">{$_LANG.revoked_reason|default:'Revoked by request'}</div>
+                        {* Show cancel/revoke reason if available *}
+                        {if $statusType eq 'cancelled' && $configdata.cancelReason}
+                            <div class="sslm-timeline-desc">{$configdata.cancelReason|escape:'html'}</div>
+                        {elseif $statusType eq 'revoked'}
+                            <div class="sslm-timeline-desc">{$configdata.revokeReason|default:$_LANG.revoked_reason|default:'Revoked by request'}</div>
                         {/if}
                     </div>
                 </div>
@@ -231,7 +248,7 @@
                     <div class="sslm-action-card-desc">
                         {$_LANG.support_desc|default:'Have questions? Our support team is here to help you with any SSL-related issues.'}
                     </div>
-                    <a href="{$WEB_ROOT}/submitticket.php" class="sslm-btn sslm-btn-outline">
+                    <a href="{$WEB_ROOT}/submitticket.php" class="sslm-btn sslm-btn-warning">
                         <i class="fas fa-ticket-alt"></i> {$_LANG.open_ticket|default:'Open Ticket'}
                     </a>
                 </div>
@@ -243,9 +260,9 @@
                     </div>
                     <div class="sslm-action-card-title">{$_LANG.view_services|default:'View Your Services'}</div>
                     <div class="sslm-action-card-desc">
-                        {$_LANG.view_services_desc|default:'Check your other active SSL certificates and hosting services.'}
+                        {$_LANG.view_services_desc|default:'Check & manage your other active SSL certificates and hosting services.'}
                     </div>
-                    <a href="{$WEB_ROOT}/clientarea.php?action=services" class="sslm-btn sslm-btn-secondary">
+                    <a href="{$WEB_ROOT}/clientarea.php?action=services" class="sslm-btn sslm-btn-success">
                         <i class="fas fa-list"></i> {$_LANG.my_services|default:'My Services'}
                     </a>
                 </div>

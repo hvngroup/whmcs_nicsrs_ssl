@@ -12,6 +12,7 @@
 namespace nicsrsSSL;
 
 use Exception;
+use WHMCS\Database\Capsule;
 
 class PageController
 {
@@ -35,7 +36,7 @@ class PageController
 
             $cert = self::getCertConfig($params);
 
-            // FIXED: Normalize status to handle case-sensitivity
+            // Normalize status to handle case-sensitivity
             $status = self::normalizeStatus($order->status);
 
             // Route based on normalized status
@@ -207,11 +208,20 @@ class PageController
         $baseVars = TemplateHelper::getBaseVars($params);
         $configdata = json_decode($order->configdata, true) ?: [];
 
+        // Get WHMCS service regdate
+        $service = Capsule::table('tblhosting')
+            ->where('id', $params['serviceid'])
+            ->first();
+        
+        // Add regdate to order object or pass separately
+        $serviceRegdate = $service->regdate ?? null;
+
         return [
             'templatefile' => 'cancelled',
             'vars' => array_merge($baseVars, [
                 'order' => $order,
                 'configdata' => $configdata,
+                'serviceRegdate' => $serviceRegdate,
                 'cert' => $cert,
                 'productCode' => $cert['name'] ?? '',
                 'status' => $order->status,
