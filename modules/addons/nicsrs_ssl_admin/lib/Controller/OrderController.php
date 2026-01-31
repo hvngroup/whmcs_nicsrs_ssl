@@ -992,7 +992,7 @@ class OrderController extends BaseController
     }
 
     /**
-     * Cancel order
+     * Cancel certificate order
      * 
      * @param int $orderId Order ID
      * @param string $reason Cancellation reason
@@ -1011,9 +1011,15 @@ class OrderController extends BaseController
                 throw new \Exception('No remote certificate ID');
             }
 
-            // Check if can be cancelled
-            if (in_array($order->status, ['cancelled', 'revoked'])) {
-                throw new \Exception('Order is already cancelled/revoked');
+            // Check if order can be cancelled (not already cancelled/revoked/terminated)
+            $terminalStatuses = ['cancelled', 'revoked', 'terminated', 'expired'];
+            if (in_array(strtolower($order->status), $terminalStatuses)) {
+                throw new \Exception('Order is already in terminal state: ' . $order->status);
+            }
+
+            // Set default reason if empty (API requires reason)
+            if (empty($reason)) {
+                $reason = 'Cancelled by administrator';
             }
 
             $result = $this->apiService->cancel($order->remoteid, $reason);
@@ -1021,14 +1027,30 @@ class OrderController extends BaseController
             if ($result['code'] == 1) {
                 Capsule::table('nicsrs_sslorders')
                     ->where('id', $orderId)
-                    ->update(['status' => 'cancelled']);
+                    ->update([
+                        'status' => 'cancelled',
+                        'configdata' => json_encode(array_merge(
+                            json_decode($order->configdata, true) ?: [],
+                            [
+                                'cancelledAt' => date('Y-m-d H:i:s'),
+                                'cancelledBy' => $_SESSION['adminid'] ?? 'admin',
+                                'cancelReason' => $reason,
+                            ]
+                        )),
+                    ]);
 
                 $this->logger->log('cancel', 'order', $orderId, $order->status, 'cancelled');
 
-                return $this->jsonSuccess('Order cancelled successfully');
+                return $this->jsonSuccess('Certificate order cancelled successfully');
             }
 
-            throw new \Exception($result['msg'] ?? 'Cancel failed');
+            // API returned error
+            $errorMsg = $result['msg'] ?? $result['errors'] ?? 'Cancel failed';
+            if (is_array($errorMsg)) {
+                $errorMsg = implode(', ', $errorMsg);
+            }
+            
+            throw new \Exception($errorMsg);
             
         } catch (\Exception $e) {
             return $this->jsonError($e->getMessage());
@@ -1055,9 +1077,14 @@ class OrderController extends BaseController
                 throw new \Exception('No remote certificate ID');
             }
 
-            // Only complete certificates can be revoked
-            if ($order->status !== 'complete') {
-                throw new \Exception('Only issued certificates can be revoked');
+            // Only issued certificates can be revoked
+            if (strtolower($order->status) !== 'complete') {
+                throw new \Exception('Only issued certificates can be revoked. Current status: ' . $order->status);
+            }
+
+            // Set default reason if empty (API requires reason)
+            if (empty($reason)) {
+                $reason = 'Revoked by administrator';
             }
 
             $result = $this->apiService->revoke($order->remoteid, $reason);
@@ -1065,15 +1092,31 @@ class OrderController extends BaseController
             if ($result['code'] == 1) {
                 Capsule::table('nicsrs_sslorders')
                     ->where('id', $orderId)
-                    ->update(['status' => 'revoked']);
+                    ->update([
+                        'status' => 'revoked',
+                        'configdata' => json_encode(array_merge(
+                            json_decode($order->configdata, true) ?: [],
+                            [
+                                'revokedAt' => date('Y-m-d H:i:s'),
+                                'revokedBy' => $_SESSION['adminid'] ?? 'admin',
+                                'revokeReason' => $reason,
+                            ]
+                        )),
+                    ]);
 
                 $this->logger->log('revoke', 'order', $orderId, 'complete', 'revoked');
 
                 return $this->jsonSuccess('Certificate revoked successfully');
             }
 
-            throw new \Exception($result['msg'] ?? 'Revoke failed');
+            // API returned error
+            $errorMsg = $result['msg'] ?? $result['errors'] ?? 'Revoke failed';
+            if (is_array($errorMsg)) {
+                $errorMsg = implode(', ', $errorMsg);
+            }
             
+            throw new \Exception($errorMsg);
+
         } catch (\Exception $e) {
             return $this->jsonError($e->getMessage());
         }

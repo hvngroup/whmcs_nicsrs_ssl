@@ -2,10 +2,6 @@
 /**
  * NicSRS SSL WHMCS Server Provisioning Module
  * 
- * FIXED v2.0.1:
- * - Added getDcvEmails action for DCV email auto-populate
- * - Improved POST data handling for isRenew consistency
- * 
  * @package    nicsrs_ssl
  * @version    2.0.1
  * @author     HVN GROUP
@@ -244,21 +240,139 @@ function nicsrs_ssl_UnsuspendAccount(array $params)
 
 /**
  * Terminate account
+ * 
+ * Called when admin terminates a service. This will:
+ * - Revoke certificate if it was issued (Complete/Issued status)
+ * - Cancel certificate if it was pending (Pending/Processing status)
+ * - Update local status to Terminated
+ * 
+ * @param array $params Module parameters from WHMCS
+ * @return string 'success' or error message
  */
 function nicsrs_ssl_TerminateAccount(array $params)
 {
     try {
         $order = OrderRepository::getByServiceId($params['serviceid']);
         
-        if ($order && !empty($order->remoteid)) {
-            // Optionally cancel/revoke certificate at provider
-            // This depends on business requirements
+        // If no order exists, just return success
+        if (!$order) {
+            return 'success';
         }
         
+        $apiActionTaken = false;
+        $apiResult = null;
+        
+        // Only attempt API call if we have a remote certificate ID
+        if (!empty($order->remoteid)) {
+            $currentStatus = strtolower($order->status);
+            
+            // Determine which API action to take based on certificate status
+            switch ($currentStatus) {
+                // Certificate has been issued - need to REVOKE
+                case 'complete':
+                case 'issued':
+                    try {
+                        $apiResult = ApiService::revoke(
+                            $params, 
+                            $order->remoteid, 
+                            'Service terminated by administrator'
+                        );
+                        $parsed = ApiService::parseResponse($apiResult);
+                        
+                        if ($parsed['success']) {
+                            $apiActionTaken = true;
+                            logModuleCall('nicsrs_ssl', 'TerminateAccount::revoke', [
+                                'serviceid' => $params['serviceid'],
+                                'remoteid' => $order->remoteid,
+                            ], 'Certificate revoked successfully');
+                        } else {
+                            // Log but don't fail - certificate might already be revoked/expired
+                            logModuleCall('nicsrs_ssl', 'TerminateAccount::revoke', [
+                                'serviceid' => $params['serviceid'],
+                                'remoteid' => $order->remoteid,
+                            ], 'Revoke API returned: ' . ($parsed['message'] ?? 'Unknown error'));
+                        }
+                    } catch (Exception $e) {
+                        // Log error but continue with local termination
+                        logModuleCall('nicsrs_ssl', 'TerminateAccount::revoke', [
+                            'serviceid' => $params['serviceid'],
+                            'remoteid' => $order->remoteid,
+                        ], 'Revoke exception: ' . $e->getMessage());
+                    }
+                    break;
+                
+                // Certificate is pending - need to CANCEL
+                case 'pending':
+                case 'processing':
+                case 'awaiting configuration':
+                case 'draft':
+                    try {
+                        $apiResult = ApiService::cancel(
+                            $params, 
+                            $order->remoteid, 
+                            'Service terminated by administrator'
+                        );
+                        $parsed = ApiService::parseResponse($apiResult);
+                        
+                        if ($parsed['success']) {
+                            $apiActionTaken = true;
+                            logModuleCall('nicsrs_ssl', 'TerminateAccount::cancel', [
+                                'serviceid' => $params['serviceid'],
+                                'remoteid' => $order->remoteid,
+                            ], 'Certificate order cancelled successfully');
+                        } else {
+                            logModuleCall('nicsrs_ssl', 'TerminateAccount::cancel', [
+                                'serviceid' => $params['serviceid'],
+                                'remoteid' => $order->remoteid,
+                            ], 'Cancel API returned: ' . ($parsed['message'] ?? 'Unknown error'));
+                        }
+                    } catch (Exception $e) {
+                        logModuleCall('nicsrs_ssl', 'TerminateAccount::cancel', [
+                            'serviceid' => $params['serviceid'],
+                            'remoteid' => $order->remoteid,
+                        ], 'Cancel exception: ' . $e->getMessage());
+                    }
+                    break;
+                
+                // Already terminated/cancelled/revoked - no API action needed
+                case 'cancelled':
+                case 'revoked':
+                case 'terminated':
+                case 'expired':
+                    // No action needed, already in terminal state
+                    break;
+                    
+                default:
+                    // Unknown status - try cancel as fallback
+                    try {
+                        $apiResult = ApiService::cancel(
+                            $params, 
+                            $order->remoteid, 
+                            'Service terminated by administrator'
+                        );
+                        ApiService::parseResponse($apiResult);
+                    } catch (Exception $e) {
+                        // Ignore errors for unknown status
+                    }
+                    break;
+            }
+        }
+        
+        // Always update local status to Terminated
         OrderRepository::updateStatusByServiceId($params['serviceid'], 'Terminated');
+        
+        // Update configdata with termination info
+        $configdata = json_decode($order->configdata, true) ?: [];
+        $configdata['terminatedAt'] = date('Y-m-d H:i:s');
+        $configdata['terminatedBy'] = 'admin';
+        $configdata['apiActionTaken'] = $apiActionTaken;
+        
+        OrderRepository::updateConfigData($order->id, $configdata);
+        
         return 'success';
+        
     } catch (Exception $e) {
-        logModuleCall('nicsrs_ssl', __FUNCTION__, $params, $e->getMessage());
+        logModuleCall('nicsrs_ssl', __FUNCTION__, $params, $e->getMessage(), $e->getTraceAsString());
         return $e->getMessage();
     }
 }
@@ -271,7 +385,10 @@ function nicsrs_ssl_AdminServicesTabFields(array $params)
     $order = OrderRepository::getByServiceId($params['serviceid']);
     
     if (!$order) {
-        return ['Status' => 'No certificate order found'];
+        return [
+            'Status' => '<span class="label label-default">No certificate order found</span>',
+            'Action' => '<a href="addonmodules.php?module=nicsrs_ssl_admin&action=orders" class="btn btn-xs btn-primary" target="_blank"><i class="fa fa-list"></i> View All Orders</a>',
+        ];
     }
     
     $configdata = json_decode($order->configdata, true) ?: [];
@@ -280,15 +397,21 @@ function nicsrs_ssl_AdminServicesTabFields(array $params)
     
     $domain = !empty($domainInfo) ? $domainInfo[0]['domainName'] ?? 'N/A' : 'N/A';
     
+    // Build manage link
+    $manageUrl = 'addonmodules.php?module=nicsrs_ssl_admin&action=order&id=' . $order->id;
+    $manageLink = '<a href="' . $manageUrl . '" class="btn btn-xs btn-success" target="_blank">'
+                . '<i class="fa fa-external-link"></i> Manage</a>';
+    
     return [
-        'Certificate ID' => $order->remoteid ?: 'Not yet assigned',
+        'Order ID' => '#' . $order->id . ' ' . $manageLink,
+        'Certificate ID' => $order->remoteid ?: '<span class="text-muted">Not yet assigned</span>',
         'Status' => '<span class="label label-' . getStatusLabelClass($order->status) . '">' . $order->status . '</span>',
-        'Domain' => $domain,
+        'Domain' => '<code>' . htmlspecialchars($domain) . '</code>',
         'Certificate Type' => $order->certtype ?: 'N/A',
-        'Issued Date' => $applyReturn['beginDate'] ?? 'N/A',
-        'Expiry Date' => $applyReturn['endDate'] ?? 'N/A',
+        'Issued Date' => $applyReturn['beginDate'] ?? '<span class="text-muted">N/A</span>',
+        'Expiry Date' => $applyReturn['endDate'] ?? '<span class="text-muted">N/A</span>',
         'Vendor ID' => $applyReturn['vendorId'] ?? 'N/A',
-        'Last Refresh' => $configdata['lastRefresh'] ?? 'Never',
+        'Last Refresh' => $configdata['lastRefresh'] ?? '<span class="text-muted">Never</span>',
     ];
 }
 
@@ -318,9 +441,36 @@ function getStatusLabelClass($status)
 function nicsrs_ssl_AdminCustomButtonArray()
 {
     return [
+        'Manage Order' => 'AdminManageOrder',
         'Refresh Status' => 'AdminRefreshStatus',
         'Resend DCV Email' => 'AdminResendDCV',
     ];
+}
+
+/**
+ * Admin Manage Order - Redirect to addon module order detail page
+ * 
+ * @param array $params Module parameters
+ * @return string Result message or redirect
+ */
+function nicsrs_ssl_AdminManageOrder(array $params)
+{
+    try {
+        $order = OrderRepository::getByServiceId($params['serviceid']);
+        
+        if (!$order) {
+            return 'No certificate order found for this service';
+        }
+        
+        $addonUrl = 'addonmodules.php?module=nicsrs_ssl_admin&action=order&id=' . $order->id;
+        
+        echo '<script>window.location.href="' . $addonUrl . '";</script>';
+        exit;
+        
+    } catch (Exception $e) {
+        logModuleCall('nicsrs_ssl', __FUNCTION__, $params, $e->getMessage());
+        return $e->getMessage();
+    }
 }
 
 /**

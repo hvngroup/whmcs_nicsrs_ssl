@@ -172,11 +172,15 @@ class NicsrsApiService
      * Cancel certificate order
      * 
      * @param string $certId Certificate ID
-     * @param string $reason Cancellation reason
+     * @param string $reason Cancellation reason (Required by API)
      * @return array API response
      */
     public function cancel(string $certId, string $reason = ''): array
     {
+        if (empty($reason)) {
+            $reason = 'Cancelled by administrator';
+        }
+        
         return $this->request('/cancel', [
             'certId' => $certId,
             'reason' => $reason,
@@ -184,14 +188,18 @@ class NicsrsApiService
     }
 
     /**
-     * Revoke issued certificate
+     * Revoke certificate
      * 
      * @param string $certId Certificate ID
-     * @param string $reason Revocation reason
+     * @param string $reason Revocation reason (Required by API)
      * @return array API response
      */
     public function revoke(string $certId, string $reason = ''): array
     {
+        if (empty($reason)) {
+            $reason = 'Revoked by administrator';
+        }
+        
         return $this->request('/revoke', [
             'certId' => $certId,
             'reason' => $reason,
