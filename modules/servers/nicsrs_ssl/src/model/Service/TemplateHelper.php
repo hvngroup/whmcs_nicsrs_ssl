@@ -351,7 +351,6 @@ class TemplateHelper
 
     /**
      * Render reissue page
-     * FIXED: Properly handles isRenew/originalfromOthers
      */
     public static function reissue(array $params, object $order, array $cert): array
     {
@@ -360,6 +359,9 @@ class TemplateHelper
 
         // Load countries
         $countries = self::getCountries();
+
+        // Load client info for pre-filling (FIXED: was missing)
+        $clientInfo = self::getClientInfo($params['userid'] ?? 0);
 
         // Get original domains
         $originalDomains = [];
@@ -373,6 +375,16 @@ class TemplateHelper
         $domainsFromOptions = self::getDomainCountFromOptions($params['serviceid']);
         $maxDomains = ($cert['maxDomains'] ?? 1) + $domainsFromOptions;
 
+        // Determine Certificate ID with fallbacks (FIXED)
+        $certId = '';
+        if (!empty($order->remoteid)) {
+            $certId = $order->remoteid;
+        } elseif (!empty($configdata['applyReturn']['vendorCertId'])) {
+            $certId = $configdata['applyReturn']['vendorCertId'];
+        } elseif (!empty($configdata['applyReturn']['vendorId'])) {
+            $certId = $configdata['applyReturn']['vendorId'];
+        }
+
         return [
             'templatefile' => 'reissue',
             'vars' => array_merge($baseVars, [
@@ -380,6 +392,7 @@ class TemplateHelper
                 'configData' => $configdata,
                 'cert' => $cert,
                 'productCode' => $cert['name'] ?? '',
+                'certId' => $certId,
                 'sslType' => $cert['sslType'] ?? 'website_ssl',
                 'sslValidationType' => $cert['sslValidationType'] ?? 'dv',
                 'isMultiDomain' => $cert['isMultiDomain'] ?? false,
@@ -392,6 +405,8 @@ class TemplateHelper
                     'supportHttps' => $cert['supportHttps'] ?? true,
                 ],
                 'countries' => $countries,
+                // Client info for pre-filling (FIXED: was missing)
+                'clientsdetails' => $clientInfo,
                 // Original domains for reference
                 'originalDomains' => $originalDomains,
                 'replaceTimes' => $configdata['replaceTimes'] ?? 0,

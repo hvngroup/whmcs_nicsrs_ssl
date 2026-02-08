@@ -41,6 +41,16 @@
         console.log('SSL Manager initialized');
     }
 
+    /**
+     * Get the active SSL form element.
+     * Supports both applycert (sslm-apply-form) and reissue (sslm-reissue-form).
+     * @returns {HTMLElement|null}
+     */
+    function getSSLForm() {
+        return document.getElementById('sslm-apply-form')
+            || document.getElementById('sslm-reissue-form');
+    }
+
     // ========================================
     // Domain Management
     // ========================================
@@ -296,7 +306,7 @@
     }
 
     function generateCSR() {
-        var form = document.getElementById('sslm-apply-form');
+        var form = getSSLForm();
         var config = window.sslmConfig || {};
         var lang = config.lang || {};
         
@@ -455,12 +465,15 @@
     // Form Submit
     // ========================================
     function initFormSubmit() {
-        var form = document.getElementById('sslm-apply-form');
+        var form = getSSLForm();
         if (!form) return;
-        
+
+        var config = window.sslmConfig || {};
+
         form.addEventListener('submit', function(e) {
             e.preventDefault();
-            submitForm('submit');
+            var action = config.isReissue ? 'reissue' : 'submit';
+            submitForm(action);
         });
     }
 
@@ -471,13 +484,13 @@
     function submitForm(action) {
         var config = window.sslmConfig || {};
         var lang = config.lang || {};
-        
-        if (action === 'submit' && !validateForm()) {
+
+        if (action !== 'draft' && !validateForm()) {
             showToast(lang.validation_error || 'Please fill in all required fields correctly', 'error');
             return;
         }
-        
-        var form = document.getElementById('sslm-apply-form');
+
+        var form = getSSLForm();
         var submitBtn = document.getElementById('submitBtn');
         var saveBtn = document.getElementById('saveBtn');
         
@@ -512,7 +525,14 @@
             "Administrator": contacts
         };
         
-        console.log('Form data to submit:', data);
+        // For reissue, add reissue reason
+        if (action === 'reissue') {
+            var reasonField = document.getElementById('reissueReasonHidden')
+                           || document.getElementById('reissueReason');
+            if (reasonField) {
+                data.reissueReason = reasonField.value || '';
+            }
+        }
         
         // Disable buttons and show loading
         if (submitBtn) submitBtn.disabled = true;
@@ -522,9 +542,14 @@
         if (activeBtn) activeBtn.classList.add('sslm-loading');
         
         // Build URL with step parameter
-        var step = action === 'draft' ? 'savedraft' : 'applyssl';
+        var stepMap = {
+            'draft': 'savedraft',
+            'submit': 'applyssl',
+            'reissue': 'reissue'
+        };
+        var step = stepMap[action] || 'applyssl';
         var ajaxUrl = config.ajaxUrl + '&step=' + step;
-        
+
         // Send data as "data" key
         var postData = serializeObjectForPHP(data, 'data');
         
@@ -635,9 +660,9 @@
     }
 
     function collectContacts() {
-        var form = document.getElementById('sslm-apply-form');
+        var form = getSSLForm();
         if (!form) return {};
-        
+
         return {
             organation: getValue(form, 'adminOrganizationName'),
             job: getValue(form, 'adminTitle'),
@@ -654,9 +679,8 @@
     }
 
     function collectOrganization() {
-        var form = document.getElementById('sslm-apply-form');
+        var form = getSSLForm();
         var orgPart = document.getElementById('organizationPart');
-        
         if (!form || !orgPart) return {};
         
         return {
@@ -712,7 +736,7 @@
     // Form Validation
     // ========================================
     function validateForm() {
-        var form = document.getElementById('sslm-apply-form');
+        var form = getSSLForm();
         if (!form) return false;
         
         var isValid = true;
@@ -790,7 +814,7 @@
             return;
         }
         
-        var form = document.getElementById('sslm-apply-form');
+        var form = getSSLForm();
         if (!form) return;
         
         // Restore isRenew

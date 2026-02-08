@@ -1,13 +1,5 @@
 {**
  * NicSRS SSL Module - Apply Certificate Template
- * Enhanced UI v2.1.0 - Preserves original form structure
- * 
- * CHANGES v2.1.0:
- * - Added Progress Steps indicator
- * - Added Status Card for draft
- * - Added guidance text in sections
- * - Added Help Section with SSL installation service promo
- * - PRESERVED: All form fields, DCV dropdown, Generate CSR, Contact Info
  * 
  * @package    nicsrs_ssl
  * @version    2.1.0

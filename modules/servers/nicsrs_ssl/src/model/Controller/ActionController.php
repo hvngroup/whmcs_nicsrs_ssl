@@ -3,12 +3,6 @@
  * NicSRS SSL Module - Action Controller
  * Handles AJAX actions for SSL certificate management
  * 
- * FIXED v2.0.1:
- * - Fixed getCertificateByCode -> getCertAttributes
- * - Fixed isRenew/originalfromOthers consistency
- * - Enhanced decodeCsr with more fields
- * - Added DCV email generation
- * 
  * @package    nicsrs_ssl
  * @version    2.0.1
  * @author     HVN GROUP
@@ -1007,7 +1001,11 @@ class ActionController
             }
 
             // Call API with correct parameters
-            $apiResponse = ApiService::reissue($params, $order->remoteid, $csr, $processedDomains);
+            $requestData = [
+                'csr'        => $csr,
+                'domainInfo' => $processedDomains,
+            ];
+            $apiResponse = ApiService::reissue($params, $order->remoteid, $requestData);
             $parsed = ApiService::parseResponse($apiResponse);
 
             if (!$parsed['success']) {
