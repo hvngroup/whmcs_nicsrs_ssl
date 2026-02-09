@@ -588,4 +588,253 @@ class TemplateHelper
                 return self::applyCert($params, $order, $cert);
         }
     }
+
+    /**
+     * Render migrated certificate page (read-only)
+     * 
+     * Displays certificate information from a previous vendor when the product
+     * has been switched to NicSRS but the old cert is still active.
+     * Client sees read-only info. Admin must click "Allow New Certificate"
+     * to let the client apply for a new NicSRS cert.
+     * 
+     * @param array  $params      WHMCS module params
+     * @param object $vendorOrder Order record from tblsslorders (other vendor)
+     * @param array  $cert        Current product's certificate config
+     * @return array Template data for rendering
+     */
+    public static function migrated(array $params, object $vendorOrder, array $cert): array
+    {
+        $baseVars = self::getBaseVars($params);
+
+        // Parse vendor configdata - different modules store data differently
+        $vendorConfig = json_decode($vendorOrder->configdata ?? '{}', true);
+        if (!is_array($vendorConfig)) {
+            $vendorConfig = [];
+        }
+
+        // ---- Extract domains ----
+        $domains = self::extractVendorDomains($vendorConfig, $params);
+
+        // ---- Extract dates ----
+        $beginDate = self::findInConfig($vendorConfig, [
+            'beginDate',
+            'applyReturn.beginDate',
+            'begin_date',
+            'start_date',
+            'certificate.beginDate',
+            'certificate.start_date',
+        ]);
+
+        $endDate = self::findInConfig($vendorConfig, [
+            'endDate',
+            'applyReturn.endDate',
+            'end_date',
+            'expires',
+            'expiry_date',
+            'cert_expiry',
+            'certificate.endDate',
+            'certificate.end_date',
+        ]);
+
+        // ---- Calculate days remaining ----
+        $daysRemaining = null;
+        if ($endDate && strtotime($endDate)) {
+            $daysRemaining = (int) ceil((strtotime($endDate) - time()) / 86400);
+        }
+
+        // ---- Vendor display name ----
+        $vendorModule = $vendorOrder->module ?? 'Unknown';
+        $vendorModuleDisplay = self::getVendorDisplayName($vendorModule);
+
+        // ---- Extract additional info if available ----
+        $vendorCertType = $vendorConfig['certtype'] 
+                    ?? $vendorConfig['product_type'] 
+                    ?? $vendorConfig['productType']
+                    ?? $vendorOrder->certtype 
+                    ?? '';
+
+        logModuleCall('nicsrs_ssl', 'TemplateHelper::migrated', [
+            'serviceid' => $params['serviceid'],
+            'vendor_module' => $vendorModule,
+            'vendor_remoteid' => $vendorOrder->remoteid ?? '',
+            'vendor_status' => $vendorOrder->status ?? '',
+            'domains_found' => count($domains),
+            'beginDate' => $beginDate ?: 'N/A',
+            'endDate' => $endDate ?: 'N/A',
+            'daysRemaining' => $daysRemaining,
+        ], 'Rendering migrated template');
+
+        return [
+            'templatefile' => 'migrated',
+            'vars' => array_merge($baseVars, [
+                // Vendor order data
+                'vendorOrder'         => $vendorOrder,
+                'vendorModule'        => $vendorModule,
+                'vendorModuleDisplay' => $vendorModuleDisplay,
+                'vendorRemoteId'      => $vendorOrder->remoteid ?? '',
+                'vendorStatus'        => $vendorOrder->status ?? 'Unknown',
+                'vendorCertType'      => $vendorCertType,
+                'vendorDomains'       => $domains,
+                'vendorBeginDate'     => $beginDate,
+                'vendorEndDate'       => $endDate,
+                'vendorDaysRemaining' => $daysRemaining,
+                'vendorConfigData'    => $vendorConfig,
+                // Current product config
+                'cert'        => $cert,
+                'productCode' => $cert['name'] ?? '',
+            ]),
+        ];
+    }
+
+    /**
+     * Extract domain list from vendor configdata
+     * 
+     * Tries multiple common data structures used by different SSL modules
+     * to find the list of domains covered by the certificate.
+     * Falls back to tblhosting.domain if nothing found.
+     * 
+     * @param array $vendorConfig Decoded configdata from vendor order
+     * @param array $params       WHMCS module params
+     * @return array List of domain strings
+     */
+    private static function extractVendorDomains(array $vendorConfig, array $params): array
+    {
+        $domains = [];
+
+        // Pattern 1: domainInfo array (NicSRS, GoGetSSL)
+        if (!empty($vendorConfig['domainInfo']) && is_array($vendorConfig['domainInfo'])) {
+            foreach ($vendorConfig['domainInfo'] as $d) {
+                $name = $d['domainName'] ?? $d['domain'] ?? $d['name'] ?? '';
+                if ($name) {
+                    $domains[] = $name;
+                }
+            }
+        }
+
+        // Pattern 2: domains array (TheSSLStore)
+        if (empty($domains) && !empty($vendorConfig['domains']) && is_array($vendorConfig['domains'])) {
+            foreach ($vendorConfig['domains'] as $d) {
+                if (is_string($d)) {
+                    $domains[] = $d;
+                } elseif (is_array($d)) {
+                    $name = $d['domain'] ?? $d['domainName'] ?? $d['name'] ?? '';
+                    if ($name) {
+                        $domains[] = $name;
+                    }
+                }
+            }
+        }
+
+        // Pattern 3: Single domain field
+        if (empty($domains)) {
+            $singleDomain = $vendorConfig['domain'] 
+                        ?? $vendorConfig['commonName'] 
+                        ?? $vendorConfig['common_name']
+                        ?? $vendorConfig['san'] 
+                        ?? '';
+            if ($singleDomain) {
+                $domains[] = $singleDomain;
+            }
+        }
+
+        // Pattern 4: Nested in applyReturn
+        if (empty($domains) && !empty($vendorConfig['applyReturn']['domainInfo'])) {
+            foreach ($vendorConfig['applyReturn']['domainInfo'] as $d) {
+                $name = $d['domainName'] ?? $d['domain'] ?? '';
+                if ($name) {
+                    $domains[] = $name;
+                }
+            }
+        }
+
+        // Fallback: tblhosting.domain
+        if (empty($domains)) {
+            try {
+                $service = \WHMCS\Database\Capsule::table('tblhosting')
+                    ->where('id', $params['serviceid'])
+                    ->first();
+                if ($service && !empty($service->domain)) {
+                    $domains[] = $service->domain;
+                }
+            } catch (\Exception $e) {
+                // Silently fail
+            }
+        }
+
+        // Remove empty/duplicate entries
+        $domains = array_values(array_unique(array_filter($domains)));
+
+        return $domains;
+    }
+
+    /**
+     * Find a value in config array using dot-notation paths
+     * 
+     * Tries multiple possible keys to find a value, since different
+     * vendor modules store data in different structures.
+     * 
+     * @param array $config Config array to search
+     * @param array $paths  List of dot-notation paths to try
+     * @return string|null First found value or null
+     */
+    private static function findInConfig(array $config, array $paths): ?string
+    {
+        foreach ($paths as $path) {
+            $parts = explode('.', $path);
+            $current = $config;
+            
+            foreach ($parts as $part) {
+                if (!is_array($current) || !isset($current[$part])) {
+                    $current = null;
+                    break;
+                }
+                $current = $current[$part];
+            }
+            
+            if ($current !== null && is_string($current) && $current !== '') {
+                return $current;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Get human-readable vendor display name from module identifier
+     * 
+     * Maps known module names to friendly display names.
+     * Falls back to ucfirst + underscore replacement for unknown modules.
+     * 
+     * @param string $module Module name from tblsslorders
+     * @return string Human-readable display name
+     */
+    private static function getVendorDisplayName(string $module): string
+    {
+        $map = [
+            // Popular WHMCS SSL modules
+            'cpanel_ssl'           => 'cPanel SSL',
+            'solutelabs_ssl'       => 'SoluteLabs SSL',
+            'thesslstore_ssl'      => 'TheSSLStore',
+            'thesslstore'          => 'TheSSLStore',
+            'gogetssl'             => 'GoGetSSL',
+            'resellerclub_ssl'     => 'ResellerClub SSL',
+            'namecheap_ssl'        => 'Namecheap SSL',
+            'ssls_com'             => 'SSLs.com',
+            'certum_ssl'           => 'Certum SSL',
+            'sectigo_ssl'          => 'Sectigo SSL',
+            'comodo_ssl'           => 'Comodo SSL',
+            'digicert_ssl'         => 'DigiCert SSL',
+            'globalsign_ssl'       => 'GlobalSign SSL',
+            'letsencrypt_ssl'      => "Let's Encrypt SSL",
+            'whmcs_ssl'            => 'WHMCS SSL',
+            'nicsrs_ssl'           => 'NicSRS SSL',
+            // Hosting panel modules
+            'plesk'                => 'Plesk SSL',
+            'directadmin_ssl'      => 'DirectAdmin SSL',
+        ];
+
+        $key = strtolower(trim($module));
+
+        return $map[$key] ?? ucfirst(str_replace(['_', '-'], ' ', $module));
+    }
 }

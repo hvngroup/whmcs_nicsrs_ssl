@@ -24,7 +24,28 @@ class PageController
         try {
             $order = OrderRepository::getByServiceId($params['serviceid']);
 
-            if (!$order) {
+        // === DEBUG START ===
+        logModuleCall('nicsrs_ssl', 'DEBUG_index', [
+            'serviceid' => $params['serviceid'],
+            'has_nicsrs_order' => $order ? 'YES (id=' . $order->id . ')' : 'NO',
+        ], 'Step 1: Check nicsrs_sslorders');
+        // === DEBUG END ===
+
+        if (!$order) {
+            $vendorCert = self::checkVendorMigration($params);
+            
+            // === DEBUG START ===
+            logModuleCall('nicsrs_ssl', 'DEBUG_vendorCheck', [
+                'serviceid' => $params['serviceid'],
+                'vendor_cert_found' => $vendorCert ? 'YES (id=' . ($vendorCert->id ?? 'N/A') . ', remoteid=' . ($vendorCert->remoteid ?? '') . ')' : 'NO/NULL',
+            ], 'Step 2: Check tblsslorders');
+            // === DEBUG END ===
+            
+            if ($vendorCert) {
+                $cert = self::getCertConfig($params);
+                return TemplateHelper::migrated($params, $vendorCert, $cert);
+            }
+                // No active vendor cert → create new NicSRS order (normal flow)
                 OrderRepository::create([
                     'userid' => $params['userid'],
                     'serviceid' => $params['serviceid'],
@@ -76,6 +97,124 @@ class PageController
         }
     }
 
+    /**
+     * Check if service has an active certificate from another vendor
+     * 
+     * Queries WHMCS core `tblsslorders` table to detect certificates
+     * issued by other modules (e.g. cPanel SSL, GoGetSSL, TheSSLStore).
+     * Returns the vendor order if cert is still active, null otherwise.
+     * 
+     * When null is returned, the caller should proceed with normal
+     * NicSRS order creation flow.
+     * 
+     * Skip conditions (return null → allow new order):
+     *   - tblsslorders table doesn't exist
+     *   - No record for this serviceid
+     *   - endDate found in configdata and already passed
+     * 
+     * @param array $params WHMCS module params
+     * @return object|null Vendor SSL order from tblsslorders, or null
+     */
+    private static function checkVendorMigration(array $params): ?object
+    {
+        try {
+            if (!Capsule::schema()->hasTable('tblsslorders')) {
+                return null;
+            }
+
+            $vendorOrder = Capsule::table('tblsslorders')
+                ->where('serviceid', $params['serviceid'])
+                ->first();
+
+            // No record → no vendor cert
+            if (!$vendorOrder) {
+                return null;
+            }
+
+            // If status is explicitly inactive → allow new order
+            $status = strtolower(trim($vendorOrder->status ?? ''));
+            $inactiveStatuses = [
+                'cancelled', 'canceled', 'revoked', 'expired',
+                'refunded', 'fraud', 'terminated',
+            ];
+            if ($status && in_array($status, $inactiveStatuses)) {
+                logModuleCall('nicsrs_ssl', 'checkVendorMigration', [
+                    'serviceid' => $params['serviceid'],
+                    'vendor_status' => $status,
+                ], 'Vendor cert inactive, allowing new order');
+                return null;
+            }
+
+            // Check expiry from configdata
+            $endDate = self::extractVendorEndDate($vendorOrder);
+            if ($endDate && strtotime($endDate) && strtotime($endDate) < time()) {
+                logModuleCall('nicsrs_ssl', 'checkVendorMigration', [
+                    'serviceid' => $params['serviceid'],
+                    'endDate' => $endDate,
+                ], 'Vendor cert expired, allowing new order');
+                return null;
+            }
+
+            // Vendor cert exists and not inactive → block
+            logModuleCall('nicsrs_ssl', 'checkVendorMigration', [
+                'serviceid' => $params['serviceid'],
+                'vendor_order_id' => $vendorOrder->id ?? 'N/A',
+                'vendor_module' => $vendorOrder->module ?? '(empty)',
+                'vendor_remoteid' => $vendorOrder->remoteid ?? '(empty)',
+                'vendor_status' => $vendorOrder->status ?? '(empty)',
+            ], 'Vendor cert found - showing migrated template');
+
+            return $vendorOrder;
+
+        } catch (Exception $e) {
+            logModuleCall('nicsrs_ssl', 'checkVendorMigration_error', [
+                'serviceid' => $params['serviceid'] ?? 0,
+            ], $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Extract end date from vendor configdata (static version for PageController)
+     */
+    private static function extractVendorEndDate(object $vendorOrder): ?string
+    {
+        $raw = $vendorOrder->configdata ?? '';
+        if (empty($raw)) {
+            return null;
+        }
+
+        $configdata = json_decode($raw, true);
+        if (!is_array($configdata)) {
+            return null;
+        }
+
+        $keys = ['endDate', 'end_date', 'expires', 'expiry_date', 'cert_expiry'];
+        foreach ($keys as $key) {
+            if (!empty($configdata[$key]) && strtotime($configdata[$key])) {
+                return $configdata[$key];
+            }
+        }
+
+        $nested = [
+            ['applyReturn', 'endDate'],
+            ['applyReturn', 'end_date'],
+            ['certificate', 'endDate'],
+            ['certificate', 'end_date'],
+        ];
+        foreach ($nested as $parts) {
+            $val = $configdata;
+            foreach ($parts as $p) {
+                $val = $val[$p] ?? null;
+                if ($val === null) break;
+            }
+            if ($val && is_string($val) && strtotime($val)) {
+                return $val;
+            }
+        }
+
+        return null;
+    }
     /**
      * Normalize status string for comparison
      * Handles case-sensitivity and various formats

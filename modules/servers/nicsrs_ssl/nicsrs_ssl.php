@@ -173,6 +173,7 @@ function nicsrs_ssl_ConfigOptions()
 
 /**
  * Create account - called when a new service is provisioned
+ * or when admin clicks "Module Commands > Create"
  */
 function nicsrs_ssl_CreateAccount(array $params)
 {
@@ -183,27 +184,157 @@ function nicsrs_ssl_CreateAccount(array $params)
             return 'Certificate already exists for this service';
         }
         
-        if (!$existingOrder) {
-            // Create initial order record
-            OrderRepository::create([
-                'userid' => $params['userid'],
-                'serviceid' => $params['serviceid'],
-                'addon_id' => '',
-                'remoteid' => '',
-                'module' => 'nicsrs_ssl',
-                'certtype' => $params['configoption1'] ?? '',
-                'configdata' => json_encode([]),
-                'provisiondate' => date('Y-m-d'),
-                'completiondate' => '0000-00-00 00:00:00',
-                'status' => 'Awaiting Configuration',
-            ]);
+        if ($existingOrder) {
+            return 'Order already created. Please configure this product instead to activate it.';
         }
+
+        // =================================================
+        // VENDOR MIGRATION CHECK
+        // If tblsslorders has an active cert from another vendor,
+        // do NOT auto-create nicsrs_sslorders record.
+        // Admin must use "Allow New Certificate" button to override.
+        // =================================================
+        if (hasActiveVendorCert($params['serviceid'])) {
+            logModuleCall('nicsrs_ssl', 'CreateAccount_VendorBlock', [
+                'serviceid' => $params['serviceid'],
+            ], 'Blocked: Active certificate from another vendor detected. '
+             . 'Use "Allow New Certificate" button to override.');
+
+            // Return success so WHMCS doesn't show error to admin
+            // The client will see migrated.tpl when they visit the service
+            return 'success';
+        }
+
+        // Normal flow: create initial order record
+        OrderRepository::create([
+            'userid'         => $params['userid'],
+            'serviceid'      => $params['serviceid'],
+            'addon_id'       => '',
+            'remoteid'       => '',
+            'module'         => 'nicsrs_ssl',
+            'certtype'       => $params['configoption1'] ?? '',
+            'configdata'     => json_encode([]),
+            'provisiondate'  => date('Y-m-d'),
+            'completiondate' => '0000-00-00 00:00:00',
+            'status'         => 'Awaiting Configuration',
+        ]);
         
         return 'success';
+
     } catch (Exception $e) {
         logModuleCall('nicsrs_ssl', __FUNCTION__, $params, $e->getMessage(), $e->getTraceAsString());
         return $e->getMessage();
     }
+}
+
+/**
+ * Check if service has an active certificate from another vendor
+ * 
+ * Shared helper used by both CreateAccount() and buildVendorMigrationWarning().
+ * Queries WHMCS core tblsslorders table.
+ * 
+ * @param int $serviceId WHMCS service ID
+ * @return bool True if active vendor cert exists
+ */
+function hasActiveVendorCert(int $serviceId): bool
+{
+    try {
+        if (!\WHMCS\Database\Capsule::schema()->hasTable('tblsslorders')) {
+            return false;
+        }
+
+        $vendorOrder = \WHMCS\Database\Capsule::table('tblsslorders')
+            ->where('serviceid', $serviceId)
+            ->first();
+
+        // No record at all → no vendor cert
+        if (!$vendorOrder) {
+            return false;
+        }
+
+        // If status is explicitly inactive → cert no longer valid
+        $status = strtolower(trim($vendorOrder->status ?? ''));
+        $inactiveStatuses = [
+            'cancelled', 'canceled', 'revoked', 'expired',
+            'refunded', 'fraud', 'terminated',
+        ];
+        if ($status && in_array($status, $inactiveStatuses)) {
+            return false;
+        }
+
+        // Try to check expiry date from configdata (if available)
+        $endDate = extractVendorEndDateFromOrder($vendorOrder);
+        if ($endDate && strtotime($endDate) && strtotime($endDate) < time()) {
+            return false; // Expired
+        }
+
+        // Record exists and not explicitly inactive → treat as active
+        logModuleCall('nicsrs_ssl', 'hasActiveVendorCert', [
+            'serviceid' => $serviceId,
+            'vendor_id' => $vendorOrder->id ?? 'N/A',
+            'vendor_module' => $vendorOrder->module ?? 'N/A',
+            'vendor_remoteid' => $vendorOrder->remoteid ?? '(empty)',
+            'vendor_status' => $vendorOrder->status ?? '(empty)',
+        ], 'Vendor cert record found - blocking new order');
+
+        return true;
+
+    } catch (\Exception $e) {
+        logModuleCall('nicsrs_ssl', 'hasActiveVendorCert_error', [
+            'serviceid' => $serviceId,
+        ], $e->getMessage());
+        return false;
+    }
+}
+
+/**
+ * Extract end date from vendor order configdata
+ * Tries multiple common patterns used by different SSL modules
+ * 
+ * @param object $vendorOrder Order from tblsslorders
+ * @return string|null End date or null
+ */
+function extractVendorEndDateFromOrder(object $vendorOrder): ?string
+{
+    $raw = $vendorOrder->configdata ?? '';
+    if (empty($raw)) {
+        return null;
+    }
+
+    $configdata = json_decode($raw, true);
+    if (!is_array($configdata)) {
+        return null;
+    }
+
+    // Try common patterns
+    $paths = [
+        'endDate', 'end_date', 'expires', 'expiry_date', 'cert_expiry',
+    ];
+    foreach ($paths as $key) {
+        if (!empty($configdata[$key]) && strtotime($configdata[$key])) {
+            return $configdata[$key];
+        }
+    }
+
+    // Nested patterns
+    $nestedPaths = [
+        ['applyReturn', 'endDate'],
+        ['applyReturn', 'end_date'],
+        ['certificate', 'endDate'],
+        ['certificate', 'end_date'],
+    ];
+    foreach ($nestedPaths as $parts) {
+        $val = $configdata;
+        foreach ($parts as $p) {
+            $val = $val[$p] ?? null;
+            if ($val === null) break;
+        }
+        if ($val && is_string($val) && strtotime($val)) {
+            return $val;
+        }
+    }
+
+    return null;
 }
 
 /**
@@ -384,28 +515,43 @@ function nicsrs_ssl_AdminServicesTabFields(array $params)
 {
     $order = OrderRepository::getByServiceId($params['serviceid']);
     
+    // =====================================================
+    // VENDOR MIGRATION: Show warning if no NicSRS order
+    // but vendor cert exists in tblsslorders
+    // =====================================================
     if (!$order) {
+        $vendorWarning = buildVendorMigrationWarning($params);
+        
+        if ($vendorWarning) {
+            return $vendorWarning;
+        }
+        
+        // No vendor cert either → just show "not created"
         return [
-            'Status' => '<span class="label label-default">No certificate order found</span>',
-            'Action' => '<a href="addonmodules.php?module=nicsrs_ssl_admin&action=orders" class="btn btn-xs btn-primary" target="_blank"><i class="fa fa-list"></i> View All Orders</a>',
+            'NicSRS Order' => '<span class="label label-default">Not Created</span>'
+                . ' <small class="text-muted">Order will be created when client configures the service</small>',
         ];
     }
     
+    // =====================================================
+    // Normal flow: Show existing NicSRS order info
+    // =====================================================
     $configdata = json_decode($order->configdata, true) ?: [];
     $applyReturn = $configdata['applyReturn'] ?? [];
     $domainInfo = $configdata['domainInfo'] ?? [];
     
-    $domain = !empty($domainInfo) ? $domainInfo[0]['domainName'] ?? 'N/A' : 'N/A';
+    $domain = !empty($domainInfo) ? ($domainInfo[0]['domainName'] ?? 'N/A') : 'N/A';
     
     // Build manage link
     $manageUrl = 'addonmodules.php?module=nicsrs_ssl_admin&action=order&id=' . $order->id;
     $manageLink = '<a href="' . $manageUrl . '" class="btn btn-xs btn-success" target="_blank">'
                 . '<i class="fa fa-external-link"></i> Manage</a>';
     
-    return [
+    $fields = [
         'Order ID' => '#' . $order->id . ' ' . $manageLink,
         'Certificate ID' => $order->remoteid ?: '<span class="text-muted">Not yet assigned</span>',
-        'Status' => '<span class="label label-' . getStatusLabelClass($order->status) . '">' . $order->status . '</span>',
+        'Status' => '<span class="label label-' . getStatusLabelClass($order->status) . '">' 
+                   . $order->status . '</span>',
         'Domain' => '<code>' . htmlspecialchars($domain) . '</code>',
         'Certificate Type' => $order->certtype ?: 'N/A',
         'Issued Date' => $applyReturn['beginDate'] ?? '<span class="text-muted">N/A</span>',
@@ -413,6 +559,106 @@ function nicsrs_ssl_AdminServicesTabFields(array $params)
         'Vendor ID' => $applyReturn['vendorId'] ?? 'N/A',
         'Last Refresh' => $configdata['lastRefresh'] ?? '<span class="text-muted">Never</span>',
     ];
+
+    // Show migration info if this order was created via admin override
+    if (!empty($configdata['migratedFromVendor'])) {
+        $prevVendor = ucfirst(str_replace('_', ' ', $configdata['previousVendor'] ?? 'Unknown'));
+        $prevId = $configdata['previousRemoteId'] ?? 'N/A';
+        
+        $migrationInfo = '<span class="label label-info">Migrated</span> '
+            . 'from <strong>' . htmlspecialchars($prevVendor) . '</strong>'
+            . ' (Cert ID: <code>' . htmlspecialchars($prevId) . '</code>)';
+        
+        // Insert migration info as second field
+        $fields = array_merge(
+            array_slice($fields, 0, 1),
+            ['Migration' => $migrationInfo],
+            array_slice($fields, 1)
+        );
+    }
+
+    return $fields;
+}
+
+/**
+ * Build vendor migration warning HTML for admin service tab
+ * 
+ * Called when no nicsrs_sslorders record exists for a service.
+ * Checks tblsslorders for certificates from other vendors.
+ * 
+ * @param array $params WHMCS module params
+ * @return array|null Admin tab fields with warning, or null if no vendor cert
+ */
+function buildVendorMigrationWarning(array $params): ?array
+{
+    try {
+        if (!\WHMCS\Database\Capsule::schema()->hasTable('tblsslorders')) {
+            return null;
+        }
+
+        $vendorOrder = \WHMCS\Database\Capsule::table('tblsslorders')
+            ->where('serviceid', $params['serviceid'])
+            ->first();
+
+        if (!$vendorOrder || empty($vendorOrder->remoteid)) {
+            return null;
+        }
+
+        // Build vendor info
+        $vendorModule = ucfirst(str_replace('_', ' ', $vendorOrder->module ?? 'Unknown'));
+        $vendorStatus = $vendorOrder->status ?? 'Unknown';
+        $vendorRemoteId = $vendorOrder->remoteid;
+
+        // Try to get end date from configdata
+        $endDateDisplay = '';
+        $vendorConfig = json_decode($vendorOrder->configdata ?? '{}', true) ?: [];
+        $endDate = $vendorConfig['endDate'] 
+                ?? $vendorConfig['applyReturn']['endDate'] 
+                ?? $vendorConfig['end_date'] 
+                ?? $vendorConfig['expires'] 
+                ?? null;
+
+        if ($endDate && strtotime($endDate)) {
+            $daysLeft = (int) ceil((strtotime($endDate) - time()) / 86400);
+            
+            if ($daysLeft > 0) {
+                $badgeClass = $daysLeft > 30 ? 'success' : 'warning';
+                $endDateDisplay = ' | Expires: <strong>' . htmlspecialchars($endDate) . '</strong>'
+                    . ' <span class="label label-' . $badgeClass . '">' . $daysLeft . ' days left</span>';
+            } else {
+                $endDateDisplay = ' | <span class="label label-danger">Expired</span>';
+            }
+        }
+
+        // Build warning HTML
+        $warningHtml = '<div class="alert alert-warning" style="margin: 0; padding: 10px 14px; font-size: 13px;">'
+            . '<i class="fa fa-exclamation-triangle" style="margin-right: 6px;"></i>'
+            . '<strong>Vendor Migration Detected</strong><br>'
+            . '<span style="margin-left: 22px;">'
+            . 'Provider: <strong>' . htmlspecialchars($vendorModule) . '</strong>'
+            . ' | Cert ID: <code>' . htmlspecialchars($vendorRemoteId) . '</code>'
+            . ' | Status: <span class="label label-info">' . htmlspecialchars($vendorStatus) . '</span>'
+            . $endDateDisplay
+            . '</span><br>'
+            . '<span style="margin-left: 22px; color: #856404;">'
+            . '<i class="fa fa-arrow-right" style="margin-right: 4px;"></i>'
+            . 'Click <strong>"Allow New Certificate"</strong> button above to let client apply for a NicSRS certificate.'
+            . '</span>'
+            . '</div>';
+
+        return [
+            'Migration Status' => $warningHtml,
+            'NicSRS Order' => '<span class="label label-default">Not Created</span>'
+                . ' — Waiting for admin to allow new certificate',
+        ];
+
+    } catch (\Exception $e) {
+        logModuleCall('nicsrs_ssl', 'buildVendorMigrationWarning', [
+            'serviceid' => $params['serviceid'] ?? 0,
+        ], $e->getMessage());
+        
+        return null;
+    }
 }
 
 /**
@@ -444,7 +690,97 @@ function nicsrs_ssl_AdminCustomButtonArray()
         'Manage Order' => 'AdminManageOrder',
         'Refresh Status' => 'AdminRefreshStatus',
         'Resend DCV Email' => 'AdminResendDCV',
+        'Allow New Certificate' => 'AdminAllowNewCert',
     ];
+}
+
+
+/**
+ * Admin action: Allow new NicSRS certificate for migrated service
+ * 
+ * When a product is switched from another SSL vendor to NicSRS,
+ * the client area shows a read-only page with the old vendor's cert info.
+ * This admin button creates a nicsrs_sslorders record so the client
+ * can proceed to apply for a new NicSRS certificate.
+ * 
+ * The new order is created with:
+ *   - migratedFromVendor: true (flag for tracking)
+ *   - originalfromOthers: '1' (sent to NicSRS API to indicate renewal/migration)
+ *   - isRenew: '1' (backward compatibility with old module)
+ *   - Previous vendor info stored for reference
+ * 
+ * @param array $params WHMCS module parameters
+ * @return string 'success' or error message
+ */
+function nicsrs_ssl_AdminAllowNewCert(array $params)
+{
+    try {
+        // Check if NicSRS order already exists
+        $existingOrder = OrderRepository::getByServiceId($params['serviceid']);
+        
+        if ($existingOrder) {
+            return 'NicSRS order already exists for this service (Order #' 
+                 . $existingOrder->id . '). Client can already configure certificate. No action needed.';
+        }
+
+        // Gather info from vendor's order in tblsslorders
+        $vendorOrder = null;
+        $vendorInfo = [];
+
+        if (\WHMCS\Database\Capsule::schema()->hasTable('tblsslorders')) {
+            $vendorOrder = \WHMCS\Database\Capsule::table('tblsslorders')
+                ->where('serviceid', $params['serviceid'])
+                ->first();
+        }
+
+        if ($vendorOrder) {
+            $vendorInfo = [
+                'previousVendor'   => $vendorOrder->module ?? 'unknown',
+                'previousRemoteId' => $vendorOrder->remoteid ?? '',
+                'previousStatus'   => $vendorOrder->status ?? '',
+                'previousOrderId'  => $vendorOrder->id ?? '',
+            ];
+        }
+
+        // Build configdata with migration flags
+        $configdata = array_merge([
+            'migratedFromVendor' => true,
+            'adminOverride'      => true,
+            'adminOverrideAt'    => date('Y-m-d H:i:s'),
+            'originalfromOthers' => '1',
+            'isRenew'            => '1',
+        ], $vendorInfo);
+
+        // Create new NicSRS order record
+        $orderId = OrderRepository::create([
+            'userid'         => $params['userid'],
+            'serviceid'      => $params['serviceid'],
+            'addon_id'       => '',
+            'remoteid'       => '',
+            'module'         => 'nicsrs_ssl',
+            'certtype'       => $params['configoption1'] ?? '',
+            'configdata'     => json_encode($configdata),
+            'provisiondate'  => date('Y-m-d'),
+            'completiondate' => '0000-00-00 00:00:00',
+            'status'         => 'Awaiting Configuration',
+        ]);
+
+        logModuleCall('nicsrs_ssl', 'AdminAllowNewCert', [
+            'serviceid'      => $params['serviceid'],
+            'vendor_order'   => $vendorOrder ? ($vendorOrder->id ?? 'found') : 'none',
+            'vendor_module'  => $vendorInfo['previousVendor'] ?? 'N/A',
+            'new_order_id'   => $orderId,
+        ], 'Admin allowed new certificate for migrated service');
+
+        return 'success';
+
+    } catch (Exception $e) {
+        logModuleCall('nicsrs_ssl', 'AdminAllowNewCert_error', [
+            'serviceid' => $params['serviceid'] ?? 0,
+        ], $e->getMessage());
+        
+        return 'Error: ' . $e->getMessage();
+    }
 }
 
 /**
