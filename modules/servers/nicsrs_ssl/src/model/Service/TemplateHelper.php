@@ -56,9 +56,71 @@ class TemplateHelper
      */
     private static function loadLanguage(array $params): array
     {
-        $lang = $_SESSION['Language'] ?? 'english';
+        $lang = '';
+        
+        // Priority 1: WHMCS module params (most reliable for server modules)
+        if (!empty($params['clientsdetails']['language'])) {
+            $lang = $params['clientsdetails']['language'];
+        }
+        
+        // Priority 2: Session language (set when user clicks language dropdown)
+        if (empty($lang) && !empty($_SESSION['Language'])) {
+            $lang = $_SESSION['Language'];
+        }
+        
+        // Priority 3: Lookup from client's profile in database
+        if (empty($lang) && !empty($params['userid'])) {
+            try {
+                $client = Capsule::table('tblclients')
+                    ->where('id', $params['userid'])
+                    ->value('language');
+                
+                if (!empty($client)) {
+                    $lang = $client;
+                }
+            } catch (\Exception $e) {
+                // Ignore DB errors, will fallback
+            }
+        }
+        
+        // Priority 4: WHMCS system default language
+        if (empty($lang)) {
+            try {
+                $lang = \WHMCS\Config\Setting::getValue('Language') ?? '';
+            } catch (\Exception $e) {
+                $lang = $GLOBALS['CONFIG']['Language'] ?? '';
+            }
+        }
+        
+        // Priority 5: Final fallback
+        if (empty($lang)) {
+            $lang = 'english';
+        }
+        
+        // Normalize language name
+        $lang = strtolower(trim($lang));
+        
+        // Map common language name variants to file names
+        $langMap = [
+            'vietnamese'  => 'vietnamese',
+            'tieng_viet'  => 'vietnamese',
+            'vi'          => 'vietnamese',
+            'chinese'     => 'chinese',
+            'zh'          => 'chinese',
+            'zh-cn'       => 'chinese-cn',
+            'chinese-cn'  => 'chinese-cn',
+            'english'     => 'english',
+            'en'          => 'english',
+        ];
+        
+        if (isset($langMap[$lang])) {
+            $lang = $langMap[$lang];
+        }
+        
+        // Build language file path
         $langFile = NICSRS_SSL_PATH . 'lang/' . $lang . '.php';
         
+        // Fallback to English if language file not found
         if (!file_exists($langFile)) {
             $langFile = NICSRS_SSL_PATH . 'lang/english.php';
         }
@@ -70,7 +132,7 @@ class TemplateHelper
         
         return $_LANG;
     }
-
+    
     /**
      * Get client information for pre-filling forms
      */

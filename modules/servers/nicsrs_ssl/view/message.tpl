@@ -302,7 +302,7 @@
             <button type="button" class="sslm-btn sslm-btn-secondary" onclick="SSLManager.closeChangeDCVModal()">
                 {$_LANG.cancel|default:'Cancel'}
             </button>
-            <button type="button" class="sslm-btn sslm-btn-primary" onclick="SSLManager.confirmChangeDCV()">
+            <button type="button" id="confirmDcvChangeBtn" class="sslm-btn sslm-btn-primary" onclick="SSLManager.confirmChangeDCV()">
                 <i class="fas fa-check"></i> {$_LANG.confirm_change|default:'Confirm Change'}
             </button>
         </div>

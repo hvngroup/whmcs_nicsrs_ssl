@@ -564,7 +564,7 @@
 
 .sslm-btn-primary {
     background: var(--sslm-primary);
-    color: white;
+    color: white !important;
     border-color: var(--sslm-primary);
 }
 
@@ -579,7 +579,7 @@
 }
 
 .sslm-btn-secondary {
-    background: white;
+    background: white !important;
     color: var(--sslm-text-primary);
     border-color: var(--sslm-border-color);
 }
@@ -1883,7 +1883,7 @@
    ======================================== */
 .sslm-btn-success {
     background: var(--sslm-success);
-    color: white;
+    color: white !important;
     border-color: var(--sslm-success);
 }
 
@@ -1894,13 +1894,13 @@
 
 .sslm-btn-warning {
     background: var(--sslm-warning);
-    color: white;
+    color: white !important;
     border-color: var(--sslm-warning);
 }
 
 .sslm-btn-danger {
     background: var(--sslm-error);
-    color: white;
+    color: white !important;
     border-color: var(--sslm-error);
 }
 
