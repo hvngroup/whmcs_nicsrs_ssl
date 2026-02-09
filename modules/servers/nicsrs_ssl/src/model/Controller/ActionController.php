@@ -1027,13 +1027,44 @@ class ActionController
                 );
             }
 
-            OrderRepository::update($order->id, [
-                'status'     => SSL_STATUS_REISSUE,
+            // NicSRS reissue API returns a NEW certId (reissue = new cert replacing old)
+            $newCertId = '';
+            if ($parsed['data']) {
+                $responseData = (array) $parsed['data'];
+                $newCertId = $responseData['certId'] 
+                          ?? $responseData['vendorCertId'] 
+                          ?? $responseData['cert_id'] 
+                          ?? '';
+            }
+
+            // Save previous certId for reference
+            if (!empty($order->remoteid) && !empty($newCertId) && $newCertId !== $order->remoteid) {
+                $configdata['previousCertId'] = $order->remoteid;
+            }
+
+            // Build update data
+            $updateData = [
+                'status'     => SSL_STATUS_PENDING,
                 'configdata' => json_encode($configdata),
-            ]);
+            ];
+
+            if (!empty($newCertId)) {
+                $updateData['remoteid'] = $newCertId;
+            }
+
+            OrderRepository::update($order->id, $updateData);
+
+            logModuleCall('nicsrs_ssl', 'submitReissue_success', [
+                'order_id'     => $order->id,
+                'old_certId'   => $order->remoteid,
+                'new_certId'   => $newCertId ?: '(same)',
+                'new_status'   => $updateData['status'],
+                'replaceTimes' => $configdata['replaceTimes'],
+            ], 'Reissue submitted');
 
             return ResponseFormatter::success([
-                'status' => 'reissue_pending',
+                'status'    => 'pending',
+                'newCertId' => $newCertId ?: $order->remoteid,
             ], 'Reissue request submitted successfully');
 
         } catch (Exception $e) {

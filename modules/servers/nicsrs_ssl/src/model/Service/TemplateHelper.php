@@ -3,11 +3,6 @@
  * NicSRS SSL Module - Template Helper
  * Handles template rendering and variable preparation
  * 
- * FIXED v2.0.1:
- * - Fixed isRenew/originalfromOthers consistency
- * - Enhanced configData handling
- * - Improved template variable preparation
- * 
  * @package    nicsrs_ssl
  * @version    2.0.1
  * @author     HVN GROUP
@@ -28,15 +23,31 @@ class TemplateHelper
     {
         // Load language
         $language = self::loadLanguage($params);
-        
+
+        $webRoot = $GLOBALS['CONFIG']['SystemURL'] ?? '';
+        if (empty($webRoot)) {
+            try {
+                $webRoot = \WHMCS\Utility\Environment\WebHelper::getBaseUrl();
+            } catch (\Exception $e) {
+                try {
+                    if (class_exists('\WHMCS\Config\Setting')) {
+                        $webRoot = \WHMCS\Config\Setting::getValue('SystemURL') ?? '';
+                    }
+                } catch (\Exception $e2) {
+                    $webRoot = '';
+                }
+            }
+        }
+        $webRoot = rtrim($webRoot, '/');
+
         return [
             '_LANG' => $language,
             '_LANG_JSON' => json_encode($language),
-            'WEB_ROOT' => $GLOBALS['CONFIG']['SystemURL'] ?? '',
+            'WEB_ROOT' => $webRoot,
             'serviceid' => $params['serviceid'] ?? 0,
             'userid' => $params['userid'] ?? 0,
             'domain' => $params['domain'] ?? '',
-            'moduleVersion' => '2.0.1',
+            'moduleVersion' => '2.1.0',
         ];
     }
 
@@ -446,10 +457,17 @@ class TemplateHelper
     {
         $baseVars = self::getBaseVars($params);
 
+        if (empty($baseVars['WEB_ROOT'])) {
+            $baseVars['WEB_ROOT'] = rtrim($GLOBALS['CONFIG']['SystemURL'] 
+                ?? \WHMCS\Application\Support\Facades\Config::get('SystemURL') 
+                ?? '', '/');
+        }
+
         return [
             'templatefile' => 'error',
             'vars' => array_merge($baseVars, [
                 'errorMessage' => $message,
+                'errorTimestamp' => date('Y-m-d H:i:s'),
             ]),
         ];
     }

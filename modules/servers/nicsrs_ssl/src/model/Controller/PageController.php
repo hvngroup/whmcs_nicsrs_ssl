@@ -264,12 +264,36 @@ class PageController
                 return TemplateHelper::error($params, 'Order not found');
             }
 
-            // Check if reissue is allowed
-            if (!in_array($order->status, [SSL_STATUS_COMPLETE, SSL_STATUS_ISSUED])) {
-                return TemplateHelper::error(
-                    $params, 
-                    'Certificate must be issued before it can be reissued'
-                );
+            // Allow reissue page for all valid statuses
+            // - complete/issued/active: cert is active, can start reissue
+            // - reissue: already in reissue process (after submit)
+            // - pending/processing: reissue submitted, waiting for CA
+            $status = strtolower($order->status ?? '');
+            $allowedStatuses = [
+                'complete', 'issued', 'active',     // Can initiate reissue
+                'reissue',                           // Already in reissue flow
+                'pending', 'processing',             // Reissue submitted to CA
+            ];
+
+            // Also match constants (case-insensitive)
+            $allowedConstants = array_filter([
+                defined('SSL_STATUS_COMPLETE') ? strtolower(SSL_STATUS_COMPLETE) : null,
+                defined('SSL_STATUS_ISSUED') ? strtolower(SSL_STATUS_ISSUED) : null,
+                defined('SSL_STATUS_REISSUE') ? strtolower(SSL_STATUS_REISSUE) : null,
+                defined('SSL_STATUS_PENDING') ? strtolower(SSL_STATUS_PENDING) : null,
+            ]);
+
+            $allAllowed = array_unique(array_merge($allowedStatuses, $allowedConstants));
+
+            if (!in_array($status, $allAllowed)) {
+                // Fallback: check if order has remoteid or replaceTimes
+                $configdata = json_decode($order->configdata, true) ?: [];
+                if (empty($order->remoteid) && empty($configdata['replaceTimes'])) {
+                    return TemplateHelper::error(
+                        $params,
+                        'Certificate must be issued before it can be reissued.'
+                    );
+                }
             }
 
             $cert = self::getCertConfig($params);

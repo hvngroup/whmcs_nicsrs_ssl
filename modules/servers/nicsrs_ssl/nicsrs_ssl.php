@@ -631,7 +631,12 @@ function nicsrs_ssl_ClientArea(array $params)
     ];
     
     // Check if this is an AJAX action request
-    if (!empty($step) && isset($stepToAction[$step])) {
+    $isAjax = (
+        !empty($_SERVER['HTTP_X_REQUESTED_WITH']) 
+        && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest'
+    ) || $_SERVER['REQUEST_METHOD'] === 'POST';
+    
+    if (!empty($step) && isset($stepToAction[$step]) && $isAjax) {
         // Clear ALL output buffers
         while (ob_get_level()) {
             ob_end_clean();
