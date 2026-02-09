@@ -552,8 +552,25 @@ $_LANG['warning'] = 'Cảnh báo';
 $_LANG['cancel_warning'] = 'Hủy đơn hàng này sẽ dừng quá trình cấp phát chứng chỉ. Hành động này không thể hoàn tác.';
 $_LANG['keep_order'] = 'Giữ Đơn hàng';
 
+// --- complete.tpl: Progress Steps ---
+$_LANG['step_validated'] = 'Đã xác minh';
+
+// --- complete.tpl: Status Card ---
+$_LANG['certificate_ready'] = 'Chứng chỉ của Bạn đã Sẵn sàng!';
+$_LANG['certificate_ready_desc'] = 'Chứng chỉ SSL đã được cấp phát và sẵn sàng để cài đặt. Tải xuống các file chứng chỉ bên dưới.';
+
+// --- complete.tpl: Certificate Content ---
+$_LANG['ssl_certificate'] = 'Chứng chỉ SSL';
+
+// --- complete.tpl: Revoke modal ---
+$_LANG['confirm_revoke'] = 'Xác nhận Thu hồi';
+$_LANG['revoke_warning'] = 'Thu hồi chứng chỉ là vĩnh viễn và không thể hoàn tác. Chứng chỉ sẽ mất hiệu lực ngay lập tức.';
+$_LANG['revoke_confirm_question'] = 'Bạn có chắc muốn thu hồi chứng chỉ này?';
+
 // --- complete.tpl: JS config ---
 $_LANG['download_started'] = 'Đã bắt đầu tải xuống';
+$_LANG['revoke_success'] = 'Đã thu hồi chứng chỉ';
+$_LANG['revoke_failed'] = 'Thu hồi thất bại';
 
 // --- complete.tpl: Revoke modal HTML ---
 $_LANG['confirm_revoke'] = 'Xác nhận Thu hồi';

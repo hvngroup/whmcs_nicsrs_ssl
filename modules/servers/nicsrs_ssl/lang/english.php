@@ -48,6 +48,7 @@ $_LANG['step_configure'] = 'Configure';
 $_LANG['step_submit'] = 'Submit';
 $_LANG['step_validation'] = 'Validation';
 $_LANG['step_issued'] = 'Issued';
+$_LANG['step_validated'] = 'Validated';
 
 // PROGRESS STEPS (message.tpl / manage.tpl)
 $_LANG['step_ordered'] = 'Ordered';
@@ -552,8 +553,22 @@ $_LANG['warning'] = 'Warning';
 $_LANG['cancel_warning'] = 'Cancelling this order will stop the certificate issuance process. This action cannot be undone.';
 $_LANG['keep_order'] = 'Keep Order';
 
+// --- complete.tpl: Status Card ---
+$_LANG['certificate_ready'] = 'Your Certificate is Ready!';
+$_LANG['certificate_ready_desc'] = 'Your SSL certificate has been issued and is ready for installation. Download the certificate files below.';
+
+// --- complete.tpl: Certificate Content ---
+$_LANG['ssl_certificate'] = 'SSL Certificate';
+
+// --- complete.tpl: Revoke modal ---
+$_LANG['confirm_revoke'] = 'Confirm Revocation';
+$_LANG['revoke_warning'] = 'Revoking this certificate is permanent and cannot be undone. The certificate will become invalid immediately.';
+$_LANG['revoke_confirm_question'] = 'Are you sure you want to revoke this certificate?';
+
 // --- complete.tpl: JS config ---
 $_LANG['download_started'] = 'Download started';
+$_LANG['revoke_success'] = 'Certificate revoked';
+$_LANG['revoke_failed'] = 'Revocation failed';
 
 // --- complete.tpl: Revoke modal HTML ---
 $_LANG['confirm_revoke'] = 'Confirm Revocation';
