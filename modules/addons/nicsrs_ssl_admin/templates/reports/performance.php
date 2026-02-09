@@ -205,8 +205,6 @@ document.addEventListener('DOMContentLoaded', function() {
     // Get products data from PHP - take top 10 for chart
     var products = <?php echo json_encode(array_slice($products, 0, 10)); ?>;
     
-    console.log('Performance Report - Products data:', products); // Debug
-    
     // Top Products Chart - Vertical bar chart with dual Y axis
     var topProductsCanvas = document.getElementById('topProductsChart');
     if (topProductsCanvas && products && products.length > 0) {
@@ -215,12 +213,7 @@ document.addEventListener('DOMContentLoaded', function() {
             return name.length > 20 ? name.substring(0, 20) + '...' : name; 
         });
         var orders = products.map(function(p) { return parseInt(p.total_orders) || 0; });
-        var revenue = products.map(function(p) { return parseFloat(p.total_revenue_usd) || 0; });
-        
-        console.log('Chart labels:', labels);
-        console.log('Chart orders:', orders);
-        console.log('Chart revenue:', revenue);
-        
+        var revenue = products.map(function(p) { return parseFloat(p.total_revenue_usd) || 0; });        
         new Chart(topProductsCanvas.getContext('2d'), {
             type: 'bar',
             data: {
@@ -315,8 +308,6 @@ document.addEventListener('DOMContentLoaded', function() {
             var orders = parseInt(p.total_orders) || 0;
             typeData[type] = (typeData[type] || 0) + orders;
         });
-        
-        console.log('Validation type data:', typeData);
         
         if (Object.keys(typeData).length > 0) {
             new Chart(validationCanvas.getContext('2d'), {

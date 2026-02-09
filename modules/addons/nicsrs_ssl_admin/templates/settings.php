@@ -491,7 +491,6 @@ use NicsrsAdmin\Helper\CurrencyHelper;
                 }
             },
             error: function(xhr, status, error) {
-                console.error('AJAX Error:', status, error);
                 if (typeof errorCallback === 'function') {
                     errorCallback(xhr, status, error);
                 } else {

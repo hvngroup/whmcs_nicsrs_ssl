@@ -2,11 +2,6 @@
  * NicSRS SSL Module - Client Area JavaScript
  * Handles form interactions, AJAX requests, and UI updates
  * 
- * FIXED v2.0.2:
- * - DCV Email options now appear directly in dcvMethod dropdown
- * - No separate email dropdown needed
- * - Email options auto-update when domain changes
- * 
  * @package    nicsrs_ssl
  * @version    2.0.2
  * @author     HVN GROUP
@@ -26,9 +21,7 @@
     function init() {
         var config = window.sslmConfig || {};
         var lang = config.lang || {};
-        
-        console.log('SSL Manager v2.0.2 initializing...', config);
-        
+                
         // Initialize components
         initDomainHandlers();
         initCSRHandlers();
@@ -37,8 +30,6 @@
         
         // Initialize email options for existing domains
         initDCVEmailOptions();
-        
-        console.log('SSL Manager initialized');
     }
 
     /**
@@ -407,7 +398,6 @@
                     showToast(response.message || lang.invalid_csr || 'Invalid CSR', 'error');
                 }
             } catch (e) {
-                console.error('JSON parse error:', e);
                 showToast('Error decoding response', 'error');
             }
         };
@@ -568,7 +558,6 @@
             console.log('Raw response:', responseText);
             
             if (responseText.indexOf('<!DOCTYPE') === 0 || responseText.indexOf('<html') === 0) {
-                console.error('Server returned HTML instead of JSON');
                 showToast('Server error occurred. Please check console.', 'error');
                 return;
             }
@@ -597,7 +586,6 @@
                         }, 1500);
                     }
                 } else {
-                    // FIX: Handle error message properly
                     var errorMsg = '';
                     
                     if (typeof response.message === 'string') {
@@ -615,7 +603,6 @@
                     showToast(errorMsg, 'error');
                 }
             } catch (e) {
-                console.error('JSON parse error:', e, responseText);
                 showToast('Invalid server response', 'error');
             }
         };
@@ -651,7 +638,6 @@
                 
                 // Note: If dcvMethod contains '@', it's an email
                 // The old module and API handle this - email in dcvMethod field means EMAIL validation
-                
                 domains.push(domainData);
             }
         });
@@ -806,9 +792,7 @@
     function restoreFormData() {
         var config = window.sslmConfig || {};
         var data = config.configData;
-        
-        console.log('Attempting to restore form data:', data);
-        
+                
         if (!data || typeof data !== 'object') {
             console.log('No saved data to restore');
             return;
@@ -884,12 +868,10 @@
                 }
             });
         }
-        
-        console.log('Form data restored successfully');
     }
 
     // ========================================
-    // DCV Method Change - NEW v2.0.3
+    // DCV Method Change
     // ========================================
     var currentDCVDomain = null;
     
@@ -1044,7 +1026,7 @@
     }
 
     /**
-     * Confirm DCV Change - Updated
+     * Confirm DCV Change
      */
     function confirmChangeDCV() {
         var methodSelect = document.getElementById('newDcvMethod');
@@ -1103,7 +1085,7 @@
     }
     
     // ========================================
-    // Copy to Clipboard - Enhanced
+    // Copy to Clipboard
     // ========================================
     function copyToClipboard(text, btn) {
         var copyText = function() {
@@ -1196,7 +1178,6 @@
                     callback(response);
                 }
             } catch (e) {
-                console.error('JSON parse error:', e);
                 if (typeof callback === 'function') {
                     callback({ success: false, message: 'Invalid response' });
                 }
