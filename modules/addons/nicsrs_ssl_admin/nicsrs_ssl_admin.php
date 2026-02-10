@@ -6,7 +6,7 @@
  * @package    nicsrs_ssl_admin
  * @author     HVN GROUP
  * @copyright  Copyright (c) HVN GROUP (https://hvn.vn)
- * @version    1.2.0
+ * @version    2.0.0
  */
 
 if (!defined("WHMCS")) {
@@ -17,7 +17,7 @@ use WHMCS\Database\Capsule;
 
 // Define module constants
 if (!defined('NICSRS_ADMIN_VERSION')) {
-    define('NICSRS_ADMIN_VERSION', '1.3.1');
+    define('NICSRS_ADMIN_VERSION', '2.0.0');
 }
 if (!defined('NICSRS_ADMIN_PATH')) {
     define('NICSRS_ADMIN_PATH', __DIR__);

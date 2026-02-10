@@ -1,277 +1,308 @@
-# NicSRS SSL Certificate Module for WHMCS
+# NicSRS SSL Management System for WHMCS
 
-A comprehensive WHMCS provisioning module that enables seamless SSL certificate ordering, management, and automation through the NicSRS SSL API.
-
-[![PHP Version](https://img.shields.io/badge/PHP-%3E%3D7.2-blue.svg)](https://php.net)
-[![WHMCS Version](https://img.shields.io/badge/WHMCS-%3E%3D7.0-green.svg)](https://whmcs.com)
-[![License](https://img.shields.io/badge/License-Proprietary-red.svg)](LICENSE)
+> **Version:** Admin Addon v1.3.1 | Server Module v2.1.0  
+> **Author:** [HVN GROUP](https://hvn.vn)  
+> **License:** Proprietary  
+> **Last Updated:** 2026-02-09
 
 ## Overview
 
-This module integrates NicSRS SSL certificate services with WHMCS, allowing hosting providers and resellers to offer SSL certificates from major Certificate Authorities (CAs) including:
+A comprehensive, production-grade SSL certificate management solution for WHMCS consisting of two tightly integrated modules:
 
-- **Sectigo** (formerly Comodo)
-- **DigiCert**
-- **GlobalSign**
-- **GeoTrust**
-- **Symantec**
-- **Entrust**
-- **BaiduTrust**
-- **sslTrus**
+| Module | Location | Role |
+|---|---|---|
+| **Admin Addon Module** | `modules/addons/nicsrs_ssl_admin/` | Centralized back-office management — dashboard, product catalog sync, order management, reporting, auto-sync engine, settings, certificate import |
+| **Server Provision Module** | `modules/servers/nicsrs_ssl/` | Customer-facing certificate lifecycle — apply, validate, issue, download, reissue, renew, revoke; vendor migration support |
 
-## Features
+Both modules share database tables and communicate with the **NicSRS REST API** at `https://portal.nicsrs.com/ssl` for all certificate authority operations.
 
-### Certificate Types Supported
-- **Domain Validation (DV)** - Basic SSL certificates
-- **Organization Validation (OV)** - Business validated certificates
-- **Extended Validation (EV)** - Highest trust certificates with green bar
-- **Wildcard SSL** - Secure unlimited subdomains
-- **Multi-Domain (SAN/UCC)** - Secure multiple domains
-- **Code Signing** - Sign software and applications
-- **S/MIME** - Email encryption certificates
+## Key Features
 
-### Key Capabilities
-- Automated certificate provisioning and renewal
-- Multiple Domain Control Validation (DCV) methods: EMAIL, HTTP, DNS, HTTPS
-- Certificate reissuance and replacement
-- Certificate download in multiple formats (Apache, Nginx, IIS, Tomcat)
-- Multi-language support (English, Chinese Simplified, Chinese Traditional)
-- Real-time certificate status tracking
-- CSR generation and validation
+**Certificate Management**
+- Full lifecycle: Order → Configure → Validate → Issue → Download → Reissue → Renew → Revoke
+- Multi-step client area with CSR auto-generation, draft save/resume, DCV method selection
+- Multi-vendor: Sectigo, DigiCert, GlobalSign, GeoTrust, Entrust, sslTrus, BaiduTrust, RapidSSL, Thawte
+- DV, OV, EV certificates; Wildcard and Multi-domain (SAN) support
+- Vendor migration flow — detects certificates from other WHMCS SSL modules, admin override to allow new NicSRS order
 
-## Requirements
+**Admin Features**
+- Real-time dashboard with Chart.js visualizations (status distribution, monthly trends)
+- Product catalog cached locally with automatic pricing sync
+- Comprehensive order management with detail view, status refresh, DCV management
+- Reporting: Profit (USD/VND), Product Performance, Revenue by Brand — all with CSV export
+- Certificate import: single, bulk, and link-to-existing-service
+- Activity audit log with export capability
 
-- PHP 7.2 or higher
-- WHMCS 7.0 or higher
-- cURL extension enabled
-- OpenSSL extension enabled
-- Valid NicSRS API Token
+**Automation & Integration**
+- Auto-sync engine via WHMCS cron: certificate status sync + product catalog sync
+- Configurable intervals (status: 1–24h, products: 1–168h, batch size: 10–200)
+- HTML email notifications: certificate issuance, expiry warnings, sync errors, price change alerts
+- Centralized API token with priority-based fallback chain
+- Vietnamese Dong (VND) currency support with configurable USD/VND rate
+
+**Multilingual**
+- Admin interface: English, Vietnamese
+- Client area: English, Chinese (Traditional), Chinese (Simplified)
+
+---
+
+## System Requirements
+
+| Requirement | Minimum | Recommended |
+|---|---|---|
+| WHMCS | 7.10+ | 8.x |
+| PHP | 7.4+ | 8.0+ |
+| MySQL / MariaDB | 5.7+ / 10.3+ | 8.0+ / 10.6+ |
+| PHP Extensions | cURL, JSON, OpenSSL, mbstring | + intl |
+| NicSRS Account | Active reseller at [portal.nicsrs.com](https://portal.nicsrs.com) | — |
+| Server | cURL outbound HTTPS allowed | — |
+
+---
 
 ## Installation
 
-### Step 1: Upload Module Files
+### Step 1: Upload Files
 
-Upload the `nicsrs_ssl` folder to your WHMCS installation:
+Upload the following directories to your WHMCS installation root:
 
 ```
-/path/to/whmcs/modules/servers/nicsrs_ssl/
+/your-whmcs/modules/addons/nicsrs_ssl_admin/   ← Admin Addon
+/your-whmcs/modules/servers/nicsrs_ssl/         ← Server Module
 ```
 
-### Step 2: Set Permissions
+Ensure file permissions are readable by the web server (typically `644` for files, `755` for directories).
 
-Ensure proper file permissions:
+### Step 2: Activate Admin Addon
 
-```bash
-chmod -R 755 /path/to/whmcs/modules/servers/nicsrs_ssl/
-```
+1. Log in to WHMCS Admin → **Setup → Addon Modules**
+2. Find **"HVN - NicSRS SSL Admin"** → click **Activate**
+3. Configure module settings:
+   - **NicSRS API Token**: Your API token from [portal.nicsrs.com](https://portal.nicsrs.com)
+   - **Items Per Page**: Display preference (10/25/50/100)
+4. Click **Save Changes**
 
-### Step 3: Configure Product in WHMCS
+Upon activation, the module automatically creates these database tables:
+- `mod_nicsrs_products` — Product catalog cache
+- `mod_nicsrs_activity_log` — Admin activity audit log
+- `mod_nicsrs_settings` — Module configuration key-value store
 
-1. Navigate to **Setup → Products/Services → Products/Services**
+### Step 3: Sync Product Catalog
+
+1. Navigate to **Addons → NicSRS SSL Admin → Products**
+2. Click **"Sync All Products"**
+3. Wait for sync to complete — products from all supported vendors will be cached locally
+
+### Step 4: Create WHMCS Products
+
+1. Go to **Setup → Products/Services → Products/Services**
 2. Create a new product or edit an existing one
-3. Go to the **Module Settings** tab
-4. Select **nicsrs_ssl** as the Module Name
-5. Configure the following options:
-   - **Certificate Type**: Select the SSL certificate type
-   - **NicSRS API Token**: Enter your API token from NicSRS portal
+3. On the **Module Settings** tab:
+   - **Module Name**: Select `nicsrs_ssl`
+   - **Certificate Type**: Choose from the synced product list
+   - **API Token (Override)**: Leave empty to use the shared token from Admin Addon; only set if this product needs a different token
+4. Save and configure pricing as needed
+
+### Step 5: Configure Cron (Auto-Sync)
+
+The module hooks into WHMCS's built-in cron (`DailyCronJob` and `AfterCronJob` hooks). If your WHMCS cron runs every 5–15 minutes, auto-sync will work automatically.
+
+Optionally, for standalone cron execution:
+```bash
+# Add to crontab (every 15 minutes)
+*/15 * * * * php /path/to/whmcs/modules/addons/nicsrs_ssl_admin/cron.php
+```
+
+### Step 6: Configure Settings
+
+Navigate to **Addons → NicSRS SSL Admin → Settings** to configure:
+
+- **Notification Settings**: Email on issuance, expiry warnings, admin email override
+- **Auto-Sync Settings**: Enable/disable, intervals, batch size
+- **Display Settings**: Date format
+- **Currency Settings**: USD/VND exchange rate, display mode (USD/VND/both)
+
+---
 
 ## Directory Structure
 
 ```
-nicsrs_ssl/
-├── nicsrs_ssl.php              # Main module file
-├── lang/                       # Language files
-│   ├── english.php
-│   ├── chinese.php             # Traditional Chinese
-│   └── chinese-cn.php          # Simplified Chinese
-├── src/
-│   ├── config/
-│   │   ├── const.php           # Constants definition
-│   │   └── country.json        # Country list for forms
-│   └── model/
-│       ├── Controller/
-│       │   ├── PageController.php    # Page rendering logic
-│       │   └── ActionController.php  # Certificate actions
-│       ├── Dispatcher/
-│       │   ├── PageDispatcher.php    # Page routing
-│       │   └── ActionDispatcher.php  # Action routing
-│       └── Service/
-│           ├── nicsrsAPI.php         # API client
-│           ├── nicsrsFunc.php        # Utility functions
-│           ├── nicsrsResponse.php    # Response formatting
-│           ├── nicsrsSSLSql.php      # Database operations
-│           └── nicsrsTemplate.php    # Template rendering
-└── view/
-    ├── applycert.tpl           # Certificate application form
-    ├── complete.tpl            # Completed certificate view
-    ├── message.tpl             # Status messages
-    ├── replace.tpl             # Certificate replacement form
-    ├── error.tpl               # Error display
-    └── home/                   # Static assets (CSS, JS)
+modules/
+├── addons/nicsrs_ssl_admin/              # ──── ADMIN ADDON MODULE ────
+│   ├── nicsrs_ssl_admin.php              # Entry point: config(), activate(), output(), upgrade()
+│   ├── hooks.php                         # WHMCS hooks: DailyCronJob, AfterCronJob, AdminAreaHeader
+│   ├── cron.php                          # Standalone cron endpoint
+│   ├── lang/
+│   │   ├── english.php                   # English translations (~120 keys)
+│   │   └── vietnamese.php                # Vietnamese translations
+│   ├── lib/
+│   │   ├── Controller/
+│   │   │   ├── BaseController.php        # Abstract base: template, JSON, settings, pagination
+│   │   │   ├── DashboardController.php   # Dashboard stats + charts
+│   │   │   ├── ProductController.php     # Product catalog CRUD + sync
+│   │   │   ├── OrderController.php       # Order list + detail + actions
+│   │   │   ├── SettingsController.php    # Settings CRUD + manual sync + exchange rate
+│   │   │   ├── ActivityController.php    # Activity log viewer
+│   │   │   ├── ImportController.php      # Certificate import/link
+│   │   │   └── ReportController.php      # Reports + CSV export
+│   │   ├── Service/
+│   │   │   ├── SyncService.php           # Auto-sync engine (status + products)
+│   │   │   ├── NicsrsApiService.php      # API client wrapper (instance-based)
+│   │   │   ├── NotificationService.php   # HTML email notifications via WHMCS Local API
+│   │   │   ├── ReportService.php         # Report data aggregation
+│   │   │   └── ActivityLogger.php        # Activity log writer
+│   │   └── Helper/
+│   │       ├── ViewHelper.php            # UI formatting: badges, dates, prices, truncate
+│   │       └── CurrencyHelper.php        # USD/VND conversion + rate management
+│   ├── templates/                        # PHP templates (Bootstrap 3 + WHMCS admin CSS)
+│   │   ├── dashboard.php
+│   │   ├── products.php
+│   │   ├── orders.php
+│   │   ├── order_detail.php
+│   │   ├── settings.php
+│   │   ├── import.php
+│   │   └── reports.php
+│   └── assets/
+│       ├── css/nicsrs-admin.css
+│       └── js/nicsrs-admin.js
+│
+└── servers/nicsrs_ssl/                   # ──── SERVER PROVISION MODULE ────
+    ├── nicsrs_ssl.php                    # Entry point: all nicsrs_ssl_*() WHMCS functions
+    ├── hooks.php                         # Client-side hooks: status refresh, expiry check
+    ├── lang/
+    │   ├── english.php
+    │   ├── chinese.php                   # Traditional Chinese
+    │   └── chinese-cn.php               # Simplified Chinese
+    ├── src/
+    │   ├── config/
+    │   │   ├── const.php                 # Status constants, API URL, version
+    │   │   └── country.json              # Country list for forms (250+ countries)
+    │   └── model/
+    │       ├── Controller/
+    │       │   ├── PageController.php    # Page rendering: index, manage, reissue
+    │       │   └── ActionController.php  # AJAX actions: submit, refresh, download, DCV
+    │       ├── Dispatcher/
+    │       │   ├── PageDispatcher.php    # Status-based page routing
+    │       │   └── ActionDispatcher.php  # Action routing with alias support
+    │       └── Service/
+    │           ├── ApiService.php        # API client (static, with token fallback)
+    │           ├── OrderRepository.php   # Database CRUD for nicsrs_sslorders
+    │           ├── CertificateFunc.php   # Cert utilities: name↔code mapping, product data
+    │           ├── ResponseFormatter.php # Standardized JSON response formatting
+    │           ├── TemplateHelper.php    # Template rendering by order status
+    │           ├── DcvHelper.php         # DCV method utilities
+    │           ├── nicsrsAPI.php         # Legacy API client (static, with caching)
+    │           ├── nicsrsSSLSql.php      # Legacy SQL operations
+    │           └── nicsrsTemplate.php    # Legacy template rendering
+    ├── view/                             # Smarty .tpl templates (client area)
+    │   ├── applycert.tpl                 # Multi-step certificate application form
+    │   ├── complete.tpl                  # Issued certificate: download, reissue, manage
+    │   ├── message.tpl                   # Pending status: DCV info, refresh
+    │   ├── reissue.tpl                   # Reissue/replace certificate form
+    │   ├── replace.tpl                   # Legacy replace template
+    │   ├── migrated.tpl                  # Vendor migration notice
+    │   └── error.tpl                     # Error display
+    └── assets/
+        ├── css/ssl-manager.css           # Modern client area CSS (Ant Design inspired)
+        └── js/ssl-manager.js             # Client area JavaScript
 ```
 
-## API Endpoints
+---
 
-The module communicates with the NicSRS API at `https://portal.nicsrs.com/ssl`:
+## Supported Certificate Authorities & Products
 
-| Endpoint | Description |
-|----------|-------------|
-| `/validate` | Validate certificate request |
-| `/place` | Place certificate order |
-| `/collect` | Collect certificate status/data |
-| `/cancel` | Cancel certificate order |
-| `/DCVemail` | Get DCV email options |
-| `/updateDCV` | Update DCV method |
-| `/batchUpdateDCV` | Batch update DCV methods |
-| `/validatefile` | HTTP file validation |
-| `/validatedns` | DNS validation |
-| `/country` | Get country list |
-| `/reissue` | Reissue certificate |
-| `/revoke` | Revoke certificate |
-| `/replace` | Replace certificate |
-| `/renew` | Renew certificate |
-| `/removeMdcDomain` | Remove multi-domain entry |
+| Vendor | DV | OV | EV | Wildcard | Multi-Domain | Code Signing |
+|---|---|---|---|---|---|---|
+| **Sectigo (Comodo)** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **sslTrus** | ✅ | ✅ | ✅ | ✅ | ✅ | — |
+| **DigiCert** | — | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **GlobalSign** | ✅ | ✅ | ✅ | ✅ | — | — |
+| **GeoTrust** | ✅ | — | — | — | — | — |
+| **Entrust** | — | ✅ | ✅ | ✅ | — | — |
+| **BaiduTrust** | ✅ | ✅ | ✅ | — | — | — |
+| **Thawte** | ✅ | — | — | — | — | — |
+| **RapidSSL** | ✅ | — | — | — | — | — |
+| **PositiveSSL** | ✅ | ✅ | ✅ | ✅ | ✅ | — |
 
-## Certificate Lifecycle
+---
 
-```
-┌─────────────────┐
-│ Awaiting Config │ ← Initial state after order
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│     Draft       │ ← User saves application
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│    Pending      │ ← Submitted to CA, awaiting validation
-└────────┬────────┘
-         │
-    ┌────┴────┐
-    ▼         ▼
-┌────────┐ ┌──────────┐
-│Complete│ │Cancelled │
-└────┬───┘ └──────────┘
-     │
-     ▼
-┌─────────────────┐
-│   Reissued      │ ← Certificate replacement
-└─────────────────┘
-```
+## API Token Configuration
 
-## Domain Validation Methods
+The system uses a **priority-based token resolution chain**:
 
-| Method | Description | Requirements |
-|--------|-------------|--------------|
-| EMAIL | Email verification | Access to admin@, administrator@, hostmaster@, postmaster@, or webmaster@ |
-| HTTP_CSR_HASH | HTTP file validation | Upload file to `/.well-known/pki-validation/` |
-| HTTPS_CSR_HASH | HTTPS file validation | Upload file with valid HTTPS |
-| CNAME_CSR_HASH | DNS CNAME validation | Add CNAME record to DNS |
+| Priority | Source | Scope |
+|---|---|---|
+| 1 | Product-level `configoption2` | Per-product override |
+| 2 | Product config via `serviceid → tblhosting → tblproducts` | Per-product |
+| 3 | Admin Addon `tbladdonmodules` (`api_token` setting) | Global shared |
+| 4 | `mod_nicsrs_settings` table (`api_token` key) | Global fallback |
 
-## Database Schema
+Most installations only need to set the token once in the Admin Addon configuration (Priority 3). Product-level overrides are only needed for multi-account scenarios.
 
-The module creates a `nicsrs_sslorders` table:
-
-```sql
-CREATE TABLE `nicsrs_sslorders` (
-  `id` int(10) NOT NULL AUTO_INCREMENT,
-  `userid` int(10) NOT NULL,
-  `serviceid` int(10) NOT NULL,
-  `addon_id` text NOT NULL,
-  `remoteid` text NOT NULL,          -- NicSRS certificate ID
-  `module` text NOT NULL,
-  `certtype` text NOT NULL,
-  `configdata` text NOT NULL,        -- JSON configuration data
-  `provisiondate` date NOT NULL,
-  `completiondate` datetime NOT NULL,
-  `status` text NOT NULL,
-  PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8;
-```
-
-## Supported Certificates
-
-### sslTrus Certificates
-- sslTrus DV / DV Wildcard / DV Multi Domain
-- sslTrus OV / OV Wildcard / OV Multi Domain
-- sslTrus EV / EV Multi Domain
-
-### Sectigo (Comodo) Certificates
-- Sectigo SSL / Wildcard / Multi Domain
-- Sectigo OV SSL / OV Wildcard / OV Multi Domain
-- Sectigo EV SSL / EV Multi Domain
-- PositiveSSL (DV/OV/EV variants)
-- PremiumSSL Wildcard
-- Code Signing Certificates
-
-### DigiCert Certificates
-- DigiCert OV SSL / OV Wildcard / OV Multi Domain
-- DigiCert EV SSL / EV Multi Domain
-- DigiCert Code Signing
-
-### GlobalSign Certificates
-- GlobalSign DV SSL
-- GlobalSign OV SSL / OV Wildcard
-- GlobalSign EV SSL
-
-### Other Supported CAs
-- GeoTrust QuickSSL Premium
-- Symantec Secure Site
-- Entrust Standard/Advantage/Wildcard/EV
-- BaiduTrust DV/OV/EV
+---
 
 ## Troubleshooting
 
 ### Common Issues
 
-**Certificate order stuck in pending:**
-- Verify DCV method is correctly configured
-- Check if validation file/DNS record is accessible
-- Ensure email validation address is correct
-
-**API Connection Failed:**
-- Verify API token is valid
-- Check server firewall allows outbound HTTPS
-- Confirm cURL extension is enabled
-
-**Language not displaying correctly:**
-- Ensure language file exists in `lang/` directory
-- Check WHMCS language settings match
+| Issue | Possible Cause | Resolution |
+|---|---|---|
+| "API token not configured" | No token at any priority level | Set token in Addons → NicSRS SSL Admin → Settings |
+| Certificate stuck in Pending | DCV not completed | Check DCV method; verify DNS/file/email validation |
+| Products not showing in dropdown | Product catalog not synced | Run "Sync All Products" from Products page |
+| Auto-sync not running | WHMCS cron not configured | Verify WHMCS cron runs every 5–15 minutes |
+| Email notifications not sent | Using deprecated `mail()` | Module uses WHMCS `SendAdminEmail` Local API |
+| Vendor migration blocked | Active cert from other provider | Admin clicks "Allow New Certificate" button |
 
 ### Debug Logging
 
-Enable WHMCS module debug logging:
 1. Go to **Utilities → Logs → Module Log**
-2. Enable logging for the nicsrs_ssl module
-3. Review logs for API request/response details
+2. Enable logging for `nicsrs_ssl` and `nicsrs_ssl_admin`
+3. All API requests/responses are logged automatically
+4. Sensitive data (API tokens) are masked in logs
 
-## Support
+### Sync Error Alerts
 
-For technical support:
-- **Portal**: [https://portal.nicsrs.com](https://portal.nicsrs.com)
-- **Documentation**: [https://docs.nicsrs.com](https://docs.nicsrs.com)
-
-## License
-
-This module is proprietary software. Unauthorized distribution or modification is prohibited.
-
-## Changelog
-
-### Version 1.1
-- Added support for sslTrus certificates
-- Improved multi-domain handling
-- Enhanced DCV batch update functionality
-- Added IP address SSL support for select certificates
-
-### Version 1.0
-- Initial release
-- Support for major CA certificates
-- Multi-language support
-- Full certificate lifecycle management
+When auto-sync encounters 3+ consecutive errors:
+- Warning banner appears in Admin Addon pages
+- Email alert sent to configured admin email
+- Check **Settings → Sync Status** for details
 
 ---
 
-**Author**: HVN GROUP  
-**Website**: [https://hvn.vn](https://hvn.vn)
+## Changelog
+
+### Admin Addon Module
+
+| Version | Changes |
+|---|---|
+| **1.3.1** | Currency settings migration in upgrade(); error count tracking |
+| **1.3.0** | Report module with Chart.js; CSV export; currency helper |
+| **1.2.1** | Auto-sync improvements; expiry checking for active certs |
+| **1.2.0** | Auto-sync engine; SyncService; NotificationService; HTML emails |
+| **1.1.0** | Import/Link controller; Order detail improvements |
+| **1.0.0** | Initial release: dashboard, products, orders, settings |
+
+### Server Provision Module
+
+| Version | Changes |
+|---|---|
+| **2.1.0** | Modern multi-step UI; CSR auto-generation; draft save/resume |
+| **2.0.1** | Improved POST data handling; AJAX routing fixes |
+| **2.0.0** | Complete rewrite: Dispatcher pattern; ApiService; OrderRepository |
+| **1.1** | sslTrus support; multi-domain improvements; IP SSL support |
+| **1.0** | Initial release: basic certificate lifecycle |
+
+---
+
+## Support
+
+| Channel | Contact |
+|---|---|
+| **Portal** | [portal.nicsrs.com](https://portal.nicsrs.com) |
+| **Documentation** | [docs.nicsrs.com](https://docs.nicsrs.com) |
+| **Email** | support@hvn.vn |
+| **Website** | [hvn.vn](https://hvn.vn) |
+
+---
+
+**© HVN GROUP** — All rights reserved. Unauthorized distribution or modification is prohibited
